@@ -24,9 +24,19 @@ public sealed class NexonApiException(HttpStatusCode status, string errorName, s
     public HttpStatusCode Status { get; } = status;
     public string ErrorName { get; } = errorName;
 
+    // Error names from the NEXON Open API guide. Most errors share HTTP 400, so the name is what tells them apart:
+    // an invalid key is 400 OPENAPI00005, not 401.
+    public const string InvalidIdentifier = "OPENAPI00003";
+    public const string InvalidParameter = "OPENAPI00004";
+    public const string InvalidApiKey = "OPENAPI00005";
+    public const string Forbidden = "OPENAPI00002";
+    public const string DataPreparing = "OPENAPI00009";
+    public const string GameMaintenance = "OPENAPI00010";
+
     public bool IsRateLimited => Status == HttpStatusCode.TooManyRequests;
-    public bool IsAuthError => Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
-    public bool IsBadRequest => Status == HttpStatusCode.BadRequest;
+    public bool IsAuthError => ErrorName is InvalidApiKey or Forbidden || Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
+    /// <summary>The request itself was rejected: an unknown nickname, ouid or match id.</summary>
+    public bool IsInvalidInput => ErrorName is InvalidIdentifier or InvalidParameter;
 }
 
 /// <summary>Client for https://open.api.nexon.com/fconline/v1/. Every call goes through the shared <see cref="RateLimiter"/>.</summary>
@@ -65,9 +75,10 @@ public sealed class FcOnlineApi : IFcOnlineApi
             var res = await GetAsync($"{ApiPrefix}id?nickname={Uri.EscapeDataString(nickname.Trim())}", FcJsonContext.Default.OuidResponse, ct);
             return string.IsNullOrEmpty(res.Ouid) ? null : res.Ouid;
         }
-        catch (NexonApiException e) when (e.IsBadRequest || e.Status == HttpStatusCode.NotFound)
+        catch (NexonApiException e) when (e.IsInvalidInput || e.Status == HttpStatusCode.NotFound)
         {
-            // The API answers an unknown nickname with a 400-class error rather than an empty body.
+            // The API answers an unknown nickname with 400 OPENAPI00004 rather than an empty body.
+            // Other 400s (bad key, maintenance) must not be mistaken for "no such user".
             return null;
         }
     }

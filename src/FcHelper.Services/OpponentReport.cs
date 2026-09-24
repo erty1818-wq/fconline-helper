@@ -11,8 +11,13 @@ public sealed record OpponentReport
     public required string Ouid { get; init; }
     public required string Nickname { get; init; }
     public int Level { get; init; }
-    /// <summary>Highest division ever reached in the match type. The API has no current division.</summary>
+    /// <summary>Highest division ever reached in the match type (user/maxdivision).</summary>
     public string? MaxDivisionName { get; init; }
+    /// <summary>
+    /// Division recorded on the newest analysed match. The API has no live grade; this is the closest thing,
+    /// and it can be hours old (data lags about two hours).
+    /// </summary>
+    public string? RecentDivisionName { get; init; }
     public IReadOnlyList<string> PreviousNicknames { get; init; } = [];
     public required UserAnalysis Analysis { get; init; }
     public required string OneLine { get; init; }

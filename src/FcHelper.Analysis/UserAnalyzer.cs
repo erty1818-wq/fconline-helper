@@ -42,10 +42,12 @@ public static class UserAnalyzer
 
         var goals = sides.SelectMany(s => s.Me.ShootDetail.Where(d => d.IsGoal)).ToList();
         var conceded = sides.SelectMany(s => s.Opp.ShootDetail.Where(d => d.IsGoal)).ToList();
-        var shots = sides.Sum(s => s.Me.Shoot.ShootTotal);
-        var onTarget = sides.Sum(s => s.Me.Shoot.EffectiveShootTotal);
-        var passTry = sides.Sum(s => s.Me.Pass.PassTry);
-        var tackleTry = sides.Sum(s => s.Me.Defence.TackleTry);
+        // Style averages skip matches this user quit before any stats existed; they would read as 0% possession.
+        var played = sides.Where(s => s.Me.HasStats).ToList();
+        var shots = played.Sum(s => s.Me.Shoot.ShootTotal);
+        var onTarget = played.Sum(s => s.Me.Shoot.EffectiveShootTotal);
+        var passTry = played.Sum(s => s.Me.Pass.PassTry);
+        var tackleTry = played.Sum(s => s.Me.Defence.TackleTry);
 
         var record = new RecordSummary(
             n,
@@ -56,28 +58,28 @@ public static class UserAnalyzer
 
         var players = PlayerThreats(sides.Select(s => s.Me).ToList(), goals);
         var compared = baseline?.IsUsable == true;
-        var controller = sides.Where(s => s.Me.MatchDetail.Controller.Length > 0)
+        var controller = played.Where(s => s.Me.MatchDetail.Controller.Length > 0)
             .GroupBy(s => s.Me.MatchDetail.Controller)
             .OrderByDescending(g => g.Count())
-            .Select(g => new Share(g.Key, g.Count(), n))
+            .Select(g => new Share(g.Key, g.Count(), played.Count))
             .FirstOrDefault();
 
         var analysis = new UserAnalysis
         {
             Ouid = ouid,
             Record = record,
-            AvgGoalsFor = Avg(sides, s => GoalsShown(s.Me)),
-            AvgGoalsAgainst = Avg(sides, s => GoalsShown(s.Opp)),
-            AvgPossession = Avg(sides, s => s.Me.MatchDetail.Possession),
-            AvgShots = Avg(sides, s => s.Me.Shoot.ShootTotal),
-            AvgShotsOnTarget = Avg(sides, s => s.Me.Shoot.EffectiveShootTotal),
+            AvgGoalsFor = Avg(sides, s => GoalsScored(s.Me, s.Opp)),
+            AvgGoalsAgainst = Avg(sides, s => GoalsScored(s.Opp, s.Me)),
+            AvgPossession = Avg(played, s => s.Me.MatchDetail.Possession),
+            AvgShots = Avg(played, s => s.Me.Shoot.ShootTotal),
+            AvgShotsOnTarget = Avg(played, s => s.Me.Shoot.EffectiveShootTotal),
             ShotAccuracy = Ratio(onTarget, shots),
             Conversion = Ratio(goals.Count, shots),
-            PassSuccess = Ratio(sides.Sum(s => s.Me.Pass.PassSuccess), passTry),
-            AvgTackleTry = Avg(sides, s => s.Me.Defence.TackleTry),
-            TackleSuccess = Ratio(sides.Sum(s => s.Me.Defence.TackleSuccess), tackleTry),
-            AvgIntercept = Avg(sides, s => s.Me.Player.Sum(p => p.Status.Intercept)),
-            AvgPause = Avg(sides, s => s.Me.MatchDetail.SystemPause),
+            PassSuccess = Ratio(played.Sum(s => s.Me.Pass.PassSuccess), passTry),
+            AvgTackleTry = Avg(played, s => s.Me.Defence.TackleTry),
+            TackleSuccess = Ratio(played.Sum(s => s.Me.Defence.TackleSuccess), tackleTry),
+            AvgIntercept = Avg(played, s => s.Me.Player.Sum(p => p.Status.Intercept)),
+            AvgPause = Avg(played, s => s.Me.MatchDetail.SystemPause),
             Controller = controller,
             GoalCount = goals.Count,
             ConcededCount = conceded.Count,
@@ -179,7 +181,7 @@ public static class UserAnalyzer
     {
         if (a.Controller is { } c)
         {
-            var label = c.Label switch { "keyboard" => "키보드", "pad" => "패드", var other => other };
+            var label = c.Label switch { "keyboard" => "키보드", "gamepad" or "pad" => "패드", var other => other };
             var text = c.Ratio >= 0.8 ? $"{label} 유저" : $"{label} {Pct(c.Ratio)} (혼용)";
             yield return new Insight("controller", InsightKind.Trait, text, Evidence.Direct, c.Total, 0.1);
         }
@@ -245,8 +247,8 @@ public static class UserAnalyzer
     }
 
     /// <summary>
-    /// Rebuilds who scored first from both sides' goal times. Matches whose shot list does not account for every
-    /// goal (own goals carry no shot entry) are skipped rather than guessed.
+    /// Rebuilds who scored first from both sides' goal times. Matches with an own goal (which has no shot entry, so
+    /// no time) or whose shot list does not account for every goal are skipped rather than guessed.
     /// </summary>
     private static FirstGoalStats? FirstGoal(List<(MatchInfo Me, MatchInfo Opp)> sides)
     {
@@ -255,7 +257,8 @@ public static class UserAnalyzer
         {
             var myGoals = me.ShootDetail.Where(s => s.IsGoal).ToList();
             var oppGoals = opp.ShootDetail.Where(s => s.IsGoal).ToList();
-            if (myGoals.Count != GoalsShown(me) || oppGoals.Count != GoalsShown(opp)) continue;
+            if (me.Shoot.OwnGoal > 0 || opp.Shoot.OwnGoal > 0) continue;
+            if (myGoals.Count != me.Shoot.GoalTotal || oppGoals.Count != opp.Shoot.GoalTotal) continue;
             usable++;
 
             var myFirst = myGoals.Count == 0 ? int.MaxValue : myGoals.Min(g => g.Seconds);
@@ -289,8 +292,11 @@ public static class UserAnalyzer
             .OrderByDescending(s => s.Count)
             .ToList();
 
-    /// <summary>The score shown to players after the match; falls back to the counted total.</summary>
-    internal static int GoalsShown(MatchInfo side) => Math.Max(side.Shoot.GoalTotalDisplay, side.Shoot.GoalTotal);
+    /// <summary>
+    /// Goals actually scored for <paramref name="side"/>: its own shots plus the opponent's own goals. Unlike
+    /// goalTotalDisplay this is not replaced by 3:0 when the match ends in a forfeit.
+    /// </summary>
+    internal static int GoalsScored(MatchInfo side, MatchInfo opponent) => side.Shoot.GoalTotal + opponent.Shoot.OwnGoal;
 
     private static double Avg<T>(List<T> items, Func<T, double> f) => items.Count == 0 ? 0 : items.Average(f);
     private static double Ratio(double a, double b) => b == 0 ? 0 : a / b;

@@ -31,7 +31,7 @@ public sealed class Baseline
     public static Baseline Build(IEnumerable<MatchDetail> matches, string? excludeOuid = null)
     {
         var rates = new Dictionary<string, Proportion>();
-        int sides = 0, goals = 0;
+        int sides = 0, played = 0, goals = 0;
         double possession = 0, shots = 0;
 
         foreach (var match in matches)
@@ -45,6 +45,8 @@ public sealed class Baseline
                 foreach (var (key, p) in metrics.Rates) rates[key] = rates.GetValueOrDefault(key) + p;
                 sides++;
                 goals += metrics.GoalCount;
+                if (!side.HasStats) continue;
+                played++;
                 possession += side.MatchDetail.Possession;
                 shots += side.Shoot.ShootTotal;
             }
@@ -55,8 +57,8 @@ public sealed class Baseline
             Rates = rates,
             Sides = sides,
             Goals = goals,
-            AvgPossession = sides == 0 ? 0 : possession / sides,
-            AvgShots = sides == 0 ? 0 : shots / sides,
+            AvgPossession = played == 0 ? 0 : possession / played,
+            AvgShots = played == 0 ? 0 : shots / played,
         };
     }
 }

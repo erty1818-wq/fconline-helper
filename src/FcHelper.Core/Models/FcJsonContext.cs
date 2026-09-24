@@ -3,7 +3,12 @@ using System.Text.Json.Serialization;
 namespace FcHelper.Core.Models;
 
 /// <summary>Source-generated serializers: avoids reflection at startup and keeps memory low.</summary>
-[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true, NumberHandling = JsonNumberHandling.AllowReadingFromString)]
+[JsonSourceGenerationOptions(
+    PropertyNameCaseInsensitive = true,
+    Converters = [
+        typeof(NullAsZeroInt32Converter), typeof(NullAsZeroInt64Converter), typeof(NullAsZeroDoubleConverter),
+        typeof(NullAsFalseBooleanConverter), typeof(NullAsEmptyStringConverter),
+    ])]
 [JsonSerializable(typeof(MatchDetail))]
 [JsonSerializable(typeof(OuidResponse))]
 [JsonSerializable(typeof(UserBasic))]

@@ -16,7 +16,8 @@ public sealed class AppSettings
     public int MatchWindow { get; set; } = 30;
     public bool VoiceBriefing { get; set; }
     public bool StartWithWindows { get; set; }
-    public bool KeepCardOnTop { get; set; } = true;
+    /// <summary>Off by default: an always-on-top card covers the game (docs/PLANNING.md 18.2).</summary>
+    public bool KeepCardOnTop { get; set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly byte[] Entropy = "FcHelper.ApiKey.v1"u8.ToArray();

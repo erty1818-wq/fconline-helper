@@ -1,6 +1,10 @@
 namespace FcHelper.Core;
 
-/// <summary>shootDetail.type codes. The list comes from a third-party SDK and is marked "확인 필요" in the plan.</summary>
+/// <summary>
+/// shootDetail.type codes 1-12 as listed in the official match-detail schema; real samples agree where they can be
+/// checked (3 = header, 8 = free kick, 9 = penalty match the shoot summary counts). Real data also contains 13 and
+/// 14, which the schema does not list, so they fall through to "기타".
+/// </summary>
 public static class ShotTypes
 {
     public const int Normal = 1;

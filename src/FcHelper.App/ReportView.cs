@@ -32,7 +32,7 @@ public sealed class ReportView
             : "";
 
         var rec = a.Record;
-        Record = (r.MaxDivisionName is null ? "" : $"최고등급 {r.MaxDivisionName} · ")
+        Record = ReportText.DivisionPrefix(r)
             + $"최근 {rec.Matches}경기 {rec.Wins}승 {rec.Draws}무 {rec.Losses}패 ({rec.WinRate * 100:0}%)";
         Averages = $"평균 득점 {a.AvgGoalsFor:0.00} · 실점 {a.AvgGoalsAgainst:0.00} · 점유율 {a.AvgPossession:0.#}%";
         OneLine = r.OneLine;

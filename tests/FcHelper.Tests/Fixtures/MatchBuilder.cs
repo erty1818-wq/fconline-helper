@@ -5,8 +5,9 @@ using FcHelper.Core.Models;
 namespace FcHelper.Tests.Fixtures;
 
 /// <summary>
-/// Builds synthetic matches in the API's shape. There are no real API samples in the repo yet
-/// (docs/PLANNING.md step 1), so these only exercise the logic, not the exact field semantics.
+/// Builds synthetic matches in the API's shape. Score fields follow what real responses were verified to do
+/// (docs/PLANNING.md 3.4): goalTotal counts the side's own shots, goalTotalDisplay adds the opponent's own goals
+/// and becomes 3:0 on a forfeit.
 /// </summary>
 public sealed class MatchBuilder
 {
@@ -32,16 +33,17 @@ public sealed class MatchBuilder
     {
         var a = _a.Build();
         var b = _b.Build();
-        var (ra, rb) = (a.Shoot.GoalTotal, b.Shoot.GoalTotal) switch
+        var (da, db) = (a.Shoot.GoalTotal + b.Shoot.OwnGoal, b.Shoot.GoalTotal + a.Shoot.OwnGoal);
+        var (ra, rb) = (da, db) switch
         {
             var (x, y) when x > y => ("승", "패"),
             var (x, y) when x < y => ("패", "승"),
             _ => ("무", "무"),
         };
-        if (_a.ForfeitLoss) (ra, rb) = ("패", "승");
-        if (_b.ForfeitLoss) (ra, rb) = ("승", "패");
-        a = a with { MatchDetail = a.MatchDetail with { MatchResult = ra } };
-        b = b with { MatchDetail = b.MatchDetail with { MatchResult = rb } };
+        if (_a.ForfeitLoss) (ra, rb, da, db) = ("패", "승", 0, 3);
+        if (_b.ForfeitLoss) (ra, rb, da, db) = ("승", "패", 3, 0);
+        a = a with { MatchDetail = a.MatchDetail with { MatchResult = ra }, Shoot = a.Shoot with { GoalTotalDisplay = da } };
+        b = b with { MatchDetail = b.MatchDetail with { MatchResult = rb }, Shoot = b.Shoot with { GoalTotalDisplay = db } };
         return new MatchDetail { MatchId = _id, MatchDate = _date, MatchType = _matchType, MatchInfo = [a, b] };
     }
 
@@ -58,6 +60,8 @@ public sealed class SideBuilder(string ouid)
     private int _pause;
     private int _throughPass;
     private int _passTry = 100;
+    private int _ownGoals;
+    private int _division;
     public bool ForfeitLoss { get; private set; }
 
     public SideBuilder Nick(string n) { _nickname = n; return this; }
@@ -65,6 +69,12 @@ public sealed class SideBuilder(string ouid)
     public SideBuilder Controller(string c) { _controller = c; return this; }
     public SideBuilder Pauses(int p) { _pause = p; return this; }
     public SideBuilder Forfeit() { ForfeitLoss = true; return this; }
+    /// <summary>Own goals this side concedes; they have no shot entry and count for the opponent's scoreboard.</summary>
+    public SideBuilder OwnGoals(int n) { _ownGoals = n; return this; }
+    public SideBuilder Division(int d) { _division = d; return this; }
+    /// <summary>A side that quit before any stats existed: the API sends no players and null numbers.</summary>
+    public SideBuilder NoStats() { _noStats = true; return Forfeit(); }
+    private bool _noStats;
     public SideBuilder Passes(int total, int through) { _passTry = total; _throughPass = through; return this; }
     public SideBuilder Player(int spId, int position = 25) { _players.Add(new MatchPlayer { SpId = spId, SpPosition = position, SpGrade = 5 }); return this; }
 
@@ -106,10 +116,21 @@ public sealed class SideBuilder(string ouid)
         var goals = _shots.Count(s => s.IsGoal);
         var players = _players.Count > 0 ? _players : _shots.Select(s => s.SpId).Distinct()
             .Select(id => new MatchPlayer { SpId = id, SpPosition = 25, SpGrade = 5 }).ToList();
+        // Real sides always list their squad; only a side without stats has none.
+        if (players.Count == 0) players = [new MatchPlayer { SpId = 1, SpPosition = 0, SpGrade = 1 }];
+        if (_noStats)
+        {
+            return new MatchInfo
+            {
+                Ouid = ouid, Nickname = _nickname, Division = _division,
+                MatchDetail = new MatchSideDetail { MatchEndType = 2 },
+            };
+        }
         return new MatchInfo
         {
             Ouid = ouid,
             Nickname = _nickname,
+            Division = _division,
             MatchDetail = new MatchSideDetail
             {
                 Possession = _possession,
@@ -122,7 +143,7 @@ public sealed class SideBuilder(string ouid)
                 ShootTotal = _shots.Count,
                 EffectiveShootTotal = _shots.Count(s => s.IsOnTarget),
                 GoalTotal = goals,
-                GoalTotalDisplay = goals,
+                OwnGoal = _ownGoals,
             },
             ShootDetail = [.. _shots],
             Pass = new PassSummary { PassTry = _passTry, PassSuccess = _passTry * 8 / 10, ThroughPassTry = _throughPass, ShortPassTry = _passTry - _throughPass },

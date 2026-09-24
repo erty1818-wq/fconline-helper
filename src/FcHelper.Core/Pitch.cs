@@ -15,9 +15,9 @@ public enum GoalZone
 }
 
 /// <summary>
-/// Classifies API coordinates (0..1 on the full pitch) into zones.
-/// Assumes x = 1 is the goal being attacked. Which side of y is "left" is unverified until real samples
-/// are checked (docs/PLANNING.md 3.4), so it is configurable through <see cref="FlipY"/>.
+/// Classifies API coordinates (0..1 on the full pitch) into zones. Verified on real samples (docs/PLANNING.md 3.4):
+/// each side's coordinates are normalised so x = 1 is the goal it attacks, and small y is the attacker's left
+/// (left-sided players shoot and assist from low y). The API's inPenalty flag flips exactly at x = 1 - 16.5/105.
 /// </summary>
 public static class Pitch
 {
@@ -29,9 +29,7 @@ public static class Pitch
     /// <summary>Shots from further out than this are counted as "far" rather than long range.</summary>
     public const double LongRangeDepth = 35.0 / 105;
 
-    public static bool FlipY { get; set; }
-
-    private static double Y(double y) => FlipY ? 1 - Clamp(y) : Clamp(y);
+    private static double Y(double y) => Clamp(y);
     private static double Clamp(double v) => Math.Clamp(v, 0, 1);
 
     public static Lane LaneOf(double y)

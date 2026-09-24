@@ -25,7 +25,7 @@ public static class ReportText
         }
 
         var rec = a.Record;
-        sb.Append(r.MaxDivisionName is null ? "" : $"최고등급 {r.MaxDivisionName} · ");
+        sb.Append(DivisionPrefix(r));
         sb.AppendLine($"최근 {rec.Matches}경기 {rec.Wins}승 {rec.Draws}무 {rec.Losses}패 ({rec.WinRate * 100:0}%)"
             + (r.IsComplete ? "" : $"  [불러오는 중 {r.LoadedMatches}/{r.RequestedMatches}]"));
         sb.AppendLine($"평균 득점 {a.AvgGoalsFor:0.00} · 실점 {a.AvgGoalsAgainst:0.00} · 점유율 {a.AvgPossession:0.#}%");
@@ -65,6 +65,11 @@ public static class ReportText
         return sb.ToString();
     }
 
+    /// <summary>"최근경기 등급 X · 최고 Y · ", with either part left out when unknown.</summary>
+    public static string DivisionPrefix(OpponentReport r) =>
+        (r.RecentDivisionName is null ? "" : $"최근경기 등급 {r.RecentDivisionName} · ")
+        + (r.MaxDivisionName is null ? "" : $"최고 {r.MaxDivisionName} · ");
+
     public static string SignatureText(OpponentReport r, SignatureGoal s)
     {
         var route = s.AssistSpId is { } assist ? $"{r.PlayerName(assist)} → {r.PlayerName(s.ScorerSpId)}" : $"{r.PlayerName(s.ScorerSpId)} 단독";
@@ -85,7 +90,7 @@ public static class ReportText
     public static string ControllerLabel(string raw) => raw switch
     {
         "keyboard" => "⌨ 키보드",
-        "pad" => "🎮 패드",
+        "gamepad" or "pad" => "🎮 패드",
         _ => raw,
     };
 }

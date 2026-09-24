@@ -49,14 +49,25 @@ public class FcOnlineApiTests
         Assert.Null(await api.GetOuidAsync("nobody"));
     }
 
+    // The real API answers an invalid key with 400, not 401 (checked against open.api.nexon.com).
+    private static HttpResponseMessage InvalidKey() => StubHandler.Json(HttpStatusCode.BadRequest,
+        """{"error":{"name":"OPENAPI00005","message":"The apikey is not valid."}}""");
+
     [Fact]
     public async Task Auth_error_is_raised_with_error_name()
     {
-        var (api, _) = Create(_ => StubHandler.Json(HttpStatusCode.Unauthorized,
-            """{"error":{"name":"OPENAPI00005","message":"Please input valid API key"}}"""));
+        var (api, _) = Create(_ => InvalidKey());
         var e = await Assert.ThrowsAsync<NexonApiException>(() => api.GetUserBasicAsync("x"));
         Assert.True(e.IsAuthError);
         Assert.Equal("OPENAPI00005", e.ErrorName);
+    }
+
+    [Fact]
+    public async Task Invalid_key_on_nickname_lookup_is_not_reported_as_unknown_user()
+    {
+        var (api, _) = Create(_ => InvalidKey());
+        var e = await Assert.ThrowsAsync<NexonApiException>(() => api.GetOuidAsync("킹마카이"));
+        Assert.True(e.IsAuthError);
     }
 
     [Fact]
@@ -134,6 +145,9 @@ public class DeserializationTests
         Assert.Equal(MatchOutcome.Win, a.MatchDetail.Outcome);
         Assert.Equal("keyboard", a.MatchDetail.Controller);
         Assert.Equal(1, a.MatchDetail.OffsideCount);
+        Assert.Equal(1100, a.Division);
+        Assert.Equal(4, a.Player[0].Status.BallPossesionSuccess);
+        Assert.Equal((2, 3), (a.Shoot.GoalTotal, a.Shoot.GoalTotalDisplay)); // opponent's own goal counts on the scoreboard
         Assert.Equal(3, a.ShootDetail.Count);
         Assert.Equal(101000002, a.ShootDetail[0].AssistSpId);
         Assert.Null(a.ShootDetail[2].AssistSpId);
@@ -148,5 +162,70 @@ public class DeserializationTests
         var detail = JsonSerializer.Deserialize<ShootDetail>("""{"assist":true,"assistSpI":7,"result":3}""",
             new JsonSerializerOptions { TypeInfoResolver = FcJsonContext.Default });
         Assert.Equal(7, detail!.AssistSpId);
+    }
+
+    [Fact]
+    public void Reads_a_side_that_quit_before_any_stats_existed()
+    {
+        // Shape copied from a real forfeit: every stat is null, the squad list is empty (identifiers replaced).
+        const string json = """
+            {"matchId":"m1","matchDate":"2026-09-20T01:02:03","matchType":50,"matchInfo":[
+              {"ouid":"a","nickname":"quitter","division":2600,
+               "matchDetail":{"seasonId":202605,"matchResult":"패","matchEndType":2,"systemPause":null,"foul":null,"injury":null,
+                 "redCards":null,"yellowCards":null,"dribble":null,"cornerKick":null,"possession":null,"offsideCount":null,
+                 "averageRating":null,"controller":null},
+               "shoot":{"shootTotal":null,"effectiveShootTotal":null,"shootOutScore":null,"goalTotal":null,"goalTotalDisplay":0,
+                 "ownGoal":null,"shootHeading":null,"goalHeading":null},
+               "shootDetail":[],"pass":{"passTry":null,"passSuccess":null},"defence":{"blockTry":null,"tackleTry":null},"player":[]},
+              {"ouid":"b","nickname":"winner","division":2500,
+               "matchDetail":{"matchResult":"승","matchEndType":1,"possession":57,"controller":"gamepad"},
+               "shoot":{"goalTotal":1,"goalTotalDisplay":3},"shootDetail":[],"player":[{"spId":1,"spPosition":0}]}]}
+            """;
+
+        var match = JsonSerializer.Deserialize(json, FcJsonContext.Default.MatchDetail)!;
+
+        var quitter = match.SideOf("a")!;
+        Assert.False(quitter.HasStats);
+        Assert.Equal("", quitter.MatchDetail.Controller);
+        Assert.Equal(0, quitter.MatchDetail.Possession);
+        Assert.Equal(2, quitter.MatchDetail.MatchEndType);
+        Assert.True(match.SideOf("b")!.HasStats);
+    }
+
+    /// <summary>
+    /// Runs over real responses saved by `fch dump` (git-ignored, so only on a developer machine) and checks the
+    /// field semantics verified in docs/PLANNING.md 3.4. Without local samples there is nothing to check.
+    /// </summary>
+    [Fact]
+    public void Local_real_samples_parse_and_match_the_verified_semantics()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "FcHelper.sln"))) dir = dir.Parent;
+        var files = dir is null ? [] : Directory.GetFiles(Path.Combine(dir.FullName, "docs", "samples"), "*.local.json");
+
+        foreach (var file in files)
+        {
+            var match = JsonSerializer.Deserialize(File.ReadAllText(file), FcJsonContext.Default.MatchDetail)!;
+            Assert.Equal(2, match.MatchInfo.Count);
+            foreach (var side in match.MatchInfo)
+            {
+                var opp = match.MatchInfo.First(m => m != side);
+                Assert.Equal(side.Shoot.GoalTotal, side.ShootDetail.Count(s => s.IsGoal));
+                if (side.MatchDetail.MatchEndType == 0)
+                    Assert.Equal(side.Shoot.GoalTotal + opp.Shoot.OwnGoal, side.Shoot.GoalTotalDisplay);
+                // Coordinates are per side: every goal is near the goal at x = 1.
+                Assert.All(side.ShootDetail.Where(s => s.IsGoal), s => Assert.True(s.X > 0.7, $"{file}: goal at x={s.X}"));
+                Assert.All(side.ShootDetail, s => Assert.Equal(s.InPenalty, Core.Pitch.IsInBox(s.X, s.Y)));
+            }
+            _ = Analysis.UserAnalyzer.Analyze([match], match.MatchInfo[0].Ouid);
+        }
+    }
+
+    [Fact]
+    public void Accepts_the_documented_ball_possession_field_name()
+    {
+        var status = JsonSerializer.Deserialize<PlayerStatus>("""{"ballPossesionSuc":5}""",
+            new JsonSerializerOptions { TypeInfoResolver = FcJsonContext.Default });
+        Assert.Equal(5, status!.BallPossesionSuccess);
     }
 }

@@ -74,7 +74,7 @@ internal sealed class FakeApi : IFcOnlineApi
         return Task.FromResult(name switch
         {
             "spid" => """[{"id":101000001,"name":"호날두"},{"id":101000002,"name":"굴리트"}]""",
-            "division" => """[{"divisionId":800,"divisionName":"챔피언스"}]""",
+            "division" => """[{"divisionId":800,"divisionName":"슈퍼 챔피언스"},{"divisionId":900,"divisionName":"챔피언스"},{"divisionId":1000,"divisionName":"슈퍼 챌린지"}]""",
             _ => "[]",
         });
     }
@@ -101,7 +101,7 @@ public class FcHelperServiceTests : IDisposable
             var rivalNick = meNick is not null && i < 2 ? meNick : $"rival{i}";
             _api.Add(new MatchBuilder("opp", rival)
                 .At(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc).AddHours(i))
-                .A(s => s.Nick(opponentNick).Goal(Ronaldo, ShotTypes.Finesse, y: 0.75, assist: Gullit).Goal(Ronaldo, ShotTypes.Finesse, y: 0.75, assist: Gullit))
+                .A(s => s.Nick(opponentNick).Division(i == matches - 1 ? 900 : 1000).Goal(Ronaldo, ShotTypes.Finesse, y: 0.75, assist: Gullit).Goal(Ronaldo, ShotTypes.Finesse, y: 0.75, assist: Gullit))
                 .B(s => s.Nick(rivalNick).Goal(5, ShotTypes.Header))
                 .Build());
         }
@@ -119,7 +119,10 @@ public class FcHelperServiceTests : IDisposable
         Assert.NotNull(report);
         Assert.Equal("FC고인물123", report.Nickname);
         Assert.Equal(42, report.Level);
-        Assert.Equal("챔피언스", report.MaxDivisionName);
+        Assert.Equal("슈퍼 챔피언스", report.MaxDivisionName);
+        // The newest match (i = 11) was played at 챔피언스; older ones at 슈퍼 챌린지.
+        Assert.Equal("챔피언스", report.RecentDivisionName);
+        Assert.Contains("최근경기 등급 챔피언스 · 최고 슈퍼 챔피언스", ReportText.Card(report));
         Assert.Equal(12, report.Analysis.Record.Matches);
         Assert.True(report.IsComplete);
         Assert.Equal("호날두", report.PlayerName(Ronaldo));

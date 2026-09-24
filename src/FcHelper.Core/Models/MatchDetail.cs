@@ -8,6 +8,7 @@ namespace FcHelper.Core.Models;
 public sealed record MatchDetail
 {
     [JsonPropertyName("matchId")] public string MatchId { get; init; } = "";
+    /// <summary>UTC, sent without an offset (official schema: "매치 일자 (UTC0)").</summary>
     [JsonPropertyName("matchDate")] public DateTime MatchDate { get; init; }
     [JsonPropertyName("matchType")] public int MatchType { get; init; }
     [JsonPropertyName("matchInfo")] public List<MatchInfo> MatchInfo { get; init; } = [];
@@ -21,12 +22,23 @@ public sealed record MatchInfo
 {
     [JsonPropertyName("ouid")] public string Ouid { get; init; } = "";
     [JsonPropertyName("nickname")] public string Nickname { get; init; } = "";
+    /// <summary>
+    /// The user's division when this match was played (meta/division.json id). Unlike user/maxdivision this
+    /// tracks the current grade: real samples show it moving match to match below the all-time best.
+    /// </summary>
+    [JsonPropertyName("division")] public int Division { get; init; }
     [JsonPropertyName("matchDetail")] public MatchSideDetail MatchDetail { get; init; } = new();
     [JsonPropertyName("shoot")] public ShootSummary Shoot { get; init; } = new();
     [JsonPropertyName("shootDetail")] public List<ShootDetail> ShootDetail { get; init; } = [];
     [JsonPropertyName("pass")] public PassSummary Pass { get; init; } = new();
     [JsonPropertyName("defence")] public DefenceSummary Defence { get; init; } = new();
     [JsonPropertyName("player")] public List<MatchPlayer> Player { get; init; } = [];
+
+    /// <summary>
+    /// False for a side that quit before the match produced stats: the API then sends null for every number and
+    /// an empty player list. Such a side still counts for the record, but not for style averages.
+    /// </summary>
+    [JsonIgnore] public bool HasStats => Player.Count > 0;
 }
 
 public sealed record MatchSideDetail
@@ -46,7 +58,7 @@ public sealed record MatchSideDetail
     [JsonPropertyName("possession")] public int Possession { get; init; }
     [JsonPropertyName("OffsideCount")] public int OffsideCount { get; init; }
     [JsonPropertyName("averageRating")] public double AverageRating { get; init; }
-    /// <summary>"keyboard" | "pad" 등</summary>
+    /// <summary>"keyboard" | "gamepad" (the docs say "pad"; real responses send "gamepad"). Can be empty.</summary>
     [JsonPropertyName("controller")] public string Controller { get; init; } = "";
 
     [JsonIgnore] public MatchOutcome Outcome => MatchResult switch
@@ -67,8 +79,14 @@ public sealed record ShootSummary
     [JsonPropertyName("shootTotal")] public int ShootTotal { get; init; }
     [JsonPropertyName("effectiveShootTotal")] public int EffectiveShootTotal { get; init; }
     [JsonPropertyName("shootOutScore")] public int ShootOutScore { get; init; }
+    /// <summary>Goals from this side's own shots; equals the goals in shootDetail. Excludes own goals it benefited from.</summary>
     [JsonPropertyName("goalTotal")] public int GoalTotal { get; init; }
+    /// <summary>
+    /// The score shown after the match: goalTotal plus the opponent's own goals, replaced by 3:0 on a forfeit
+    /// (verified on real samples).
+    /// </summary>
     [JsonPropertyName("goalTotalDisplay")] public int GoalTotalDisplay { get; init; }
+    /// <summary>Own goals this side conceded (credited to the opponent's goalTotalDisplay).</summary>
     [JsonPropertyName("ownGoal")] public int OwnGoal { get; init; }
     [JsonPropertyName("shootHeading")] public int ShootHeading { get; init; }
     [JsonPropertyName("goalHeading")] public int GoalHeading { get; init; }
@@ -96,7 +114,7 @@ public sealed record ShootDetail
     [JsonPropertyName("spLevel")] public int SpLevel { get; init; }
     [JsonPropertyName("spIdType")] public bool SpIdType { get; init; }
     [JsonPropertyName("assist")] public bool Assist { get; init; }
-    // Documentation sources disagree on this name ("assistSpId" vs "assistSpI"); accept both.
+    // Real responses use "assistSpId"; the official schema still documents "assistSpI". Accept both.
     [JsonPropertyName("assistSpId")] public int? AssistSpIdRaw { get; init; }
     [JsonPropertyName("assistSpI")] public int? AssistSpIRaw { get; init; }
     [JsonPropertyName("assistX")] public double AssistX { get; init; }
@@ -171,7 +189,10 @@ public sealed record PlayerStatus
     [JsonPropertyName("dribbleTry")] public int DribbleTry { get; init; }
     [JsonPropertyName("dribbleSuccess")] public int DribbleSuccess { get; init; }
     [JsonPropertyName("ballPossesionTry")] public int BallPossesionTry { get; init; }
-    [JsonPropertyName("ballPossesionSuc")] public int BallPossesionSuc { get; init; }
+    // Real responses send "ballPossesionSuccess"; the official schema documents "ballPossesionSuc".
+    [JsonPropertyName("ballPossesionSuccess")] public int? BallPossesionSuccessRaw { get; init; }
+    [JsonPropertyName("ballPossesionSuc")] public int? BallPossesionSucRaw { get; init; }
+    [JsonIgnore] public int BallPossesionSuccess => BallPossesionSuccessRaw ?? BallPossesionSucRaw ?? 0;
     [JsonPropertyName("aerialTry")] public int AerialTry { get; init; }
     [JsonPropertyName("aerialSuccess")] public int AerialSuccess { get; init; }
     [JsonPropertyName("blockTry")] public int BlockTry { get; init; }

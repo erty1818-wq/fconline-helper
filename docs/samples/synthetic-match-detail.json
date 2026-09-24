@@ -6,13 +6,14 @@
     {
       "ouid": "ouid-a",
       "nickname": "FC고인물123",
+      "division": 1100,
       "matchDetail": {
         "seasonId": 0, "matchResult": "승", "matchEndType": 0, "systemPause": 2, "foul": 3, "injury": 0,
-        "redCards": 0, "yellowCards": 1, "dribble": 120, "cornerKick": 4, "possession": 56, "OffsideCount": 1,
+        "redCards": 0, "yellowCards": 1, "dribble": 120, "cornerKick": 4, "possession": 56, "offsideCount": 1,
         "averageRating": 7.1, "controller": "keyboard"
       },
       "shoot": {
-        "shootTotal": 3, "effectiveShootTotal": 2, "shootOutScore": 0, "goalTotal": 2, "goalTotalDisplay": 2,
+        "shootTotal": 3, "effectiveShootTotal": 2, "shootOutScore": 0, "goalTotal": 2, "goalTotalDisplay": 3,
         "ownGoal": 0, "shootHeading": 1, "goalHeading": 1, "shootFreekick": 0, "goalFreekick": 0,
         "shootInPenalty": 2, "goalInPenalty": 2, "shootOutPenalty": 1, "goalOutPenalty": 0,
         "shootPenaltyKick": 0, "goalPenaltyKick": 0
@@ -34,12 +35,12 @@
       "player": [
         { "spId": 101000001, "spPosition": 25, "spGrade": 8,
           "status": { "shoot": 2, "effectiveShoot": 2, "assist": 0, "goal": 2, "dribble": 30, "intercept": 0, "defending": 0,
-            "passTry": 10, "passSuccess": 8, "dribbleTry": 4, "dribbleSuccess": 3, "ballPossesionTry": 5, "ballPossesionSuc": 4,
+            "passTry": 10, "passSuccess": 8, "dribbleTry": 4, "dribbleSuccess": 3, "ballPossesionTry": 5, "ballPossesionSuccess": 4,
             "aerialTry": 2, "aerialSuccess": 1, "blockTry": 0, "block": 0, "tackleTry": 0, "tackle": 0,
             "yellowCards": 0, "redCards": 0, "spRating": 8.4 } },
         { "spId": 101000005, "spPosition": 28, "spGrade": 5,
           "status": { "shoot": 0, "effectiveShoot": 0, "assist": 0, "goal": 0, "dribble": 0, "intercept": 0, "defending": 0,
-            "passTry": 0, "passSuccess": 0, "dribbleTry": 0, "dribbleSuccess": 0, "ballPossesionTry": 0, "ballPossesionSuc": 0,
+            "passTry": 0, "passSuccess": 0, "dribbleTry": 0, "dribbleSuccess": 0, "ballPossesionTry": 0, "ballPossesionSuccess": 0,
             "aerialTry": 0, "aerialSuccess": 0, "blockTry": 0, "block": 0, "tackleTry": 0, "tackle": 0,
             "yellowCards": 0, "redCards": 0, "spRating": 0 } }
       ]
@@ -47,14 +48,15 @@
     {
       "ouid": "ouid-b",
       "nickname": "상대방",
+      "division": 1200,
       "matchDetail": {
         "seasonId": 0, "matchResult": "패", "matchEndType": 0, "systemPause": 0, "foul": 1, "injury": 0,
-        "redCards": 0, "yellowCards": 0, "dribble": 80, "cornerKick": 2, "possession": 44, "OffsideCount": 0,
-        "averageRating": 6.4, "controller": "pad"
+        "redCards": 0, "yellowCards": 0, "dribble": 80, "cornerKick": 2, "possession": 44, "offsideCount": 0,
+        "averageRating": 6.4, "controller": "gamepad"
       },
       "shoot": {
         "shootTotal": 1, "effectiveShootTotal": 1, "shootOutScore": 0, "goalTotal": 1, "goalTotalDisplay": 1,
-        "ownGoal": 0, "shootHeading": 0, "goalHeading": 0, "shootFreekick": 0, "goalFreekick": 0,
+        "ownGoal": 1, "shootHeading": 0, "goalHeading": 0, "shootFreekick": 0, "goalFreekick": 0,
         "shootInPenalty": 0, "goalInPenalty": 0, "shootOutPenalty": 1, "goalOutPenalty": 1,
         "shootPenaltyKick": 0, "goalPenaltyKick": 0
       },

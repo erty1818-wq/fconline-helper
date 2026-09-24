@@ -109,6 +109,9 @@ public sealed class FcHelperService(IFcOnlineApi api, FcDatabase db, FcHelperOpt
 
         var divisions = db.GetMaxDivisions(user.Ouid).Divisions;
         var division = divisions.FirstOrDefault(d => d.MatchType == Options.MatchType);
+        var recentDivision = matches.OrderByDescending(m => m.MatchDate)
+            .Select(m => m.SideOf(user.Ouid)?.Division ?? 0)
+            .FirstOrDefault(d => d > 0);
         var history = db.GetNicknameHistory(user.Ouid).Where(n => n != user.Nickname).ToList();
 
         return new OpponentReport
@@ -117,6 +120,7 @@ public sealed class FcHelperService(IFcOnlineApi api, FcDatabase db, FcHelperOpt
             Nickname = user.Nickname,
             Level = user.Level,
             MaxDivisionName = division is null ? null : db.GetDivisionName(division.Division) ?? $"등급 {division.Division}",
+            RecentDivisionName = recentDivision == 0 ? null : db.GetDivisionName(recentDivision) ?? $"등급 {recentDivision}",
             PreviousNicknames = history,
             Analysis = analysis,
             OneLine = Summary.OneLine(analysis),
@@ -136,7 +140,8 @@ public sealed class FcHelperService(IFcOnlineApi api, FcDatabase db, FcHelperOpt
         string? lastScore = null;
         if (db.GetMatch(rows[0].MatchId) is { } last && last.SideOf(myOuid) is { } me && last.OpponentOf(myOuid) is { } opp)
         {
-            lastScore = $"{Math.Max(me.Shoot.GoalTotalDisplay, me.Shoot.GoalTotal)}:{Math.Max(opp.Shoot.GoalTotalDisplay, opp.Shoot.GoalTotal)}";
+            // The scoreboard both players saw, own goals and forfeit 3:0 included.
+            lastScore = $"{me.Shoot.GoalTotalDisplay}:{opp.Shoot.GoalTotalDisplay}";
         }
         return new HeadToHead(
             rows.Count,

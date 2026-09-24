@@ -15,7 +15,7 @@ public class UserAnalyzerTests
     private static List<MatchDetail> FinesseSpecialist(int matches = 10) =>
         Enumerable.Range(0, matches).Select(i => new MatchBuilder("opp", $"victim{i}")
             .At(new DateTime(2026, 9, 1).AddHours(i))
-            .A(s => s.Controller("pad").Possession(58)
+            .A(s => s.Controller("gamepad").Possession(58)
                 .Goal(Ronaldo, ShotTypes.Finesse, x: 0.9, y: 0.75, minute: 20, assist: Gullit)
                 .Goal(Ronaldo, ShotTypes.Finesse, x: 0.9, y: 0.75, minute: 80, assist: Gullit)
                 .Goal(Other, ShotTypes.Normal, x: 0.9, y: 0.5, minute: 60))
@@ -45,8 +45,42 @@ public class UserAnalyzerTests
         Assert.Equal(58, a.AvgPossession);
         Assert.Equal(30, a.GoalCount);
         Assert.Equal(10, a.ConcededCount);
-        Assert.Equal("pad", a.Controller!.Label);
+        Assert.Equal("gamepad", a.Controller!.Label);
         Assert.Equal(1.0, a.Conversion);
+        Assert.Contains(a.Traits, t => t.Key == "controller" && t.Text == "패드 유저");
+    }
+
+    [Fact]
+    public void A_side_without_stats_counts_for_the_record_but_not_for_style_averages()
+    {
+        var matches = new List<MatchDetail>
+        {
+            new MatchBuilder("me", "a").A(s => s.Possession(60).Goal(1)).Build(),
+            new MatchBuilder("me", "b").A(s => s.NoStats()).B(s => s.Goal(2)).Build(),
+        };
+
+        var a = UserAnalyzer.Analyze(matches, "me");
+
+        Assert.Equal(new RecordSummary(2, 1, 0, 1, 1), a.Record);
+        Assert.Equal(60, a.AvgPossession);
+        Assert.Equal(1, a.Controller!.Total);
+    }
+
+    [Fact]
+    public void Goal_averages_count_real_goals_not_the_forfeit_scoreboard()
+    {
+        var matches = new List<MatchDetail>
+        {
+            // 2 goals from shots plus an opponent own goal: the scoreboard said 3:1.
+            new MatchBuilder("me", "a").A(s => s.Goal(1).Goal(1)).B(s => s.Goal(2).OwnGoals(1)).Build(),
+            // Opponent quit at 1:0; the scoreboard shows the forfeit as 3:0, but only one goal was scored.
+            new MatchBuilder("me", "b").A(s => s.Goal(1)).B(s => s.Forfeit()).Build(),
+        };
+
+        var a = UserAnalyzer.Analyze(matches, "me");
+
+        Assert.Equal(2, a.AvgGoalsFor);
+        Assert.Equal(0.5, a.AvgGoalsAgainst);
     }
 
     [Fact]
@@ -114,12 +148,7 @@ public class UserAnalyzerTests
             new MatchBuilder("me", "c").Build(),
         };
         // An own goal shows in the score but has no shot entry: that match must be skipped.
-        var ownGoal = new MatchBuilder("me", "d").A(s => s.Goal(1, minute: 30)).Build();
-        var me = ownGoal.SideOf("me")!;
-        matches.Add(ownGoal with
-        {
-            MatchInfo = [me with { Shoot = me.Shoot with { GoalTotalDisplay = 2 } }, ownGoal.OpponentOf("me")!],
-        });
+        matches.Add(new MatchBuilder("me", "d").A(s => s.Goal(1, minute: 30)).B(s => s.OwnGoals(1)).Build());
 
         var a = UserAnalyzer.Analyze(matches, "me");
 

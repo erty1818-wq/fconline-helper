@@ -20,6 +20,13 @@ public partial class SearchWindow : Window
         PlaceNearRightEdge();
         Loaded += (_, _) => FocusSearchBox();
         Closed += (_, _) => _lookup?.Cancel();
+        // Esc gets the card out of the way at once; Ctrl+Alt+S brings it back.
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.Escape) return;
+            e.Handled = true;
+            Close();
+        };
     }
 
     public void FocusSearchBox()
