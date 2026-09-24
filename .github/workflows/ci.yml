@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test tests/FcHelper.Tests -c Release
+
+      - name: Publish Windows app
+        run: >
+          dotnet publish src/FcHelper.App -c Release -r win-x64 -o publish/app
+          -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Publish CLI
+        run: >
+          dotnet publish src/FcHelper.Cli -c Release -r win-x64 -o publish/cli
+          -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FcHelper-win-x64
+          path: |
+            publish/app/FcHelper.exe
+            publish/cli/fch.exe

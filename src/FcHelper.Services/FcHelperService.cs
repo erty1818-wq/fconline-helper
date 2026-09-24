@@ -58,9 +58,9 @@ public sealed class FcHelperService(IFcOnlineApi api, FcDatabase db, FcHelperOpt
             {
                 db.SaveMatch(await api.GetMatchDetailJsonAsync(id, ct));
             }
-            catch (NexonApiException e) when (!e.IsAuthError)
+            catch (Exception e) when (IsTransient(e, ct))
             {
-                // Out of quota or the service is down: stop here and show what we have.
+                // Out of quota, network down or the service is under maintenance: stop and show what we have.
                 break;
             }
             fetched++;
@@ -186,13 +186,22 @@ public sealed class FcHelperService(IFcOnlineApi api, FcDatabase db, FcHelperOpt
                 db.SaveMatch(await api.GetMatchDetailJsonAsync(id, ct));
                 stored++;
             }
-            catch (NexonApiException e) when (!e.IsAuthError)
+            catch (Exception e) when (IsTransient(e, ct))
             {
                 break;
             }
         }
         return stored;
     }
+
+    /// <summary>Failures worth stopping a batch for but not worth failing the lookup: everything except a bad key or a user cancel.</summary>
+    private static bool IsTransient(Exception e, CancellationToken ct) => e switch
+    {
+        NexonApiException api => !api.IsAuthError,
+        HttpRequestException => true,
+        TaskCanceledException => !ct.IsCancellationRequested,
+        _ => false,
+    };
 
     public void SaveMemo(string ouid, string text, IEnumerable<string> tags) => db.SaveMemo(ouid, text, tags, Now);
 

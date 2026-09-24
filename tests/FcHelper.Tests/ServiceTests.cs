@@ -249,3 +249,34 @@ internal sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
 {
     public void Report(T value) => handler(value);
 }
+
+public class TransientFailureTests : IDisposable
+{
+    private readonly TempDb _t = new();
+    public void Dispose() => _t.Dispose();
+
+    private sealed class FlakyApi(FakeApi inner, int okDetails) : IFcOnlineApi
+    {
+        private int _details;
+        public Task<string?> GetOuidAsync(string n, CancellationToken ct = default) => inner.GetOuidAsync(n, ct);
+        public Task<UserBasic> GetUserBasicAsync(string o, CancellationToken ct = default) => inner.GetUserBasicAsync(o, ct);
+        public Task<IReadOnlyList<MaxDivision>> GetMaxDivisionAsync(string o, CancellationToken ct = default) => inner.GetMaxDivisionAsync(o, ct);
+        public Task<IReadOnlyList<string>> GetUserMatchIdsAsync(string o, int t, int off, int l, CancellationToken ct = default) => inner.GetUserMatchIdsAsync(o, t, off, l, ct);
+        public Task<string> GetMetadataJsonAsync(string n, CancellationToken ct = default) => inner.GetMetadataJsonAsync(n, ct);
+        public Task<string> GetMatchDetailJsonAsync(string id, CancellationToken ct = default) =>
+            ++_details > okDetails ? throw new HttpRequestException("network down") : inner.GetMatchDetailJsonAsync(id, ct);
+    }
+
+    [Fact]
+    public async Task Network_errors_mid_fetch_return_a_partial_report()
+    {
+        var fake = new FakeApi();
+        for (var i = 0; i < 5; i++) fake.Add(new MatchBuilder("opp", $"r{i}").A(s => s.Nick("상대")).Build());
+        var svc = new FcHelperService(new FlakyApi(fake, okDetails: 2), _t.Db, new FcHelperOptions());
+
+        var report = await svc.LookupAsync("상대");
+
+        Assert.Equal(2, report!.LoadedMatches);
+        Assert.False(report.IsComplete);
+    }
+}

@@ -1,2 +1,135 @@
-﻿// See https://aka.ms/new-console-template for more information
-Console.WriteLine("Hello, World!");
+using System.Text;
+using FcHelper.Data;
+using FcHelper.NexonApi;
+using FcHelper.Services;
+
+// Command-line front end: useful for checking the API with a real key before the Windows app is ready,
+// and for saving raw samples (docs/samples) to verify the field semantics in docs/PLANNING.md 3.4.
+
+Console.OutputEncoding = Encoding.UTF8;
+
+if (args.Length < 1 || args[0] is "-h" or "--help")
+{
+    PrintUsage();
+    return 1;
+}
+
+var command = args[0];
+var positional = new List<string>();
+var named = new Dictionary<string, string>();
+for (var i = 1; i < args.Length; i++)
+{
+    if (args[i].StartsWith("--") && i + 1 < args.Length) named[args[i][2..]] = args[++i];
+    else positional.Add(args[i]);
+}
+string? Option(string name) => named.GetValueOrDefault(name);
+
+var apiKey = Option("key") ?? Environment.GetEnvironmentVariable("FCH_API_KEY");
+if (string.IsNullOrWhiteSpace(apiKey))
+{
+    Console.Error.WriteLine("API 키가 없습니다. FCH_API_KEY 환경 변수나 --key 옵션으로 넘겨주세요.");
+    return 2;
+}
+
+var options = new FcHelperOptions
+{
+    MyNickname = Option("me"),
+    MatchWindow = int.TryParse(Option("window"), out var w) ? Math.Clamp(w, 1, 100) : 30,
+};
+var rate = double.TryParse(Option("rate"), out var r) && r > 0 ? r : 5;
+var limiter = new RateLimiter(rate);
+var api = new FcOnlineApi(new HttpClient(), apiKey, limiter);
+var db = new FcDatabase(Option("db") ?? AppPaths.DatabasePath);
+var service = new FcHelperService(api, db, options);
+
+try
+{
+    switch (command)
+    {
+        case "search" when positional.Count == 1:
+            try
+            {
+                await service.EnsureMetadataAsync();
+            }
+            catch (HttpRequestException e)
+            {
+                Console.Error.WriteLine($"선수 이름 데이터를 받지 못했습니다 ({e.Message}). 선수는 번호로 표시됩니다.");
+            }
+            if (options.MyNickname is not null) Console.Error.WriteLine($"내 경기 동기화: 새 경기 {await service.SyncMyMatchesAsync()}건");
+            var progress = new Progress<LookupProgress>(p =>
+            {
+                if (p.Stage == LookupStage.FetchingMatches) Console.Error.WriteLine($"  불러오는 중 {p.Fetched}/{p.ToFetch}");
+            });
+            var report = await service.LookupAsync(positional[0], progress);
+            if (report is null)
+            {
+                Console.Error.WriteLine($"'{positional[0]}' 닉네임을 찾지 못했습니다.");
+                return 3;
+            }
+            Console.WriteLine(ReportText.Card(report));
+            Console.WriteLine();
+            Console.WriteLine($"[음성] {ReportText.Voice(report)}");
+            Console.WriteLine($"(API 호출 {limiter.IssuedCount}회)  Data based on NEXON Open API.");
+            return 0;
+
+        case "dump" when positional.Count == 1:
+            return await Dump(api, positional[0], int.TryParse(Option("count"), out var c) ? Math.Clamp(c, 1, 20) : 3, Option("out") ?? "docs/samples");
+
+        case "sync":
+            if (options.MyNickname is null)
+            {
+                Console.Error.WriteLine("--me <내 닉네임> 이 필요합니다.");
+                return 2;
+            }
+            Console.WriteLine($"새 경기 {await service.SyncMyMatchesAsync()}건 저장");
+            return 0;
+
+        default:
+            PrintUsage();
+            return 1;
+    }
+}
+catch (NexonApiException e)
+{
+    Console.Error.WriteLine(e.IsAuthError ? $"API 키 오류: {e.Message}" : e.Message);
+    return 4;
+}
+catch (HttpRequestException e)
+{
+    Console.Error.WriteLine($"NEXON Open API에 연결하지 못했습니다: {e.Message}");
+    return 5;
+}
+
+static async Task<int> Dump(FcOnlineApi api, string nickname, int count, string outDir)
+{
+    var ouid = await api.GetOuidAsync(nickname);
+    if (ouid is null)
+    {
+        Console.Error.WriteLine($"'{nickname}' 닉네임을 찾지 못했습니다.");
+        return 3;
+    }
+    Directory.CreateDirectory(outDir);
+    var ids = await api.GetUserMatchIdsAsync(ouid, 50, 0, count);
+    foreach (var id in ids)
+    {
+        var path = Path.Combine(outDir, $"match-{id}.local.json");
+        await File.WriteAllTextAsync(path, await api.GetMatchDetailJsonAsync(id));
+        Console.WriteLine(path);
+    }
+    Console.WriteLine($"{ids.Count}건 저장. *.local.json 파일은 다른 유저 닉네임이 들어 있어 git에 올라가지 않습니다.");
+    return 0;
+}
+
+static void PrintUsage() => Console.Error.WriteLine("""
+    FC Online Helper CLI
+
+    사용법 (API 키: FCH_API_KEY 환경 변수 또는 --key):
+      fch search <닉네임> [--me <내 닉네임>] [--window 30] [--rate 5]
+          상대 분석 카드를 출력합니다. --me를 주면 재대결 전적과 상성 경보가 나옵니다.
+      fch sync --me <내 닉네임>
+          내 최근 경기 100건을 캐시에 저장합니다.
+      fch dump <닉네임> [--count 3] [--out docs/samples]
+          match-detail 원본 JSON을 저장합니다 (필드 검증용).
+
+    공통 옵션: --db <경로> (기본: %LOCALAPPDATA%\FcHelper\fchelper.db)
+    """);
