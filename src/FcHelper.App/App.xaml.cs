@@ -56,6 +56,19 @@ public partial class App : Application
             return;
         }
 
+        // A tray app should not vanish on one bad response: log it, tell the user, keep running.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            LogError(args.Exception);
+            Notify("오류가 생겨 작업을 중단했습니다. 앱은 계속 실행됩니다. (기록: error.log)");
+            args.Handled = true;
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            LogError(args.Exception);
+            args.SetObserved();
+        };
+
         Settings = AppSettings.Load();
         _db = new FcDatabase(AppPaths.DatabasePath);
         CreateTray();
@@ -367,6 +380,17 @@ public partial class App : Application
         {
             if (args.Button == Forms.MouseButtons.Left) ShowSearch();
         };
+    }
+
+    private static void LogError(Exception e)
+    {
+        try
+        {
+            File.AppendAllText(Path.Combine(AppPaths.DataDirectory, "error.log"), $"[{DateTime.Now:O}] {e}\n\n");
+        }
+        catch (IOException)
+        {
+        }
     }
 
     private void Notify(string message) => _tray?.ShowBalloonTip(3000, "FC Online Helper", message, Forms.ToolTipIcon.Info);
