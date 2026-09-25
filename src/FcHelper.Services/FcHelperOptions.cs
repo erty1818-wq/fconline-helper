@@ -18,6 +18,13 @@ public sealed record FcHelperOptions
     public TimeSpan MetadataTtl { get; init; } = TimeSpan.FromDays(7);
     public TimeSpan BaselineTtl { get; init; } = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// How many of the card's dangerous players get overall and price from the data center (0 = none).
+    /// Only used when the service is given a market source.
+    /// </summary>
+    public int MarketPlayers { get; init; } = 2;
+    public TimeSpan MarketTtl { get; init; } = TimeSpan.FromHours(12);
+
     /// <summary>Matches read when rebuilding the baseline.</summary>
     public int BaselineSampleLimit { get; init; } = 3000;
 }

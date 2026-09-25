@@ -19,4 +19,15 @@ public static class AppPaths
 
     public static string DatabasePath => Path.Combine(DataDirectory, "fchelper.db");
     public static string SettingsPath => Path.Combine(DataDirectory, "settings.json");
+
+    /// <summary>Recognition screenshots, written only when the (off by default) debug option is on.</summary>
+    public static string CapturesDirectory
+    {
+        get
+        {
+            var dir = Path.Combine(DataDirectory, "captures");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
 }

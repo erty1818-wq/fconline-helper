@@ -7,6 +7,17 @@ using Microsoft.Win32;
 
 namespace FcHelper.App;
 
+/// <summary>How the opponent is found (docs/PLANNING.md 14, v0.5).</summary>
+public enum DetectionMode
+{
+    /// <summary>Ctrl+Alt+F on the matchmaking screen reads the opponent's nickname once.</summary>
+    Hotkey,
+    /// <summary>Only the search window (Ctrl+Alt+S).</summary>
+    Manual,
+    /// <summary>Watches for the matchmaking screen while the game is in front. Not implemented yet.</summary>
+    Auto,
+}
+
 public sealed class AppSettings
 {
     /// <summary>The API key encrypted with Windows DPAPI for the current user; never stored in plain text.</summary>
@@ -18,6 +29,11 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; }
     /// <summary>Off by default: an always-on-top card covers the game (docs/PLANNING.md 18.2).</summary>
     public bool KeepCardOnTop { get; set; }
+    public DetectionMode Detection { get; set; } = DetectionMode.Hotkey;
+    /// <summary>Debug aid: keep each recognition screenshot and its OCR text. Off by default (PLANNING 19.5).</summary>
+    public bool SaveCaptures { get; set; }
+    /// <summary>Overall and price of the dangerous players from the official data center (personal use).</summary>
+    public bool ShowMarket { get; set; } = true;
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly byte[] Entropy = "FcHelper.ApiKey.v1"u8.ToArray();

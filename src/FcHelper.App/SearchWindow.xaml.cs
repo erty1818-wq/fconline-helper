@@ -18,7 +18,8 @@ public partial class SearchWindow : Window
         InitializeComponent();
         Topmost = app.Settings.KeepCardOnTop;
         PlaceNearRightEdge();
-        Loaded += (_, _) => FocusSearchBox();
+        // Opened by the capture hotkey, the card must not pull keyboard focus away from the game.
+        Loaded += (_, _) => { if (ShowActivated) FocusSearchBox(); };
         Closed += (_, _) => _lookup?.Cancel();
         // Esc gets the card out of the way at once; Ctrl+Alt+S brings it back.
         PreviewKeyDown += (_, e) =>
@@ -41,12 +42,46 @@ public partial class SearchWindow : Window
         OnSearchClick(this, new RoutedEventArgs());
     }
 
+    /// <summary>Shows a message in the status line and puts a best guess in the search box, e.g. after OCR failed.</summary>
+    public void Prompt(string status, string? nickname = null)
+    {
+        if (nickname is not null) NicknameBox.Text = nickname;
+        StatusText.Text = status;
+    }
+
     private void PlaceNearRightEdge()
     {
         var area = SystemParameters.WorkArea;
         Height = Math.Min(Height, area.Height - 40);
         Left = area.Right - Width - 20;
         Top = area.Top + 20;
+    }
+
+    /// <summary>
+    /// Moves the card next to the game (<paramref name="game"/> in device-independent units) when there is room.
+    /// Only then may it stay on top: next to the game it covers nothing.
+    /// </summary>
+    /// <returns>True when the card fits beside the game without overlapping it.</returns>
+    public bool PlaceBeside(Rect game)
+    {
+        const double gap = 8;
+        var area = SystemParameters.WorkArea;
+        var right = area.Right - game.Right - gap;
+        var left = game.Left - area.Left - gap;
+        Height = Math.Min(720, area.Height - 20);
+        Top = Math.Max(area.Top + 10, Math.Min(game.Top, area.Bottom - Height - 10));
+
+        if (right >= MinWidth || left >= MinWidth)
+        {
+            var useRight = right >= left;
+            Width = Math.Min(440, useRight ? right : left);
+            Left = useRight ? game.Right + gap : game.Left - gap - Width;
+            Topmost = true;
+            return true;
+        }
+        PlaceNearRightEdge();
+        Topmost = _app.Settings.KeepCardOnTop;
+        return false;
     }
 
     private async void OnSearchClick(object sender, RoutedEventArgs e)

@@ -63,6 +63,9 @@ public sealed class FcDatabase
             CREATE TABLE IF NOT EXISTS memos (ouid TEXT PRIMARY KEY, text TEXT NOT NULL, tags TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS players (sp_id INTEGER PRIMARY KEY, name TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS divisions (division_id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS player_market (
+                sp_id INTEGER NOT NULL, strong INTEGER NOT NULL, name TEXT NOT NULL, ovr INTEGER NOT NULL,
+                position TEXT NOT NULL, price TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (sp_id, strong));
             """);
         SetValue(c, "schema_version", SchemaVersion.ToString());
     }
@@ -237,6 +240,26 @@ public sealed class FcDatabase
     }
 
     // ── memos ──────────────────────────────────────────────────────────────
+
+    // ── data center (overall, price) ───────────────────────────────────────
+
+    public PlayerMarket? GetPlayerMarket(int spId, int strong)
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT name, ovr, position, price, updated_at FROM player_market WHERE sp_id = $s AND strong = $g",
+            ("$s", spId), ("$g", strong));
+        using var r = cmd.ExecuteReader();
+        return r.Read()
+            ? new PlayerMarket(spId, strong, r.GetString(0), r.GetInt32(1), r.GetString(2), r.IsDBNull(3) ? null : r.GetString(3), ParseDate(r.GetString(4)))
+            : null;
+    }
+
+    public void SavePlayerMarket(PlayerMarket m)
+    {
+        using var c = Open();
+        Exec(c, "INSERT OR REPLACE INTO player_market VALUES ($s, $g, $n, $o, $p, $v, $t)",
+            ("$s", m.SpId), ("$g", m.Strong), ("$n", m.Name), ("$o", m.Ovr), ("$p", m.Position), ("$v", m.Price), ("$t", Iso(m.FetchedAt)));
+    }
 
     public Memo? GetMemo(string ouid)
     {

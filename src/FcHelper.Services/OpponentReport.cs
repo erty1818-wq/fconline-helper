@@ -1,4 +1,5 @@
 using FcHelper.Analysis;
+using FcHelper.Core.Models;
 using FcHelper.Data;
 
 namespace FcHelper.Services;
@@ -25,6 +26,8 @@ public sealed record OpponentReport
     public HeadToHead? HeadToHead { get; init; }
     public Memo? Memo { get; init; }
     public IReadOnlyDictionary<int, string> PlayerNames { get; init; } = new Dictionary<int, string>();
+    /// <summary>Overall and price of the dangerous players, from the data center; empty when not fetched.</summary>
+    public IReadOnlyDictionary<int, PlayerMarket> Market { get; init; } = new Dictionary<int, PlayerMarket>();
 
     /// <summary>How many matches the analysis used, and how many were requested.</summary>
     public int LoadedMatches { get; init; }

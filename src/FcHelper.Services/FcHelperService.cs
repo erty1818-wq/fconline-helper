@@ -10,7 +10,8 @@ namespace FcHelper.Services;
 /// Orchestrates cache → API → analysis. Cached data is shown first, and only matches missing from the cache
 /// are fetched, newest first, with partial results published along the way.
 /// </summary>
-public sealed class FcHelperService(IFcOnlineApi api, FcDatabase db, FcHelperOptions options, TimeProvider? time = null)
+public sealed class FcHelperService(
+    IFcOnlineApi api, FcDatabase db, FcHelperOptions options, TimeProvider? time = null, IPlayerMarketSource? market = null)
 {
     private const string MetaPlayersKey = "meta.spid.updated";
     private const string MetaDivisionsKey = "meta.division.updated";
@@ -73,7 +74,46 @@ public sealed class FcHelperService(IFcOnlineApi api, FcDatabase db, FcHelperOpt
 
         var report = await Task.Run(() => BuildReport(user, ids, ids.Count, context), ct);
         progress?.Report(new LookupProgress(LookupStage.Done, report, fetched, toFetch.Count));
+
+        // The card is already up; overall and price follow a moment later.
+        var withMarket = await AddMarketAsync(report, ct);
+        if (!ReferenceEquals(withMarket, report))
+        {
+            report = withMarket;
+            progress?.Report(new LookupProgress(LookupStage.Done, report, fetched, toFetch.Count));
+        }
         return report;
+    }
+
+    private async Task<OpponentReport> AddMarketAsync(OpponentReport report, CancellationToken ct)
+    {
+        if (market is null || Options.MarketPlayers <= 0) return report;
+        var found = new Dictionary<int, PlayerMarket>();
+        foreach (var p in report.Analysis.Players.Take(Options.MarketPlayers))
+        {
+            var strong = Math.Max(1, p.TopGrade);
+            var cached = db.GetPlayerMarket(p.SpId, strong);
+            if (cached is not null && Now - cached.FetchedAt < Options.MarketTtl)
+            {
+                found[p.SpId] = cached;
+                continue;
+            }
+            try
+            {
+                if (await market.GetPlayerAsync(p.SpId, strong, ct) is { } fresh)
+                {
+                    db.SavePlayerMarket(fresh);
+                    found[p.SpId] = fresh;
+                    continue;
+                }
+            }
+            catch (Exception e) when (e is HttpRequestException || (e is TaskCanceledException && !ct.IsCancellationRequested))
+            {
+                // The data center is optional: an old value, or none, is better than a failed card.
+            }
+            if (cached is not null) found[p.SpId] = cached;
+        }
+        return found.Count == 0 ? report : report with { Market = found };
     }
 
     private sealed record LookupContext(Baseline? Baseline, string? MyOuid, UserAnalysis? Me);
@@ -153,6 +193,21 @@ public sealed class FcHelperService(IFcOnlineApi api, FcDatabase db, FcHelperOpt
     }
 
     // ── users ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Picks the first OCR candidate that is a real user: the id API doubles as the OCR checker.
+    /// Known users are answered from the cache without a call.
+    /// </summary>
+    /// <returns>The nickname as the API spells it, or null when none of the candidates exists.</returns>
+    public async Task<string?> FindExistingNicknameAsync(IEnumerable<string> candidates, CancellationToken ct = default)
+    {
+        foreach (var candidate in candidates)
+        {
+            var user = await ResolveUserAsync(candidate.Trim(), ct);
+            if (user is not null) return user.Nickname;
+        }
+        return null;
+    }
 
     private async Task<CachedUser?> ResolveUserAsync(string nickname, CancellationToken ct)
     {

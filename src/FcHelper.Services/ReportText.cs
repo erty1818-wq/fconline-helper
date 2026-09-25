@@ -47,7 +47,7 @@ public static class ReportText
         var danger = a.Players.Take(2).ToList();
         if (danger.Count > 0)
         {
-            sb.AppendLine("위험 선수: " + string.Join(" · ", danger.Select(p => $"{r.PlayerName(p.SpId)} {p.Goals}골 {p.Assists}도움")));
+            sb.AppendLine("위험 선수: " + string.Join(" / ", danger.Select(p => $"{r.PlayerName(p.SpId)} {p.Goals}골 {p.Assists}도움{MarketSuffix(r, p.SpId)}")));
         }
 
         foreach (var t in a.Traits.Where(t => t.Key != "controller").Take(3)) sb.AppendLine($"· {t.Text}  [{t.Evidence.Label()}]");
@@ -64,6 +64,12 @@ public static class ReportText
             : $"표본: 득점 {a.GoalCount}골 · 실점 {a.ConcededCount}골. 비교 기준 데이터가 아직 적어 평균 비교는 생략.");
         return sb.ToString();
     }
+
+    /// <summary>" · +8 ST 132 · 시세 4,820" from the data center, or "" when not fetched.</summary>
+    public static string MarketSuffix(OpponentReport r, int spId) =>
+        r.Market.TryGetValue(spId, out var m)
+            ? $" · +{m.Strong} {m.Position} {m.Ovr}" + (m.Price is null ? "" : $" · 시세 {m.Price}")
+            : "";
 
     /// <summary>"최근경기 등급 X · 최고 Y · ", with either part left out when unknown.</summary>
     public static string DivisionPrefix(OpponentReport r) =>

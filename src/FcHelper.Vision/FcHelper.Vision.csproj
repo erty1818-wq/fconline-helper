@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 19041 for Windows.Media.Ocr (built into Windows; no extra model or package). -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <!-- System.Drawing for the screen copy only. -->
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FcHelper.Core\FcHelper.Core.csproj" />
+  </ItemGroup>
+
+</Project>

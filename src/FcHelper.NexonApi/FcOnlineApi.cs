@@ -48,7 +48,7 @@ public sealed class FcOnlineApi : IFcOnlineApi
     private const int MaxAttempts = 4;
 
     private static readonly HashSet<string> MetadataNames =
-        ["matchtype", "spid", "seasonid", "spposition", "division", "division_volta"];
+        ["matchtype", "spid", "seasonid", "spposition", "division", "division-volta"];
 
     private readonly HttpClient _http;
     private readonly RateLimiter _limiter;

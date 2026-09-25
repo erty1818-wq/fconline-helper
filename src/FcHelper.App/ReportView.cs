@@ -41,7 +41,8 @@ public sealed class ReportView
         Weakness = a.Weaknesses.Take(1).Select(Item).ToList();
         Matchups = r.MatchupAlerts.Take(2).Select(m => new InsightItem(m.Text, "상성")).ToList();
         Signature = a.Signature is { } s ? $"✦ 시그니처 골: {ReportText.SignatureText(r, s)}" : "";
-        DangerPlayers = a.Players.Take(2).Select(p => $"{r.PlayerName(p.SpId)}  {p.Goals}골 {p.Assists}도움 · 강화 {p.TopGrade}").ToList();
+        DangerPlayers = a.Players.Take(2).Select(p => $"{r.PlayerName(p.SpId)}  {p.Goals}골 {p.Assists}도움"
+            + (r.Market.ContainsKey(p.SpId) ? ReportText.MarketSuffix(r, p.SpId) : $" · 강화 {p.TopGrade}")).ToList();
         Traits = a.Traits.Where(t => t.Key != "controller").Take(3).Select(Item).ToList();
 
         MemoText = r.Memo?.Text ?? "";

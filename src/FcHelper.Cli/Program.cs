@@ -38,9 +38,11 @@ var options = new FcHelperOptions
 };
 var rate = double.TryParse(Option("rate"), out var r) && r > 0 ? r : 5;
 var limiter = new RateLimiter(rate);
-var api = new FcOnlineApi(new HttpClient(), apiKey, limiter);
+var http = new HttpClient();
+var api = new FcOnlineApi(http, apiKey, limiter);
 var db = new FcDatabase(Option("db") ?? AppPaths.DatabasePath);
-var service = new FcHelperService(api, db, options);
+var market = Option("market") == "off" ? null : new DataCenterClient(http, new RateLimiter(1));
+var service = new FcHelperService(api, db, options, market: market);
 
 try
 {
@@ -124,8 +126,9 @@ static void PrintUsage() => Console.Error.WriteLine("""
     FC Online Helper CLI
 
     사용법 (API 키: FCH_API_KEY 환경 변수 또는 --key):
-      fch search <닉네임> [--me <내 닉네임>] [--window 30] [--rate 5]
+      fch search <닉네임> [--me <내 닉네임>] [--window 30] [--rate 5] [--market off]
           상대 분석 카드를 출력합니다. --me를 주면 재대결 전적과 상성 경보가 나옵니다.
+          위험 선수의 능력치·시세는 FC온라인 데이터센터에서 조회합니다 (--market off로 끔).
       fch sync --me <내 닉네임>
           내 최근 경기 100건을 캐시에 저장합니다.
       fch dump <닉네임> [--count 3] [--out docs/samples]
