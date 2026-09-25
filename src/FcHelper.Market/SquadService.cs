@@ -37,7 +37,38 @@ public sealed class SquadService(
     /// </summary>
     public IReadOnlyList<MarketCard> Pool() => EnsurePool().Cards;
 
-    public MarketCard? Card(long spId) => EnsurePool().BySpId.GetValueOrDefault(spId);
+    public MarketCard? Card(long spId) => EnsurePool().BySpId.GetValueOrDefault(spId) ?? _offMarket.GetValueOrDefault(spId);
+
+    private readonly Dictionary<long, MarketCard> _offMarket = [];
+
+    /// <summary>
+    /// Cards of the user's eleven that the market data does not hold (e.g. old-season keepers, cards with no listing):
+    /// read from the data center's player page (name, season, 급여, every position's OVR) so the squad shows all eleven.
+    /// They carry no price. Returns how many could not be read.
+    /// </summary>
+    public async Task<int> LoadOffMarketAsync(IEnumerable<long> spIds, CancellationToken ct = default)
+    {
+        var missing = 0;
+        foreach (var id in spIds.Distinct().Where(id => Card(id) is null))
+        {
+            try
+            {
+                if (await AbilityAsync(id, ct, needName: true) is not { Name: { } name } a) { missing++; continue; }
+                var positions = a.Positions.OrderByDescending(kv => kv.Value).ToDictionary(kv => kv.Key, kv => kv.Value);
+                var main = positions.Keys.FirstOrDefault() ?? "ST";
+                _offMarket[id] = new MarketCard
+                {
+                    Group = Formations.GroupOf(Formations.Normalize(main)), SpId = id, Name = name, Season = a.Season ?? "",
+                    Pay = a.Pay ?? 0, Ovr1 = positions.Values.DefaultIfEmpty(0).Max(), Positions = positions,
+                };
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                missing++;
+            }
+        }
+        return missing;
+    }
 
     private (long Snapshot, IReadOnlyList<MarketCard> Cards, IReadOnlyDictionary<long, MarketCard> BySpId) EnsurePool()
     {
@@ -319,8 +350,8 @@ public sealed class SquadService(
     public CardAbility? KnownAbility(long spId) => abilities?.Known(spId);
 
     /// <summary>A card's full stats: fetched once from the data center (one request), then kept a week.</summary>
-    public async Task<CardAbility?> AbilityAsync(long spId, CancellationToken ct = default) =>
-        abilities is null ? null : await abilities.GetAsync(spId, ct);
+    public async Task<CardAbility?> AbilityAsync(long spId, CancellationToken ct = default, bool needName = false) =>
+        abilities is null ? null : await abilities.GetAsync(spId, ct, needName);
 
     /// <summary>The pictures the official squad maker offers for this footballer (every season), kept a week.</summary>
     public async Task<IReadOnlyList<FaceOption>> FaceOptionsAsync(long spId, CancellationToken ct = default)

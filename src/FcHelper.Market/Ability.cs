@@ -11,7 +11,13 @@ namespace FcHelper.Market;
 /// lists for each position. With these and <see cref="OvrFormula"/> the in-game OVR after grade, 적응도, team colours
 /// and 집중훈련 can be worked out exactly.
 /// </summary>
-public sealed record CardAbility(long SpId, IReadOnlyDictionary<string, int> Stats, IReadOnlyDictionary<string, int> Positions);
+public sealed record CardAbility(long SpId, IReadOnlyDictionary<string, int> Stats, IReadOnlyDictionary<string, int> Positions)
+{
+    /// <summary>Name, season code ("TK") and 급여 as the page shows them; null in entries saved before they were read.</summary>
+    public string? Name { get; init; }
+    public string? Season { get; init; }
+    public int? Pay { get; init; }
+}
 
 public static partial class AbilityParser
 {
@@ -24,8 +30,21 @@ public static partial class AbilityParser
         var stats = StatRegex().Matches(ScriptRegex().Replace(html, ""))
             .GroupBy(m => WebUtility.HtmlDecode(m.Groups[1].Value.Trim()))
             .ToDictionary(g => g.Key, g => int.Parse(g.First().Groups[2].Value, CultureInfo.InvariantCulture));
-        return positions.Count == 0 || stats.Count == 0 ? null : new CardAbility(spId, stats, positions);
+        if (positions.Count == 0 || stats.Count == 0) return null;
+        var name = NameRegex().Match(html);
+        var season = SeasonRegex().Match(html);
+        var pay = PayRegex().Match(html);
+        return new CardAbility(spId, stats, positions)
+        {
+            Name = name.Success ? WebUtility.HtmlDecode(name.Groups[1].Value.Trim()) : null,
+            Season = season.Success ? season.Groups[1].Value : null,
+            Pay = pay.Success ? int.Parse(pay.Groups[1].Value, CultureInfo.InvariantCulture) : null,
+        };
     }
+
+    [GeneratedRegex("""<div class="name">([^<]+)</div>""")] private static partial Regex NameRegex();
+    [GeneratedRegex("""playerCardWrap _([A-Za-z0-9_]+)""")] private static partial Regex SeasonRegex();
+    [GeneratedRegex("""<div class="pay">.*?</svg>\s*<span>(\d+)</span>""", RegexOptions.Singleline)] private static partial Regex PayRegex();
 
     [GeneratedRegex("""<div class="position (\w+) value">(\d+)</div>""")] private static partial Regex PositionRegex();
     // Only the stats tied to positions (data-positon) — the summary block above them repeats a few under other names.
@@ -66,7 +85,7 @@ public sealed class AbilityCache(MarketStore store, AbilityClient client, TimePr
     private readonly Dictionary<long, CardAbility> _memory = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private sealed record Saved(Dictionary<string, int> Stats, Dictionary<string, int> Positions);
+    private sealed record Saved(Dictionary<string, int> Stats, Dictionary<string, int> Positions, string? Name = null, string? Season = null, int? Pay = null);
 
     /// <summary>Stats already here (memory or database, even when old), without a request.</summary>
     public CardAbility? Known(long spId)
@@ -77,7 +96,7 @@ public sealed class AbilityCache(MarketStore store, AbilityClient client, TimePr
         {
             var saved = JsonSerializer.Deserialize<Saved>(v.Value);
             if (saved is null) return null;
-            var ability = new CardAbility(spId, saved.Stats, saved.Positions);
+            var ability = new CardAbility(spId, saved.Stats, saved.Positions) { Name = saved.Name, Season = saved.Season, Pay = saved.Pay };
             lock (_memory) _memory[spId] = ability;
             return ability;
         }
@@ -87,15 +106,18 @@ public sealed class AbilityCache(MarketStore store, AbilityClient client, TimePr
         }
     }
 
-    public async Task<CardAbility?> GetAsync(long spId, CancellationToken ct = default)
+    /// <param name="needName">Fetch again when the kept entry predates names (needed for cards outside the market data).</param>
+    public async Task<CardAbility?> GetAsync(long spId, CancellationToken ct = default, bool needName = false)
     {
-        if (store.GetValue(Key(spId)) is { } v && _time.GetUtcNow().UtcDateTime - v.UpdatedAt < Ttl && Known(spId) is { } fresh) return fresh;
+        if (store.GetValue(Key(spId)) is { } v && _time.GetUtcNow().UtcDateTime - v.UpdatedAt < Ttl && Known(spId) is { } fresh
+            && (!needName || fresh.Name is not null)) return fresh;
         await _gate.WaitAsync(ct);
         try
         {
             var ability = await client.FetchAsync(spId, ct);
             if (ability is null) return Known(spId);
-            store.SetValue(Key(spId), JsonSerializer.Serialize(new Saved(ability.Stats.ToDictionary(), ability.Positions.ToDictionary())), _time.GetUtcNow().UtcDateTime);
+            store.SetValue(Key(spId), JsonSerializer.Serialize(new Saved(ability.Stats.ToDictionary(), ability.Positions.ToDictionary(), ability.Name, ability.Season, ability.Pay)),
+                _time.GetUtcNow().UtcDateTime);
             lock (_memory) _memory[spId] = ability;
             return ability;
         }

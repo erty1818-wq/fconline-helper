@@ -462,6 +462,20 @@ public class SquadBuilderTests
         Assert.Equal(85, MarketGroups.OvrMinOf("GK"));
         Assert.Equal(105, MarketGroups.OvrMinOf("ST"));
     }
+    [Fact]
+    public void A_kept_affiliation_colour_takes_only_its_members_as_upgrades()
+    {
+        var cards = Market();
+        var korea = cards.Select(c => c.SpId).ToHashSet(); // the whole eleven is Korea
+        var tc = new TeamColor(2019, "대한민국", TeamColorCategory.Affiliation, 11, [new(1, 3, 1, []), new(3, 8, 3, [])]);
+        var targets = new[] { new TeamColorTarget(tc, korea) };
+        var plan = Builder(cards).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = targets })[0];
+        var current = Advisors.WithTeamColors(plan.Slots.Select(x => x with { Owned = true }).ToList(), targets);
+        // A far stronger striker from elsewhere: two swaps would still leave 9 Korea cards (level kept), but it is not Korea.
+        var foreign = Card("ST", 135, 50_000_000);
+        var upgrades = Advisors.Upgrades(current, cards.Append(foreign).ToList(), _ => null, 1_000_000_000, [8], teamColors: targets);
+        Assert.DoesNotContain(upgrades.SelectMany(u => u.Moves), m => m.In.SpId == foreign.SpId);
+    }
 }
 
 public class LiquidityTests

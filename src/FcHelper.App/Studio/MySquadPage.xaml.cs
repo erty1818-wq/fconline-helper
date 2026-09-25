@@ -36,12 +36,16 @@ public partial class MySquadPage : UserControl
             if (app.Service is { } service) await service.SyncMyMatchesAsync(20);
             if (db.FindUserByNickname(nick) is not { } me) { Status.Text = "내 경기를 찾지 못했습니다. API 키와 닉네임을 확인하세요."; return; }
             _owned = SquadContext.MyCurrentCards(db, me.Ouid);
+            // Cards the market data does not hold (old-season keepers …) are read from the data center so all eleven show.
+            Status.Text = "시세에 없는 카드 정보 받는 중…";
+            var unread = await squads.LoadOffMarketAsync(_owned.Select(o => o.SpId));
             _current = squads.CurrentSquad(_owned);
             if (_current.Count == 0) { Status.Text = "최근 공식경기 기록이 없습니다."; return; }
             Pitch.Highlighted = new HashSet<int>();
             Pitch.Show(_current);
             Who.Text = $"{nick} · 최근 공식경기 선발 {_current.Count}명 · 시세 합 {Bp.Format(_current.Sum(s => s.Price))} · 평균 OVR {_current.Average(s => s.Ovr):0.0}"
-                + (_current.Count < _owned.Count ? $" ({_owned.Count - _current.Count}명은 시세 데이터에 없음)" : "");
+                + (_current.Any(x => !x.Card.IsTraded) ? $" ({_current.Count(x => !x.Card.IsTraded)}명은 시세 없음)" : "")
+                + (unread > 0 ? $" ({unread}명은 카드 정보를 받지 못함)" : "");
             Status.Text = "팀컬러 확인 중… (처음에는 30초쯤 걸립니다)";
             var detected = await squads.DetectTeamColorsAsync(_owned);
             TeamColorChips.Children.Clear();

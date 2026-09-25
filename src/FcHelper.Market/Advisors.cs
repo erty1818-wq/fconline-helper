@@ -197,7 +197,9 @@ public static class Advisors
         teamColors ??= [];
         var counts = teamColors.Select(t => current.Count(s => t.Counts(s.Card.SpId, s.Grade))).ToArray();
         var owned = current.Select(s => s.Card.PlayerId).ToHashSet();
-        var poolList = pool.Where(c => c.IsTraded && !owned.Contains(c.PlayerId)).ToList();
+        // A 소속 colour kept means every card stays a member (a Korea squad buys Korea cards), not just enough of them.
+        var affiliations = teamColors.Where(t => t.Color.Category == TeamColorCategory.Affiliation).ToList();
+        var poolList = pool.Where(c => c.IsTraded && !owned.Contains(c.PlayerId) && affiliations.All(t => t.Members.Contains(c.SpId))).ToList();
         var options = new List<Upgrade>();
         foreach (var slot in current)
         {
