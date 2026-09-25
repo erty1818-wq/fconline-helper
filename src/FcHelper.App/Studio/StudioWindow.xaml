@@ -6,7 +6,7 @@
         Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen">
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="208" />
+            <ColumnDefinition x:Name="NavColumn" Width="208" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -15,7 +15,7 @@
         </Grid.RowDefinitions>
 
         <!-- Navigation rail -->
-        <Border Grid.RowSpan="2" Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+        <Border x:Name="NavBorder" Grid.RowSpan="2" Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
             <DockPanel Margin="12,14">
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,0,18">
                     <Image Source="{app:Skin logo}" Width="30" Height="30" />
@@ -35,7 +35,7 @@
         <!-- Page -->
         <ContentControl x:Name="Host" Grid.Column="1" Margin="20,16,20,8" Focusable="False" />
 
-        <TextBlock Grid.Column="1" Grid.Row="1" Margin="20,0,20,10" Style="{StaticResource Hint}"
+        <TextBlock x:Name="FooterText" Grid.Column="1" Grid.Row="1" Margin="20,0,20,10" Style="{StaticResource Hint}"
                    Text="Data based on NEXON Open API · 시세·랭커 데이터: FC온라인 데이터센터 · [추정] 표시는 계산으로 만든 값입니다." />
     </Grid>
 </Window>

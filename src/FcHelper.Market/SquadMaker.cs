@@ -17,7 +17,21 @@ public sealed class SquadMaker(SquadService squads, RankerUsage? rankers = null)
     {
         var pos = Formations.Normalize(position);
         var model = squads.ModelOf(card);
-        return new SquadSlot(index, pos, card, grade, card.OvrAt(pos, grade) ?? card.OvrAt(grade), model?.PremiumInOvr(card) ?? 0, 0,
+        int ovr;
+        if (card.OvrAt(pos, grade) is { } cardOvr)
+        {
+            ovr = cardOvr;
+        }
+        else if (squads.KnownAbility(card.SpId)?.Positions.TryGetValue(pos, out var aOvr) == true)
+        {
+            var gradeBonus = Grades.Bonus[grade] - Grades.Bonus[1];
+            ovr = aOvr + gradeBonus;
+        }
+        else
+        {
+            ovr = card.OvrAt(grade);
+        }
+        return new SquadSlot(index, pos, card, grade, ovr, model?.PremiumInOvr(card) ?? 0, 0,
             card.PriceAt(grade), SquadBuilder.ExpectedAt(model, card, grade), card.Pay, rankers?.Users(pos, card.SpId) ?? 0,
             rankers?.Share(pos, card.SpId) ?? 0, locked, owned);
     }

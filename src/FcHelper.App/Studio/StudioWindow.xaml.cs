@@ -45,6 +45,17 @@ public partial class StudioWindow : Window
             market.Changed += OnMarketChanged;
             Closed += (_, _) => market.Changed -= OnMarketChanged;
         }
+        PreviewKeyDown += (s, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.F11)
+            {
+                if (_created.TryGetValue("squad", out var page) && page is SquadPage sp && _buttons.TryGetValue("squad", out var b) && b.IsChecked == true)
+                {
+                    sp.ToggleFocus();
+                    e.Handled = true;
+                }
+            }
+        };
         ShowStatus();
         Navigate("squad");
     }
@@ -62,9 +73,40 @@ public partial class StudioWindow : Window
         };
     }
 
+    private WindowState _prevWindowState = WindowState.Normal;
+    private bool _inFocusMode;
+
+    public void SetFocusMode(bool on)
+    {
+        if (_inFocusMode == on) return;
+        _inFocusMode = on;
+        if (on)
+        {
+            _prevWindowState = WindowState;
+            NavColumn.Width = new GridLength(0);
+            NavBorder.Visibility = Visibility.Collapsed;
+            FooterText.Visibility = Visibility.Collapsed;
+            Host.Margin = new Thickness(0);
+            WindowState = WindowState.Maximized;
+        }
+        else
+        {
+            NavColumn.Width = new GridLength(208);
+            NavBorder.Visibility = Visibility.Visible;
+            FooterText.Visibility = Visibility.Visible;
+            Host.Margin = new Thickness(20, 16, 20, 8);
+            WindowState = _prevWindowState;
+        }
+        if (_created.TryGetValue("squad", out var p) && p is SquadPage sp)
+        {
+            sp.SetFocusMode(on);
+        }
+    }
+
     /// <summary>Opens a page, optionally handing it something to do (e.g. lock a card in the squad builder).</summary>
     public void Navigate(string key, Action<FrameworkElement>? then = null)
     {
+        if (_inFocusMode && key != "squad") SetFocusMode(false);
         _buttons[key].IsChecked = true;
         Show(key);
         then?.Invoke(_created[key]);

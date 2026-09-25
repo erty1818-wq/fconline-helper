@@ -23,13 +23,14 @@ public partial class SquadPage : UserControl
     private readonly HashSet<int> _excluded = [];
     private readonly List<ToggleButton> _grades = [];
     private SquadSlot?[] _working = new SquadSlot?[11];
-    private readonly Stack<(SquadSlot?[] Slots, string[] Positions, string Formation)> _undo = new();
+    private Spot[] _spots = Formations.LayoutOf(Formations.All[0].Name).ToArray();
+    private readonly Stack<(SquadSlot?[] Slots, Spot[] Spots, string[] Positions, string Formation, string DisplayName)> _undo = new();
     private bool _restoring;
     private IReadOnlyList<AppliedTeamColor> _workingColors = [];
     private SquadMaker? _maker;
     private RankerAllocation? _allocation;
     private int? _selected;
-    private string[] _positions = Formations.All[0].Slots;
+    private string[] _positions = Formations.LayoutOf(Formations.All[0].Name).Select(Formations.PositionAt).ToArray();
     /// <summary>The user started a hand-made squad: the pitch shows its empty slots.</summary>
     private bool _manual;
     private bool _optionsReady;
@@ -41,6 +42,9 @@ public partial class SquadPage : UserControl
         InitializeComponent();
         FormationBox.ItemsSource = Formations.All.Select(f => f.Name).ToList();
         FormationBox.SelectedIndex = 0;
+        _spots = Formations.LayoutOf(CurrentFormation.Name).ToArray();
+        _positions = _spots.Select(Formations.PositionAt).ToArray();
+        FormationName.Text = CurrentFormation.Name;
         FormationBox.SelectionChanged += async (_, _) => await OnFormationChangedAsync();
         foreach (var g in new[] { 5, 6, 7, 8, 9, 10, 11 })
         {
@@ -68,6 +72,8 @@ public partial class SquadPage : UserControl
         _optionsReady = true;
         Pitch.SlotClicked += s => _ = ShowSlotAsync(s.Index);
         Pitch.EmptySlotClicked += (i, _) => { var shown = ShowSlotAsync(i); };
+        Pitch.SlotMoved += OnSlotMoved;
+        Pitch.BackgroundClicked += OnPitchBackgroundClicked;
         Loaded += async (_, _) =>
         {
             await LoadSalaryCapAsync();
@@ -82,6 +88,28 @@ public partial class SquadPage : UserControl
                 OnUndo(this, e);
                 e.Handled = true;
             }
+            else if (e.Key == System.Windows.Input.Key.F11)
+            {
+                ToggleFocus();
+                e.Handled = true;
+            }
+            else if (e.Key == System.Windows.Input.Key.Escape)
+            {
+                if (_inFocusMode)
+                {
+                    if (FocusDrawer.Visibility == Visibility.Visible)
+                    {
+                        FocusDrawer.Visibility = Visibility.Collapsed;
+                        Pitch.Select(null);
+                        _selected = null;
+                    }
+                    else
+                    {
+                        SetFocusMode(false);
+                    }
+                    e.Handled = true;
+                }
+            }
         };
     }
 
@@ -91,7 +119,7 @@ public partial class SquadPage : UserControl
     private void Remember()
     {
         if (_restoring) return;
-        _undo.Push((_working.ToArray(), _positions, (string)FormationBox.SelectedItem));
+        _undo.Push((_working.ToArray(), _spots.ToArray(), _positions.ToArray(), (string)FormationBox.SelectedItem, FormationName.Text));
         if (_undo.Count > 30)
         {
             var keep = _undo.Take(30).Reverse().ToList();
@@ -104,12 +132,14 @@ public partial class SquadPage : UserControl
     private async void OnUndo(object sender, RoutedEventArgs e)
     {
         if (_undo.Count == 0) return;
-        var (slots, positions, formation) = _undo.Pop();
+        var (slots, spots, positions, formation, displayName) = _undo.Pop();
         _restoring = true;
-        FormationBox.SelectedItem = formation;
-        _restoring = false;
         _working = slots;
+        _spots = spots;
         _positions = positions;
+        FormationBox.SelectedItem = formation;
+        FormationName.Text = displayName;
+        _restoring = false;
         _selected = null;
         UndoButton.IsEnabled = _undo.Count > 0;
         await RefreshWorkingAsync();
@@ -152,7 +182,7 @@ public partial class SquadPage : UserControl
     }
 
     private sealed record SavedSlot(long SpId, int Grade, bool Owned, bool Locked);
-    private sealed record SavedSquad(string Name, string Formation, List<SavedSlot?> Slots, DateTime SavedAt);
+    private sealed record SavedSquad(string Name, string Formation, List<SavedSlot?> Slots, DateTime SavedAt, List<Spot>? Spots = null);
     private const string LibraryKey = "squad.library";
 
     private List<SavedSquad> Library()
@@ -182,7 +212,9 @@ public partial class SquadPage : UserControl
         if (name.Length == 0) name = $"스쿼드 {DateTime.Now:M/d HH:mm}";
         var library = Library().Where(s => s.Name != name).ToList();
         library.Add(new SavedSquad(name, (string)FormationBox.SelectedItem,
-            _working.Select(s => s is null ? null : new SavedSlot(s.Card.SpId, s.Grade, s.Owned, s.Locked)).ToList(), DateTime.Now));
+            _working.Select(s => s is null ? null : new SavedSlot(s.Card.SpId, s.Grade, s.Owned, s.Locked)).ToList(),
+            DateTime.Now,
+            _spots.ToList()));
         StudioKit.App.Db?.SetValue(LibraryKey, JsonSerializer.Serialize(library));
         LoadLibrary();
         LibraryBox.SelectedItem = name;
@@ -193,14 +225,28 @@ public partial class SquadPage : UserControl
     {
         if (LibraryBox.SelectedItem is not string name || Library().FirstOrDefault(s => s.Name == name) is not { } saved) return;
         if (StudioKit.Squads is not { } squads || await MakerAsync() is not { } maker) return;
-        if (Formations.Find(saved.Formation) is not { } formation) { Status.Text = "저장된 포메이션을 찾지 못했습니다."; return; }
         Remember();
+        var spots = saved.Spots is { Count: 11 }
+            ? saved.Spots
+            : Formations.LayoutOf(saved.Formation);
+        _spots = spots.ToArray();
+        _positions = _spots.Select(Formations.PositionAt).ToArray();
+        var detected = Formations.Detect(_spots);
+
         _restoring = true;
-        FormationBox.SelectedItem = saved.Formation;
+        if (Formations.PresetSpots.ContainsKey(detected))
+        {
+            FormationBox.SelectedItem = detected;
+            FormationName.Text = detected;
+        }
+        else
+        {
+            FormationName.Text = $"사용자 지정 {detected}";
+        }
         _restoring = false;
-        _positions = formation.Slots;
-        _working = saved.Slots.Select((x, i) => x is not null && squads.Card(x.SpId) is { } card && i < formation.Slots.Length
-            ? maker.Slot(i, formation.Slots[i], card, x.Grade, x.Owned, x.Locked) : null).ToArray();
+
+        _working = saved.Slots.Select((x, i) => x is not null && squads.Card(x.SpId) is { } card && i < _positions.Length
+            ? maker.Slot(i, _positions[i], card, x.Grade, x.Owned, x.Locked) : null).ToArray();
         _manual = true;
         _selected = null;
         await RefreshWorkingAsync();
@@ -337,85 +383,155 @@ public partial class SquadPage : UserControl
         MakerHint.Visibility = Conditions.Visibility; // folded, the page is all pitch
     }
 
-    private void OnZoomChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => ApplyZoom();
+    // ── focus mode & pitch interaction ─────────────────────────────────────
 
-    private void OnPitchAreaChanged(object sender, SizeChangedEventArgs e) => ApplyZoom();
+    private bool _inFocusMode;
 
-    /// <summary>The wheel over the pitch zooms only the pitch, around the pointer (the rest of the page stays as it is).</summary>
-    private void OnPitchWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    public void ToggleFocus() => SetFocusMode(!_inFocusMode);
+
+    private void OnToggleFocus(object sender, RoutedEventArgs e) => ToggleFocus();
+
+    private void OnExitFocus(object sender, RoutedEventArgs e) => SetFocusMode(false);
+
+    private void OnCloseDrawer(object sender, RoutedEventArgs e)
     {
-        ZoomAround(e.GetPosition(PitchScroll), ZoomSlider.Value * (e.Delta > 0 ? 1.15 : 1 / 1.15));
-        e.Handled = true;
+        FocusDrawer.Visibility = Visibility.Collapsed;
+        Pitch.Select(null);
+        _selected = null;
     }
 
-    private void ZoomAround(Point anchor, double zoom)
+    private void OnToggleFocusCollapse(object sender, RoutedEventArgs e)
     {
-        var old = ZoomSlider.Value;
-        zoom = Math.Clamp(zoom, ZoomSlider.Minimum, ZoomSlider.Maximum);
-        if (Math.Abs(zoom - old) < 0.001) return;
-        var x = PitchScroll.HorizontalOffset + anchor.X;
-        var y = PitchScroll.VerticalOffset + anchor.Y;
-        ZoomSlider.Value = zoom; // ApplyZoom resizes the pitch
-        PitchScroll.UpdateLayout();
-        PitchScroll.ScrollToHorizontalOffset(x * zoom / old - anchor.X);
-        PitchScroll.ScrollToVerticalOffset(y * zoom / old - anchor.Y);
-    }
-
-    private Point Center => new(PitchScroll.ActualWidth / 2, PitchScroll.ActualHeight / 2);
-    private void OnZoomIn(object sender, RoutedEventArgs e) => ZoomAround(Center, ZoomSlider.Value + 0.25);
-    private void OnZoomOut(object sender, RoutedEventArgs e) => ZoomAround(Center, ZoomSlider.Value - 0.25);
-    private void OnZoomReset(object sender, RoutedEventArgs e) => ZoomSlider.Value = 1;
-
-    private Point? _dragFrom;
-    private (double X, double Y) _dragOffset;
-    private bool _dragged;
-
-    /// <summary>Zoomed in, dragging the pitch moves it (a short press is still a click on a card).</summary>
-    private void OnPitchPress(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        _dragged = false;
-        _dragFrom = ZoomSlider.Value > 1.001 ? e.GetPosition(PitchScroll) : null;
-        _dragOffset = (PitchScroll.HorizontalOffset, PitchScroll.VerticalOffset);
-    }
-
-    private void OnPitchDrag(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (_dragFrom is not { } from || e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
-        var now = e.GetPosition(PitchScroll);
-        if (!_dragged && (now - from).Length < 5) return;
-        if (!_dragged)
+        if (FocusPanelBody.Visibility == Visibility.Visible)
         {
-            _dragged = true;
-            PitchScroll.CaptureMouse();
-            PitchScroll.Cursor = System.Windows.Input.Cursors.SizeAll;
+            FocusPanelBody.Visibility = Visibility.Collapsed;
+            FocusCollapseBtn.Content = "▶";
         }
-        PitchScroll.ScrollToHorizontalOffset(_dragOffset.X - (now.X - from.X));
-        PitchScroll.ScrollToVerticalOffset(_dragOffset.Y - (now.Y - from.Y));
+        else
+        {
+            FocusPanelBody.Visibility = Visibility.Visible;
+            FocusCollapseBtn.Content = "◀";
+        }
     }
 
-    private void OnPitchRelease(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    public void SetFocusMode(bool on)
     {
-        _dragFrom = null;
-        if (!_dragged) return;
-        PitchScroll.ReleaseMouseCapture();
-        PitchScroll.Cursor = null;
-        _dragged = false;
-        e.Handled = true; // the end of a drag is not a click on the card under the pointer
+        if (_inFocusMode == on) return;
+        _inFocusMode = on;
+
+        (Window.GetWindow(this) as StudioWindow)?.SetFocusMode(on);
+
+        if (on)
+        {
+            RequestBorder.Visibility = Visibility.Collapsed;
+            Status.Visibility = Visibility.Collapsed;
+            ToolsBorder.Visibility = Visibility.Collapsed;
+            MainSplitter.Visibility = Visibility.Collapsed;
+            SplitterBar.Visibility = Visibility.Collapsed;
+            SideDock.Visibility = Visibility.Collapsed;
+            SplitterColumn.Width = new GridLength(0);
+            SideColumn.Width = new GridLength(0);
+
+            NormalFormationHost.Children.Remove(FormationBox);
+            NormalFormationHost.Children.Remove(FormationName);
+            FocusFormationHost.Children.Add(FormationBox);
+            FocusFormationHost.Children.Add(FormationName);
+
+            SideDetailHost.Child = null;
+            FocusDrawerHost.Child = DetailScroller;
+
+            FocusPanel.Visibility = Visibility.Visible;
+            FocusDrawer.Visibility = _selected is not null ? Visibility.Visible : Visibility.Collapsed;
+
+            FocusTotals.Text = Totals.Text;
+            FocusTotals.Foreground = Totals.Foreground;
+            FocusTeamColors.Text = TeamColorsLine.Text;
+        }
+        else
+        {
+            RequestBorder.Visibility = Visibility.Visible;
+            Status.Visibility = Visibility.Visible;
+            ToolsBorder.Visibility = Visibility.Visible;
+            MainSplitter.Visibility = Visibility.Visible;
+            SplitterBar.Visibility = Visibility.Visible;
+            SideDock.Visibility = Visibility.Visible;
+            SplitterColumn.Width = new GridLength(12);
+            SideColumn.Width = new GridLength(400);
+
+            FocusFormationHost.Children.Remove(FormationBox);
+            FocusFormationHost.Children.Remove(FormationName);
+            NormalFormationHost.Children.Add(FormationBox);
+            NormalFormationHost.Children.Add(FormationName);
+
+            FocusDrawerHost.Child = null;
+            SideDetailHost.Child = DetailScroller;
+
+            FocusPanel.Visibility = Visibility.Collapsed;
+            FocusDrawer.Visibility = Visibility.Collapsed;
+        }
     }
 
-    /// <summary>The pitch takes the whole area at 100% and grows with the zoom (the cards and names grow with it).</summary>
-    private void ApplyZoom()
+    private async void OnSlotMoved(int slot, Spot to)
     {
-        if (Pitch is null || PitchScroll is null || ZoomSlider is null) return;
-        var zoom = ZoomSlider.Value;
-        // Scroll bars only when zoomed in: at 100% the pitch fits exactly.
-        var scroll = zoom > 1.001 ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
-        PitchScroll.HorizontalScrollBarVisibility = PitchScroll.VerticalScrollBarVisibility = scroll;
-        var w = Math.Max(200, PitchScroll.ActualWidth - (zoom > 1.001 ? 12 : 0));
-        var h = Math.Max(200, PitchScroll.ActualHeight - (zoom > 1.001 ? 12 : 0));
-        Pitch.Width = w * zoom;
-        Pitch.Height = h * zoom;
-        if (ZoomText is not null) ZoomText.Content = $"{zoom * 100:0}%";
+        var move = Formations.Move(_spots, slot, to);
+        if (!move.Success)
+        {
+            Status.Text = move.Reason ?? "이동할 수 없습니다.";
+            return;
+        }
+        if (_spots.SequenceEqual(move.Spots)) return;
+
+        Remember();
+        var otherIndex = -1;
+        for (var i = 0; i < _spots.Length; i++)
+        {
+            if (i != slot && _spots[i] == to)
+            {
+                otherIndex = i;
+                break;
+            }
+        }
+        _spots = move.Spots.ToArray();
+        _positions = _spots.Select(Formations.PositionAt).ToArray();
+
+        if (StudioKit.Squads is { } squads && await MakerAsync() is { } maker)
+        {
+            if (_working[slot] is { } curSlot)
+            {
+                _working[slot] = maker.Slot(slot, _positions[slot], curSlot.Card, curSlot.Grade, curSlot.Owned, curSlot.Locked);
+            }
+            if (otherIndex >= 0 && _working[otherIndex] is { } otherSlot)
+            {
+                _working[otherIndex] = maker.Slot(otherIndex, _positions[otherIndex], otherSlot.Card, otherSlot.Grade, otherSlot.Owned, otherSlot.Locked);
+            }
+        }
+
+        var detected = Formations.Detect(_spots);
+        _restoring = true;
+        if (Formations.PresetSpots.ContainsKey(detected))
+        {
+            FormationBox.SelectedItem = detected;
+            FormationName.Text = detected;
+        }
+        else
+        {
+            FormationName.Text = $"사용자 지정 {detected}";
+        }
+        _restoring = false;
+
+        await RefreshWorkingAsync();
+        Status.Text = "";
+        if (_selected is { } sel) _ = ShowSlotAsync(sel);
+    }
+
+    private void OnPitchBackgroundClicked()
+    {
+        if (_inFocusMode && FocusDrawer.Visibility == Visibility.Visible)
+        {
+            FocusDrawer.Visibility = Visibility.Collapsed;
+            Pitch.Select(null);
+            _selected = null;
+        }
     }
 
     // ── AI ─────────────────────────────────────────────────────────────────
@@ -440,7 +556,9 @@ public partial class SquadPage : UserControl
         }
         return new SquadRequest
         {
-            Formation = CurrentFormation,
+            Formation = Formations.Custom(
+                FormationName.Text.Length > 0 ? FormationName.Text : CurrentFormation.Name,
+                _spots.Select(s => Formations.Normalize(Formations.PositionAt(s)))),
             Budget = budget,
             SalaryCap = StudioKit.IntOr(CapBox, int.MaxValue),
             Grades = grades,
@@ -488,7 +606,13 @@ public partial class SquadPage : UserControl
         if (_working.Any(s => s is not null)) Remember();
         _working = card.Plan.Slots.OrderBy(s => s.Index).Select(s => (SquadSlot?)s).ToArray();
         _workingColors = card.Plan.TeamColors;
-        _positions = card.Plan.Formation.Slots;
+        if (Formations.PresetSpots.ContainsKey(card.Plan.Formation.Name))
+        {
+            _spots = Formations.LayoutOf(card.Plan.Formation.Name).ToArray();
+            FormationBox.SelectedItem = card.Plan.Formation.Name;
+            FormationName.Text = card.Plan.Formation.Name;
+        }
+        _positions = _spots.Select(Formations.PositionAt).ToArray();
         _selected = null;
         ApplyFinals();
         ShowWorking();
@@ -521,8 +645,10 @@ public partial class SquadPage : UserControl
     private async void OnNewSquad(object sender, RoutedEventArgs e)
     {
         if (_working.Any(s => s is not null)) Remember();
-        _working = new SquadSlot?[CurrentFormation.Slots.Length];
-        _positions = CurrentFormation.Slots;
+        _spots = Formations.LayoutOf(CurrentFormation.Name).ToArray();
+        _positions = _spots.Select(Formations.PositionAt).ToArray();
+        FormationName.Text = CurrentFormation.Name;
+        _working = new SquadSlot?[11];
         _manual = true;
         _selected = null;
         Modes.SelectedIndex = -1;
@@ -534,8 +660,10 @@ public partial class SquadPage : UserControl
     {
         if (_restoring || await MakerAsync() is not { } maker) return;
         Remember();
+        _spots = Formations.LayoutOf(CurrentFormation.Name).ToArray();
+        _positions = _spots.Select(Formations.PositionAt).ToArray();
+        FormationName.Text = CurrentFormation.Name;
         _working = maker.Remap(_working, CurrentFormation).ToArray();
-        _positions = CurrentFormation.Slots;
         _selected = null;
         await RefreshWorkingAsync();
     }
@@ -642,7 +770,7 @@ public partial class SquadPage : UserControl
     {
         var any = _working.Any(s => s is not null);
         EmptyState.Visibility = any || _manual ? Visibility.Collapsed : Visibility.Visible;
-        Pitch.Show(_working, _positions);
+        Pitch.Show(_working, _positions, _spots);
         Pitch.Select(_selected);
         var filled = _working.Where(s => s is not null).Cast<SquadSlot>().ToList();
         var cap = StudioKit.IntOr(CapBox, int.MaxValue);
@@ -658,6 +786,10 @@ public partial class SquadPage : UserControl
         var fixedCount = filled.Count(s => s.Locked || s.Owned);
         LockInfo.Text = (fixedCount > 0 ? $"🔒 고정 {fixedCount}명 (AI가 바꾸지 않음)" : "")
             + (_excluded.Count > 0 ? $"   ✕ 제외 {string.Join(", ", _excluded.Select(p => StudioKit.Squads?.Pool().FirstOrDefault(c => c.PlayerId == p)?.Name ?? p.ToString()))}" : "");
+
+        FocusTotals.Text = Totals.Text;
+        FocusTotals.Foreground = Totals.Foreground;
+        FocusTeamColors.Text = TeamColorsLine.Text;
     }
 
     private void ShowHint(string text)
@@ -673,6 +805,10 @@ public partial class SquadPage : UserControl
         if (await MakerAsync() is not { } maker) return;
         _selected = index;
         Pitch.Select(index);
+        if (_inFocusMode)
+        {
+            FocusDrawer.Visibility = Visibility.Visible;
+        }
         var position = Formations.Normalize(_positions[index]);
         var s = _working[index];
         var grade = s?.Grade ?? DefaultGrade;
