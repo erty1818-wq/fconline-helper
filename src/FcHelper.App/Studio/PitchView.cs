@@ -144,7 +144,11 @@ public sealed class PitchView : Viewbox
                 + (s.RankerUsers > 0 ? $" · 랭커 {s.RankerUsers}명" : "") + (s.Locked ? "\n고정됨" : ""),
         };
         if (s.Locked)
+        {
+            // Detach the panel first: an element can have one parent (fixed and owned cards crashed 내 스쿼드 here).
+            border.Child = null;
             border.Child = new Grid { Children = { panel, new TextBlock { Text = "🔒", FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top } } };
+        }
         border.MouseLeftButtonUp += (_, _) =>
         {
             Selected = s.Index;

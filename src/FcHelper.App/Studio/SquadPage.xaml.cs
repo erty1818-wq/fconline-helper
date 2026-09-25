@@ -221,7 +221,7 @@ public partial class SquadPage : UserControl
             if (await RequestAsync(squads, FixedSlots()) is not { } request) return;
             Status.Text = "계산 중… (처음에는 랭커 데이터를 받느라 1분쯤 걸립니다)";
             var (from, to) = RankRange;
-            var plans = await squads.CompareModesAsync(request, from, to);
+            var plans = await squads.CompareModesAsync(request, from, to, progress: new Progress<string>(m => Status.Text = m));
             Status.Text = plans.Count == 0 ? "조건에 맞는 스쿼드가 없습니다." : "";
             var cheapest = plans.MinBy(p => p.TotalPrice);
             var strongest = plans.MaxBy(p => p.AverageEffectiveOvr);
@@ -256,7 +256,7 @@ public partial class SquadPage : UserControl
             if (await RequestAsync(squads, FixedSlots(allFilled: true)) is not { } request) return;
             Status.Text = "빈 자리 채우는 중…";
             var (from, to) = RankRange;
-            var plan = (await squads.BuildAsync(request with { Mode = SquadMode.Balanced, Plans = 1 }, from, to)).FirstOrDefault();
+            var plan = (await squads.BuildAsync(request with { Mode = SquadMode.Balanced, Plans = 1 }, from, to, progress: new Progress<string>(m => Status.Text = m))).FirstOrDefault();
             if (plan is null) { Status.Text = "조건에 맞는 카드가 없습니다."; return; }
             var kept = _working.ToArray();
             _working = plan.Slots.OrderBy(s => s.Index).Select(s => kept[s.Index] ?? s).Select(s => (SquadSlot?)s).ToArray();
@@ -275,7 +275,7 @@ public partial class SquadPage : UserControl
         _selected = null;
         Modes.SelectedIndex = -1;
         await RefreshWorkingAsync();
-        ShowHint("빈 자리(+)를 누르고 선수를 고르세요. 일부만 넣고 [빈 자리 AI로 채우기]를 눌러도 됩니다.");
+        ShowHint("빈 자리(+)를 누르고 선수를 고르세요. 직접 넣은 선수는 🔒 고정되어, [AI 추천 스쿼드]나 [빈 자리 AI로 채우기]를 누르면 나머지 자리만 AI가 채웁니다.");
     }
 
     private async Task OnFormationChangedAsync()
@@ -405,12 +405,22 @@ public partial class SquadPage : UserControl
         var members = await AffiliationMembersAsync();
         var spent = _working.Where((x, i) => x is not null && i != index && !x.Owned).Sum(x => x!.Price);
         var maxPrice = budget < long.MaxValue ? Math.Max(0, budget - spent) : long.MaxValue;
-        var suggestions = await Task.Run(() => maker.Suggest(index, position, grade, s, UsedPlayers(index), budget, _allocation, members: members, maxPrice: maxPrice));
+        var found = await Task.Run(() => maker.Suggest(index, position, grade, s, UsedPlayers(index), budget, _allocation, perKind: 5, members: members, maxPrice: maxPrice));
         if (_selected != index) return;
+        // Listings that hardly trade are left out (each card and grade is checked once, then kept three days).
+        var checking = new TextBlock { Text = "대체 선수 거래량 확인 중…", Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 14, 0, 0) };
+        Detail.Children.Add(checking);
+        IReadOnlySet<(long SpId, int Grade)> illiquid = StudioKit.Squads is { } sq
+            ? await sq.IlliquidAsync(found.Select(x => (x.Slot.Card.SpId, x.Slot.Grade)), new Progress<string>(m => checking.Text = m))
+            : new HashSet<(long, int)>();
+        if (_selected != index) return;
+        Detail.Children.Remove(checking);
+        var suggestions = found.Where(x => !illiquid.Contains((x.Slot.Card.SpId, x.Slot.Grade))).GroupBy(x => x.Reason).SelectMany(g => g.Take(3)).ToList();
         Detail.Children.Add(new TextBlock { Text = s is null ? "추천 선수" : "대체 선수", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 0) });
         Detail.Children.Add(new TextBlock
         {
-            Text = (members is null ? "" : "소속 팀컬러 선수만 · ") + (maxPrice < long.MaxValue ? $"남은 예산 {Bp.Format(maxPrice)} 안에서" : "예산 제한 없음"),
+            Text = (members is null ? "" : "소속 팀컬러 선수만 · ") + (maxPrice < long.MaxValue ? $"남은 예산 {Bp.Format(maxPrice)} 안에서" : "예산 제한 없음")
+                + (illiquid.Count > 0 ? $" · 거래가 거의 없는 {illiquid.Count}장 제외" : ""),
             Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 0, 0, 4),
         });
         if (suggestions.Count == 0) Detail.Children.Add(new TextBlock { Text = "조건에 맞는 대체 카드가 없습니다.", Style = (Style)FindResource("Hint") });
@@ -463,10 +473,14 @@ public partial class SquadPage : UserControl
         }
     }
 
-    /// <summary>One card offered for a slot; clicking puts it in (keeping the fixed/owned marks of the slot).</summary>
+    /// <summary>
+    /// One card offered for a slot. Clicking puts it in fixed (🔒), so [AI 추천 스쿼드] and [빈 자리 AI로 채우기] build
+    /// around the players the user chose; a listing that hardly trades gets a warning.
+    /// </summary>
     private Button CandidateButton(int index, SquadSlot candidate, SquadSlot? current)
     {
         var c = candidate.Card;
+        var known = StudioKit.Squads?.KnownLiquidity(c.SpId, candidate.Grade);
         var text = new StackPanel
         {
             Children =
@@ -475,7 +489,8 @@ public partial class SquadPage : UserControl
                 new TextBlock
                 {
                     Text = $"OVR {candidate.Ovr} · 환산 {candidate.EffectiveOvr:0.0} · {Bp.Format(candidate.Price)} · 급여 {c.Pay}"
-                        + (current is null ? "" : $" · {(candidate.Price - current.Price >= 0 ? "+" : "−")}{Bp.Format(Math.Abs(candidate.Price - current.Price))}"),
+                        + (current is null ? "" : $" · {(candidate.Price - current.Price >= 0 ? "+" : "−")}{Bp.Format(Math.Abs(candidate.Price - current.Price))}")
+                        + (known is { Tradable: false } ? " · ⚠ 거래 거의 없음" : ""),
                     Style = (Style)FindResource("Hint"),
                 },
             },
@@ -485,7 +500,20 @@ public partial class SquadPage : UserControl
             Content = text, HorizontalContentAlignment = HorizontalAlignment.Left, Style = (Style)FindResource("Ghost"),
             Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        b.Click += async (_, _) => await SetSlotAsync(index, candidate with { Locked = current?.Locked ?? false });
+        b.Click += async (_, _) =>
+        {
+            await SetSlotAsync(index, candidate with { Locked = true });
+            if (StudioKit.Squads is not { } squads) return;
+            try
+            {
+                if (await squads.LiquidityAsync(c.SpId, candidate.Grade) is { Tradable: false } l)
+                    Status.Text = $"{c.Name} {c.Season} +{candidate.Grade}: 최근 30일 시세가 {l.Changes30}번만 바뀐 매물입니다. 실제로 구하기 어려울 수 있습니다.";
+            }
+            catch (HttpRequestException)
+            {
+                // No warning when the data center cannot be reached.
+            }
+        };
         return b;
     }
 

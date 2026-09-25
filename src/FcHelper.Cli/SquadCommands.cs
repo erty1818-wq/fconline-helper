@@ -21,7 +21,8 @@ internal static class SquadCommands
         var squads = new SquadService(market, store, new DataCenterChartClient(http, dataCenter),
             new TeamColorCache(store, new DataCenterTeamColorClient(http, dataCenter, lists)), api,
             salaryCap: new SalaryCapCache(store, new SalaryCapSource(http, dataCenter)),
-            rankerSquads: new RankerSquadClient(http, dataCenter, () => api));
+            rankerSquads: new RankerSquadClient(http, dataCenter, () => api),
+            liquidity: new LiquidityCache(store, new PriceHistoryClient(http, dataCenter)));
         if (store.LatestFinished() is null)
         {
             Console.Error.WriteLine("시세 데이터가 없습니다. 앱을 켜 두면 자동으로 받습니다.");
@@ -257,7 +258,7 @@ internal static class SquadCommands
         Console.WriteLine($"판매 수수료 {fee.Rate:P0} (기본 40%{(fee.BenefitPercent > 0 ? $", 혜택 -{fee.BenefitPercent}%" : "")}{(fee.CouponPercent > 0 ? $", 쿠폰 -{fee.CouponPercent}%" : "")})");
         // By default look at the grades the user already plays with.
         var grades = option("grades") is { } gs ? gs.Split(',').Select(g => Int(g, 8)).ToList() : owned.Select(o => o.Grade).Distinct().Order().ToList();
-        var plans = await squads.UpgradesAsync(owned, Price(option("budget"), 500_000_000), grades, fee, teamColorIds: teamColors);
+        var plans = await squads.UpgradesAsync(owned, Price(option("budget"), 500_000_000), grades, fee, teamColorIds: teamColors, checkLiquidity: option("liq") is not ("no" or "0"));
         Console.WriteLine($"\n예산 {Bp.Format(Price(option("budget"), 500_000_000))} 안에서 효과 큰 교체:");
         foreach (var p in plans)
             Console.WriteLine("  " + string.Join(" + ", p.Moves.Select(m => $"{m.Out.Card.Name}→{m.In.Name} {m.In.Season} +{m.Grade} (OVR {m.Ovr}, +{m.EffectiveGain:0.0})"))

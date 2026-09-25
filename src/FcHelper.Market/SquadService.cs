@@ -12,7 +12,8 @@ namespace FcHelper.Market;
 /// </summary>
 public sealed class SquadService(
     MarketService market, MarketStore store, IRankerChartSource charts, TeamColorCache teamColors,
-    IRankerStatsSource? rankerStats = null, TimeProvider? time = null, SalaryCapCache? salaryCap = null, IRankerSquadSource? rankerSquads = null)
+    IRankerStatsSource? rankerStats = null, TimeProvider? time = null, SalaryCapCache? salaryCap = null, IRankerSquadSource? rankerSquads = null,
+    LiquidityCache? liquidity = null)
 {
     public const int OfficialMatch = 50;
     public static readonly TimeSpan ChartTtl = TimeSpan.FromHours(12);
@@ -116,13 +117,59 @@ public sealed class SquadService(
 
     // ── squads ─────────────────────────────────────────────────────────────
 
-    public async Task<IReadOnlyList<SquadPlan>> BuildAsync(SquadRequest request, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default)
+    /// <remarks>
+    /// Cards picked at a grade that hardly trades (see <see cref="CardLiquidity"/>) are excluded and the squad is built
+    /// again, up to three rounds; fixed and owned cards are never checked.
+    /// </remarks>
+    public async Task<IReadOnlyList<SquadPlan>> BuildAsync(SquadRequest request, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default,
+        IProgress<string>? progress = null)
     {
         var chart = await ChartAsync(rankFrom, rankTo, ct: ct);
         var rankers = chart is null ? null : new RankerUsage(chart.Picks);
         var pool = Pool();
-        return await Task.Run(() => new SquadBuilder(pool, c => ModelOf(c), rankers).Build(request), ct);
+        var plans = await Task.Run(() => new SquadBuilder(pool, c => ModelOf(c), rankers).Build(request), ct);
+        for (var round = 0; round < 3 && liquidity is not null; round++)
+        {
+            var bad = await IlliquidAsync(plans.SelectMany(p => p.Slots).Where(s => !s.Locked && !s.Owned).Select(s => (s.Card.SpId, s.Grade)), progress, ct);
+            if (bad.Count == 0) break;
+            request = request with { ExcludedCards = request.ExcludedCards.Concat(bad).ToHashSet() };
+            var again = request;
+            plans = await Task.Run(() => new SquadBuilder(pool, c => ModelOf(c), rankers).Build(again), ct);
+        }
+        return plans;
     }
+
+    // ── liquidity ──────────────────────────────────────────────────────────
+
+    /// <summary>The cards (at their grades) that hardly trade; each is measured once per three days (one request).</summary>
+    public async Task<IReadOnlySet<(long SpId, int Grade)>> IlliquidAsync(IEnumerable<(long SpId, int Grade)> cards, IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        var bad = new HashSet<(long, int)>();
+        if (liquidity is null) return bad;
+        var list = cards.Distinct().ToList();
+        var unknown = list.Count(c => liquidity.Known(c.SpId, c.Grade) is null);
+        var done = 0;
+        foreach (var (spId, grade) in list)
+        {
+            if (liquidity.Known(spId, grade) is null) progress?.Report($"거래량 확인 중 {++done}/{unknown} (처음 한 번)");
+            try
+            {
+                if (!(await liquidity.GetAsync(spId, grade, ct)).Tradable) bad.Add((spId, grade));
+            }
+            catch (HttpRequestException)
+            {
+                // Unknown counts as tradable: better an odd card than no squad.
+            }
+        }
+        return bad;
+    }
+
+    /// <summary>Known liquidity without a request, for marking search results.</summary>
+    public CardLiquidity? KnownLiquidity(long spId, int grade) => liquidity?.Known(spId, grade);
+
+    public async Task<CardLiquidity?> LiquidityAsync(long spId, int grade, CancellationToken ct = default) =>
+        liquidity is null ? null : await liquidity.GetAsync(spId, grade, ct);
 
     /// <summary>The manual squad maker, with today's ranker usage for its suggestions.</summary>
     public async Task<SquadMaker> MakerAsync(int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default)
@@ -132,14 +179,15 @@ public sealed class SquadService(
     }
 
     /// <summary>The best plan of every mode for the same request, for side-by-side comparison.</summary>
-    public async Task<IReadOnlyList<SquadPlan>> CompareModesAsync(SquadRequest request, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SquadPlan>> CompareModesAsync(SquadRequest request, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default,
+        IProgress<string>? progress = null)
     {
         var plans = new List<SquadPlan>();
         foreach (var mode in Enum.GetValues<SquadMode>())
         {
             try
             {
-                plans.AddRange((await BuildAsync(request with { Mode = mode, Plans = 1 }, rankFrom, rankTo, ct)).Take(1));
+                plans.AddRange((await BuildAsync(request with { Mode = mode, Plans = 1 }, rankFrom, rankTo, ct, progress)).Take(1));
             }
             catch (InvalidOperationException) when (mode == SquadMode.RankerPicks)
             {
@@ -203,10 +251,22 @@ public sealed class SquadService(
 
     /// <param name="teamColorIds">Team colours to keep at their level (see <see cref="Advisors.Upgrades"/>).</param>
     public async Task<IReadOnlyList<UpgradePlan>> UpgradesAsync(IEnumerable<OwnedCard> owned, long budget, IReadOnlyList<int> grades, SaleFee? fee = null,
-        int maxMoves = 2, IReadOnlyList<int>? teamColorIds = null, CancellationToken ct = default)
+        int maxMoves = 2, IReadOnlyList<int>? teamColorIds = null, CancellationToken ct = default, bool checkLiquidity = true)
     {
         var targets = await TargetsAsync(teamColorIds ?? [], ct);
-        return Advisors.Upgrades(CurrentSquad(owned, targets), Pool(), c => ModelOf(c), budget, grades, fee, maxMoves, teamColors: targets);
+        // Cards that do not trade at their grade (often +13 listings of cheap seasons) are excluded and the search is
+        // run again, up to three rounds, so the plans only buy what can be bought.
+        var current = CurrentSquad(owned, targets);
+        var excluded = new HashSet<(long, int)>();
+        var plans = Advisors.Upgrades(current, Pool(), c => ModelOf(c), budget, grades, fee, maxMoves, teamColors: targets);
+        for (var round = 0; round < 3 && checkLiquidity; round++)
+        {
+            var bad = await IlliquidAsync(plans.SelectMany(p => p.Moves).Select(m => (m.In.SpId, m.Grade)), ct: ct);
+            if (bad.Count == 0) break;
+            excluded.UnionWith(bad);
+            plans = Advisors.Upgrades(current, Pool(), c => ModelOf(c), budget, grades, fee, maxMoves, teamColors: targets, excluded: excluded);
+        }
+        return checkLiquidity ? plans.Where(p => p.Moves.All(m => !excluded.Contains((m.In.SpId, m.Grade)))).ToList() : plans;
     }
 
     /// <summary>

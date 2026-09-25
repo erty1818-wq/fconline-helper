@@ -190,7 +190,8 @@ public static class Advisors
     /// <param name="teamColors">Colours to keep: a swap may not drop one to a lower level. A 소속 bonus stays with the
     /// slot whoever comes in; a 특성 bonus only when the new card is a member too.</param>
     public static IReadOnlyList<UpgradePlan> Upgrades(IReadOnlyList<SquadSlot> current, IEnumerable<MarketCard> pool, Func<MarketCard, PriceModel?> modelOf,
-        long budget, IReadOnlyList<int> grades, SaleFee? fee = null, int maxMoves = 2, int top = 5, IReadOnlyList<TeamColorTarget>? teamColors = null)
+        long budget, IReadOnlyList<int> grades, SaleFee? fee = null, int maxMoves = 2, int top = 5, IReadOnlyList<TeamColorTarget>? teamColors = null,
+        IReadOnlySet<(long SpId, int Grade)>? excluded = null)
     {
         fee ??= SaleFee.Standard;
         teamColors ??= [];
@@ -210,7 +211,7 @@ public static class Advisors
                 {
                     var ovr = c.OvrAt(slot.Position, g);
                     var price = c.PriceAt(g);
-                    if (ovr is null || price <= Grades.FloorPrice || price - sale > budget) continue;
+                    if (ovr is null || price <= Grades.FloorPrice || price - sale > budget || excluded?.Contains((c.SpId, g)) == true) continue;
                     var gain = ovr.Value + colorBonus + (modelOf(c)?.PremiumInOvr(c) ?? 0) - slot.EffectiveOvr;
                     if (gain > 0.5) best.Add(new Upgrade(slot, c, g, ovr.Value, gain, price, sale));
                 }

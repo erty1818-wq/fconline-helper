@@ -24,6 +24,8 @@ public sealed record SquadRequest
     public SquadMode Mode { get; init; } = SquadMode.Strongest;
     /// <summary>Slots filled already: slot index → card and grade. Owned cards cost nothing.</summary>
     public IReadOnlyDictionary<int, LockedCard> Locked { get; init; } = new Dictionary<int, LockedCard>();
+    /// <summary>Cards not to use at a grade (e.g. listings that do not trade there).</summary>
+    public IReadOnlySet<(long SpId, int Grade)> ExcludedCards { get; init; } = new HashSet<(long, int)>();
     /// <summary>Footballers not to use (player id = spid % 1,000,000).</summary>
     public IReadOnlySet<int> ExcludedPlayers { get; init; } = new HashSet<int>();
     /// <summary>
@@ -140,7 +142,7 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
             foreach (var g in r.Grades)
             {
                 var price = card.PriceAt(g);
-                if (price <= Grades.FloorPrice || price > r.Budget) continue;
+                if (price <= Grades.FloorPrice || price > r.Budget || r.ExcludedCards.Contains((card.SpId, g))) continue;
                 list.Add(Make(card, position, g, r, locked: false, owned: false));
             }
         }

@@ -261,6 +261,19 @@ public class SquadBuilderTests
     }
 
     [Fact]
+    public void Excluded_cards_are_not_used_at_that_grade()
+    {
+        var cards = Market();
+        var request = new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 4_000_000_000 };
+        var first = Builder(cards).Build(request)[0];
+        var gk = first.Slots.Single(s => s.Position == "GK");
+
+        var again = Builder(cards).Build(request with { ExcludedCards = new HashSet<(long, int)> { (gk.Card.SpId, gk.Grade) } })[0];
+
+        Assert.DoesNotContain(again.Slots, s => s.Card.SpId == gk.Card.SpId && s.Grade == gk.Grade);
+    }
+
+    [Fact]
     public void Ranker_allocation_moves_the_money_to_the_strikers()
     {
         var cards = Market();
@@ -321,6 +334,33 @@ public class SquadBuilderTests
         Assert.NotEmpty(upgrades);
         if (plan.TeamColors[0].Members == 3)
             Assert.All(upgrades.SelectMany(u => u.Moves), m => Assert.True(!members.Contains(m.Out.Card.SpId) || members.Contains(m.In.SpId)));
+    }
+}
+
+public class LiquidityTests
+{
+    [Fact]
+    public void Reads_the_daily_prices_of_the_price_graph()
+    {
+        const string html = """
+            <script> var json1 = {
+                "time": [ "9.22", "9.23", "9.24", ],
+                "value": [ "117490900", "141000000", "141000000", ],
+            }; </script>
+            """;
+        Assert.Equal([117_490_900L, 141_000_000, 141_000_000], PriceHistoryClient.Parse(html));
+    }
+
+    [Fact]
+    public void A_price_that_rarely_moves_is_a_listing_nobody_sells()
+    {
+        var busy = Enumerable.Range(0, 60).Select(i => 100L + i).ToList();
+        var stale = Enumerable.Range(0, 60).Select(i => 100L + i / 10).ToList(); // moves every ten days
+        Assert.True(PriceHistoryClient.Measure(1, 8, busy).Tradable);
+        var s = PriceHistoryClient.Measure(1, 11, stale);
+        Assert.Equal(3, s.Changes30);
+        Assert.False(s.Tradable);
+        Assert.True(PriceHistoryClient.Measure(1, 13, [5, 5, 5]).Tradable); // too new to judge
     }
 }
 
