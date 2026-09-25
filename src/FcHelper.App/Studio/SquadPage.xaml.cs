@@ -1,4 +1,6 @@
+using System.IO;
 using System.Net.Http;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -21,6 +23,8 @@ public partial class SquadPage : UserControl
     private readonly HashSet<int> _excluded = [];
     private readonly List<ToggleButton> _grades = [];
     private SquadSlot?[] _working = new SquadSlot?[11];
+    private readonly Stack<(SquadSlot?[] Slots, string[] Positions, string Formation)> _undo = new();
+    private bool _restoring;
     private IReadOnlyList<AppliedTeamColor> _workingColors = [];
     private SquadMaker? _maker;
     private RankerAllocation? _allocation;
@@ -62,6 +66,146 @@ public partial class SquadPage : UserControl
             await LoadTeamColorsAsync();
         };
         ShowWorking();
+        LoadLibrary();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Z && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0 && e.OriginalSource is not TextBox)
+            {
+                OnUndo(this, e);
+                e.Handled = true;
+            }
+        };
+    }
+
+    // ── undo, image, library ───────────────────────────────────────────────
+
+    /// <summary>Keeps the eleven (and formation) before a change, for 되돌리기 / Ctrl + Z (the last 30 steps).</summary>
+    private void Remember()
+    {
+        if (_restoring) return;
+        _undo.Push((_working.ToArray(), _positions, (string)FormationBox.SelectedItem));
+        if (_undo.Count > 30)
+        {
+            var keep = _undo.Take(30).Reverse().ToList();
+            _undo.Clear();
+            foreach (var k in keep) _undo.Push(k);
+        }
+        UndoButton.IsEnabled = true;
+    }
+
+    private async void OnUndo(object sender, RoutedEventArgs e)
+    {
+        if (_undo.Count == 0) return;
+        var (slots, positions, formation) = _undo.Pop();
+        _restoring = true;
+        FormationBox.SelectedItem = formation;
+        _restoring = false;
+        _working = slots;
+        _positions = positions;
+        _selected = null;
+        UndoButton.IsEnabled = _undo.Count > 0;
+        await RefreshWorkingAsync();
+        Status.Text = "되돌렸습니다.";
+    }
+
+    /// <summary>The pitch with the totals and team colours as a PNG in Pictures\FcHelper (sharp: twice the screen size).</summary>
+    private void OnSaveImage(object sender, RoutedEventArgs e)
+    {
+        if (_working.All(s => s is null)) { Status.Text = "저장할 스쿼드가 없습니다."; return; }
+        try
+        {
+            const double width = 900;
+            var header = new StackPanel { Margin = new Thickness(18, 14, 18, 8) };
+            header.Children.Add(new TextBlock { Text = $"{(string)FormationBox.SelectedItem} · {Totals.Text}", FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = (System.Windows.Media.Brush)FindResource("Text"), TextWrapping = TextWrapping.Wrap });
+            if (TeamColorsLine.Text.Length > 0)
+                header.Children.Add(new TextBlock { Text = TeamColorsLine.Text, FontSize = 13, Foreground = (System.Windows.Media.Brush)FindResource("Accent"), TextWrapping = TextWrapping.Wrap });
+            var pitch = new System.Windows.Shapes.Rectangle
+            {
+                Width = width - 36, Height = (width - 36) * Pitch.ActualHeight / Math.Max(1, Pitch.ActualWidth), Margin = new Thickness(18, 0, 18, 18),
+                Fill = new System.Windows.Media.VisualBrush(Pitch) { Stretch = System.Windows.Media.Stretch.Uniform },
+            };
+            var sheet = new StackPanel { Width = width, Background = (System.Windows.Media.Brush)FindResource("Bg"), Children = { header, pitch } };
+            sheet.Measure(new Size(width, double.PositiveInfinity));
+            sheet.Arrange(new Rect(sheet.DesiredSize));
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)(sheet.ActualWidth * 2), (int)(sheet.ActualHeight * 2), 192, 192, System.Windows.Media.PixelFormats.Pbgra32);
+            bitmap.Render(sheet);
+            var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "FcHelper");
+            Directory.CreateDirectory(folder);
+            var file = Path.Combine(folder, $"squad-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+            using (var stream = File.Create(file)) encoder.Save(stream);
+            Status.Text = $"이미지로 저장했습니다: {file}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Status.Text = "이미지를 저장하지 못했습니다 (사진 폴더에 쓸 수 없습니다).";
+        }
+    }
+
+    private sealed record SavedSlot(long SpId, int Grade, bool Owned, bool Locked);
+    private sealed record SavedSquad(string Name, string Formation, List<SavedSlot?> Slots, DateTime SavedAt);
+    private const string LibraryKey = "squad.library";
+
+    private List<SavedSquad> Library()
+    {
+        try
+        {
+            return StudioKit.App.Db?.GetValue(LibraryKey) is { } v ? JsonSerializer.Deserialize<List<SavedSquad>>(v.Value) ?? [] : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private void LoadLibrary()
+    {
+        var names = Library().OrderByDescending(s => s.SavedAt).Select(s => s.Name).ToList();
+        LibraryBox.ItemsSource = names;
+        if (names.Count > 0) LibraryBox.SelectedIndex = 0;
+    }
+
+    /// <summary>Saves the eleven under a name (in this PC's database); the same name replaces the old one.</summary>
+    private void OnLibrarySave(object sender, RoutedEventArgs e)
+    {
+        if (_working.All(s => s is null)) { Status.Text = "저장할 스쿼드가 없습니다."; return; }
+        var name = LibraryName.Text.Trim();
+        if (name.Length == 0) name = $"스쿼드 {DateTime.Now:M/d HH:mm}";
+        var library = Library().Where(s => s.Name != name).ToList();
+        library.Add(new SavedSquad(name, (string)FormationBox.SelectedItem,
+            _working.Select(s => s is null ? null : new SavedSlot(s.Card.SpId, s.Grade, s.Owned, s.Locked)).ToList(), DateTime.Now));
+        StudioKit.App.Db?.SetValue(LibraryKey, JsonSerializer.Serialize(library));
+        LoadLibrary();
+        LibraryBox.SelectedItem = name;
+        Status.Text = $"보관함에 '{name}'을(를) 저장했습니다.";
+    }
+
+    private async void OnLibraryLoad(object sender, RoutedEventArgs e)
+    {
+        if (LibraryBox.SelectedItem is not string name || Library().FirstOrDefault(s => s.Name == name) is not { } saved) return;
+        if (StudioKit.Squads is not { } squads || await MakerAsync() is not { } maker) return;
+        if (Formations.Find(saved.Formation) is not { } formation) { Status.Text = "저장된 포메이션을 찾지 못했습니다."; return; }
+        Remember();
+        _restoring = true;
+        FormationBox.SelectedItem = saved.Formation;
+        _restoring = false;
+        _positions = formation.Slots;
+        _working = saved.Slots.Select((x, i) => x is not null && squads.Card(x.SpId) is { } card && i < formation.Slots.Length
+            ? maker.Slot(i, formation.Slots[i], card, x.Grade, x.Owned, x.Locked) : null).ToArray();
+        _manual = true;
+        _selected = null;
+        await RefreshWorkingAsync();
+        var missing = saved.Slots.Count(x => x is not null) - _working.Count(x => x is not null);
+        Status.Text = $"'{name}'을(를) 불러왔습니다 (오늘 시세로 다시 계산)" + (missing > 0 ? $" · 시세 데이터에 없는 {missing}장은 빈 자리로" : "");
+    }
+
+    private void OnLibraryDelete(object sender, RoutedEventArgs e)
+    {
+        if (LibraryBox.SelectedItem is not string name) return;
+        StudioKit.App.Db?.SetValue(LibraryKey, JsonSerializer.Serialize(Library().Where(s => s.Name != name).ToList()));
+        LoadLibrary();
+        Status.Text = $"보관함에서 '{name}'을(를) 지웠습니다.";
     }
 
     private (int, int) RankRange => RankBox.SelectedIndex switch { 1 => (1, 1000), 2 => (1, 100), _ => (1, 10000) };
@@ -201,8 +345,11 @@ public partial class SquadPage : UserControl
     {
         if (Pitch is null || PitchScroll is null || ZoomSlider is null) return;
         var zoom = ZoomSlider.Value;
-        var w = Math.Max(200, PitchScroll.ActualWidth - 4);
-        var h = Math.Max(200, PitchScroll.ActualHeight - 4);
+        // Scroll bars only when zoomed in: at 100% the pitch fits exactly.
+        var scroll = zoom > 1.001 ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+        PitchScroll.HorizontalScrollBarVisibility = PitchScroll.VerticalScrollBarVisibility = scroll;
+        var w = Math.Max(200, PitchScroll.ActualWidth - (zoom > 1.001 ? 12 : 0));
+        var h = Math.Max(200, PitchScroll.ActualHeight - (zoom > 1.001 ? 12 : 0));
         Pitch.Width = w * zoom;
         Pitch.Height = h * zoom;
         if (ZoomText is not null) ZoomText.Text = $"{zoom * 100:0}%";
@@ -274,6 +421,7 @@ public partial class SquadPage : UserControl
     private void OnModeSelected(object sender, SelectionChangedEventArgs e)
     {
         if (Modes.SelectedItem is not ModeCard card) return;
+        if (_working.Any(s => s is not null)) Remember();
         _working = card.Plan.Slots.OrderBy(s => s.Index).Select(s => (SquadSlot?)s).ToArray();
         _workingColors = card.Plan.TeamColors;
         _positions = card.Plan.Formation.Slots;
@@ -295,6 +443,7 @@ public partial class SquadPage : UserControl
             var plan = (await squads.BuildAsync(request with { Mode = SquadMode.Balanced, Plans = 1 }, from, to, progress: new Progress<string>(m => Status.Text = m))).FirstOrDefault();
             if (plan is null) { Status.Text = "조건에 맞는 카드가 없습니다."; return; }
             var kept = _working.ToArray();
+            Remember();
             _working = plan.Slots.OrderBy(s => s.Index).Select(s => kept[s.Index] ?? s).Select(s => (SquadSlot?)s).ToArray();
             Status.Text = "";
             await RefreshWorkingAsync();
@@ -305,6 +454,7 @@ public partial class SquadPage : UserControl
 
     private async void OnNewSquad(object sender, RoutedEventArgs e)
     {
+        if (_working.Any(s => s is not null)) Remember();
         _working = new SquadSlot?[CurrentFormation.Slots.Length];
         _positions = CurrentFormation.Slots;
         _manual = true;
@@ -316,7 +466,8 @@ public partial class SquadPage : UserControl
 
     private async Task OnFormationChangedAsync()
     {
-        if (await MakerAsync() is not { } maker) return;
+        if (_restoring || await MakerAsync() is not { } maker) return;
+        Remember();
         _working = maker.Remap(_working, CurrentFormation).ToArray();
         _positions = CurrentFormation.Slots;
         _selected = null;
@@ -326,6 +477,7 @@ public partial class SquadPage : UserControl
     private async Task SetAllGradesAsync(int grade)
     {
         if (await MakerAsync() is not { } maker) return;
+        Remember();
         _working = _working.Select(s => s is null || s.Owned ? s : maker.WithGrade(s, grade)).ToArray();
         await RefreshWorkingAsync();
         Status.Text = $"모든 카드를 +{grade}로 바꿨습니다 (보유 카드는 그대로).";
@@ -333,6 +485,7 @@ public partial class SquadPage : UserControl
 
     private async Task SetSlotAsync(int index, SquadSlot? slot)
     {
+        Remember();
         _working[index] = slot;
         await RefreshWorkingAsync();
         await ShowSlotAsync(index);
@@ -524,7 +677,11 @@ public partial class SquadPage : UserControl
         {
             Children =
             {
-                new TextBlock { Text = $"{c.Name} · {c.Season} +{candidate.Grade}", FontWeight = FontWeights.SemiBold },
+                new TextBlock
+                {
+                    Text = (Honey.IsHoney(candidate.Discount, known) ? Honey.Mark + " " : "") + $"{c.Name} · {c.Season} +{candidate.Grade}",
+                    FontWeight = FontWeights.SemiBold,
+                },
                 new TextBlock
                 {
                     Text = $"OVR {candidate.Ovr} · 환산 {candidate.EffectiveOvr:0.0} · {Bp.Format(candidate.Price)} · 급여 {c.Pay}"

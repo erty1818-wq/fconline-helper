@@ -3,12 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:FcHelper.App"
         Title="감독모드 · FC Online Helper" Width="1280" Height="840" MinWidth="980" MinHeight="600"
-        Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen" FontFamily="Malgun Gothic, Segoe UI">
+        Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen">
     <DockPanel Margin="20,16,20,10">
         <!-- Header: title and the two views -->
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                 <ToggleButton x:Name="PicksTab" Style="{StaticResource Chip}" Content="팀컬러 픽률" IsChecked="True" Click="OnTab" Checked="OnTab" />
+                <ToggleButton x:Name="HoneyTab" Style="{StaticResource Chip}" Content="🐝 꿀선수 찾기" Click="OnTab" Checked="OnTab" />
                 <ToggleButton x:Name="CoachTab" Style="{StaticResource Chip}" Content="구단주 분석" Click="OnTab" Checked="OnTab" />
             </StackPanel>
             <StackPanel Orientation="Horizontal">
@@ -63,6 +64,51 @@
                     </DockPanel>
                 </Border>
             </Grid>
+
+            <!-- 꿀선수 찾기 -->
+            <DockPanel x:Name="HoneyView" Visibility="Collapsed">
+                <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+                    <StackPanel>
+                        <TextBlock Text="감독모드 꿀선수 찾기" Style="{StaticResource H2}" />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,8"
+                                   Text="감독모드 랭커들이 이 카드로 낸 평균 기록(공식 ranker-stats)이 같은 가격대 카드보다 얼마나 좋은지. 가격 대비 1.2배 이상이면 🐝. 거래가 거의 없는 매물은 뺍니다." />
+                        <WrapPanel>
+                            <StackPanel Margin="0,0,14,0"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="HoneyPosition" MinWidth="90" /></StackPanel>
+                            <StackPanel Margin="0,0,14,0"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="HoneyGrade" MinWidth="70" /></StackPanel>
+                            <StackPanel Margin="0,0,14,0">
+                                <TextBlock Text="가격" Style="{StaticResource FieldLabel}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBox x:Name="HoneyMin" Width="85" ToolTip="예: 1억" />
+                                    <TextBlock Text="~" Margin="5,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                                    <TextBox x:Name="HoneyMax" Width="85" />
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Margin="0,0,14,0"><TextBlock Text="OVR 하한" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HoneyOvr" Width="55" Text="135" /></StackPanel>
+                            <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 경기 수" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HoneyMatches" Width="55" Text="20" /></StackPanel>
+                            <Button x:Name="HoneyButton" Style="{StaticResource Primary}" Content="찾기" VerticalAlignment="Bottom" Click="OnHoney" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+                <DataGrid x:Name="HoneyResults">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="꿀" Binding="{Binding Honey}" Width="34" ElementStyle="{StaticResource HoneyMark}" />
+                        <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="75" />
+                        <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="50" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="85" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="경기" Binding="{Binding Matches}" Width="50" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="골" Binding="{Binding Goals}" Width="50" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="도움" Binding="{Binding Assists}" Width="50" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="유효 슈팅" Binding="{Binding Shots}" Width="65" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="패스 성공" Binding="{Binding Passes}" Width="65" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="태클" Binding="{Binding Tackles}" Width="50" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="차단" Binding="{Binding Blocks}" Width="50" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="활약 점수" Binding="{Binding Score}" Width="70" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="가격대 평균" Binding="{Binding Expected}" Width="80" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="가격 대비" Binding="{Binding Ratio}" Width="70" ElementStyle="{StaticResource Good}" SortMemberPath="RatioValue" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
 
             <!-- 구단주 분석 -->
             <DockPanel x:Name="CoachView" Visibility="Collapsed">

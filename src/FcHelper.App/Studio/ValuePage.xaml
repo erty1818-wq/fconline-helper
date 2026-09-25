@@ -29,6 +29,7 @@
         <Grid>
             <DataGrid x:Name="Results">
                 <DataGrid.Columns>
+                    <DataGridTextColumn Header="꿀" Binding="{Binding Honey}" Width="34" ElementStyle="{StaticResource HoneyMark}" SortMemberPath="Discount" />
                     <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="130" />
                     <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="70" />
                     <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="45" />

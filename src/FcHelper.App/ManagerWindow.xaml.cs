@@ -13,6 +13,9 @@ public sealed record CoachPlayerRow(string Position, string Name, string Grade, 
 
 public sealed record FormationRow(string Lines, string Win, string Record);
 
+public sealed record HoneyRow(string Honey, string Name, string Season, int Ovr, string Price, int Matches, string Goals, string Assists, string Shots,
+    string Passes, string Tackles, string Blocks, string Score, string Expected, string Ratio, double RatioValue);
+
 /// <summary>
 /// 감독모드: which team colours top manager-mode rankers run and whom they field per position, and one coach's last
 /// manager-mode matches (record, per-card numbers, formations). Official ranking and Open API only.
@@ -27,17 +30,22 @@ public partial class ManagerWindow : Window
         InitializeComponent();
         if (Skin.Brush("background", System.Windows.Media.Stretch.UniformToFill) is { } background) Background = background;
         NicknameBox.Text = app.Settings.MyNickname ?? "";
+        HoneyPosition.ItemsSource = new[] { "ST", "CF", "LW", "CAM", "LM", "CM", "CDM", "LB", "CB" };
+        HoneyPosition.SelectedIndex = 0;
+        HoneyGrade.ItemsSource = Grades.Tradable.Select(g => $"+{g}").ToList();
+        HoneyGrade.SelectedIndex = 7;
         Loaded += (_, _) => OnLoadPicks(this, new RoutedEventArgs());
     }
 
     private void OnTab(object sender, RoutedEventArgs e)
     {
-        if (!IsInitialized || PicksTab is null || CoachTab is null) return;
-        var coach = ReferenceEquals(sender, CoachTab);
-        PicksTab.IsChecked = !coach;
-        CoachTab.IsChecked = coach;
-        PicksView.Visibility = coach ? Visibility.Collapsed : Visibility.Visible;
-        CoachView.Visibility = coach ? Visibility.Visible : Visibility.Collapsed;
+        if (!IsInitialized || PicksTab is null || CoachTab is null || HoneyTab is null) return;
+        PicksTab.IsChecked = ReferenceEquals(sender, PicksTab);
+        HoneyTab.IsChecked = ReferenceEquals(sender, HoneyTab);
+        CoachTab.IsChecked = ReferenceEquals(sender, CoachTab);
+        PicksView.Visibility = PicksTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        HoneyView.Visibility = HoneyTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        CoachView.Visibility = CoachTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Shows the coach tab for a nickname (from the home screen or search).</summary>
@@ -113,6 +121,40 @@ public partial class ManagerWindow : Window
         {
             TeamPlayers.Children.Clear();
             TeamPlayers.Children.Add(new TextBlock { Text = "랭커 스쿼드를 받지 못했습니다 (API 호출 한도나 연결을 확인하세요).", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
+        }
+    }
+
+    private async void OnHoney(object sender, RoutedEventArgs e)
+    {
+        if (_app.Squads is not { } squads) return;
+        if (!Bp.TryParse(HoneyMin.Text, out var min) && HoneyMin.Text.Trim().Length > 0 || !Bp.TryParse(HoneyMax.Text, out var max) && HoneyMax.Text.Trim().Length > 0)
+        {
+            Status.Text = "가격은 1억, 5000만처럼 입력하세요.";
+            return;
+        }
+        if (HoneyMax.Text.Trim().Length == 0) max = long.MaxValue;
+        if (HoneyMin.Text.Trim().Length == 0) min = 0;
+        var position = (string)HoneyPosition.SelectedItem;
+        var grade = HoneyGrade.SelectedIndex + 1;
+        HoneyButton.IsEnabled = false;
+        try
+        {
+            var found = await squads.ManagerHoneyAsync(position, grade, min, max, int.TryParse(HoneyOvr.Text, out var o) ? o : 0,
+                int.TryParse(HoneyMatches.Text, out var m) ? m : 20, new Progress<string>(t => Status.Text = t));
+            HoneyResults.ItemsSource = found.Select(h => new HoneyRow(h.IsHoney ? Honey.Mark : "", h.Card.Name, h.Card.Season, h.Ovr, Bp.Format(h.Price),
+                h.Stats.MatchCount, $"{h.Stats.Goal:0.00}", $"{h.Stats.Assist:0.00}", $"{h.Stats.EffectiveShoot:0.0}", $"{h.Stats.PassSuccess:0.0}",
+                $"{h.Stats.Tackle:0.0}", $"{h.Stats.Block:0.0}", $"{h.Score:0.0}", $"{h.Expected:0.0}", $"{h.Ratio:0.00}배", h.Ratio)).ToList();
+            Status.Text = found.Count == 0
+                ? "조건에 맞고 감독모드 랭커 기록이 있는 카드가 없습니다. 가격대를 넓히거나 최소 경기 수를 낮춰 보세요."
+                : $"{position} +{grade} · {found.Count}장 · 🐝 {found.Count(h => h.IsHoney)}장 · 활약 점수 = 경기당 골×10 + 도움×7 + 유효 슈팅×2 + … [계산], 가격 대비 = 같은 가격대 평균과 비교";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or NexonApiException)
+        {
+            Status.Text = "감독모드 랭커 기록을 받지 못했습니다 (API 호출 한도나 연결을 확인하세요).";
+        }
+        finally
+        {
+            HoneyButton.IsEnabled = true;
         }
     }
 

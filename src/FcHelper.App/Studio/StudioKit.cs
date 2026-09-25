@@ -66,12 +66,16 @@ public sealed record PickRow(string Position, string Name, string Season, string
     public string Core { get; init; } = "";
     public string Height { get; init; } = "";
     public string Tags { get; init; } = "";
+    public string Honey { get; init; } = "";
 }
 
 public sealed record ValueRow(string Name, string Season, int Ovr, string Core, double CoreValue, int WeakFoot, int Pay, string Height, string Stats,
     string Price, string Expected, string Diff, double Discount, string Tags)
 {
-    public static ValueRow From(ValuePick p, MarketGroup g)
+    /// <summary>🐝 when the card is a 꿀선수 and is known to trade.</summary>
+    public string Honey { get; init; } = "";
+
+    public static ValueRow From(ValuePick p, MarketGroup g, CardLiquidity? liquidity = null)
     {
         var c = p.Card;
         var gap = g.CoreGap(c);
@@ -80,7 +84,10 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
             .Select(s => $"{MarketGroups.StatNames.GetValueOrDefault(s.Stat, s.Stat)} {c.Stats[s.Stat]}");
         return new ValueRow(c.Name, c.Season, c.OvrAt(p.Grade), gap is { } v ? $"{v:+0.0;-0.0}" : "", gap ?? -99, c.WeakFoot, c.Pay,
             c.Stats.TryGetValue("height", out var h) ? h.ToString() : "", string.Join(" · ", stats),
-            Bp.Format(p.Price), Bp.Format(p.Expected), StudioKit.Pct(p.Discount), p.Discount, StudioKit.Tags(c));
+            Bp.Format(p.Price), Bp.Format(p.Expected), StudioKit.Pct(p.Discount), p.Discount, StudioKit.Tags(c))
+        {
+            Honey = liquidity is { Tradable: true } && FcHelper.Market.Honey.IsHoney(p.Discount) ? FcHelper.Market.Honey.Mark : "",
+        };
     }
 }
 

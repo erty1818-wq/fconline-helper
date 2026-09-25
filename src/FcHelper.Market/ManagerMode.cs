@@ -16,6 +16,47 @@ public sealed record ManagerPick(string Role, long SpId, string Name, string Sea
 /// <summary>A team colour's usual eleven in 감독모드: the most used cards per role, from rankers' latest manager matches.</summary>
 public sealed record ManagerTeamPlayers(string TeamColor, int Squads, IReadOnlyDictionary<string, IReadOnlyList<ManagerPick>> ByRole);
 
+/// <summary>
+/// A card's ranker-average play in 감독모드 against its price: <see cref="Score"/> is per game, <see cref="Expected"/> the
+/// score cards of that price reach on average, <see cref="Ratio"/> how far above that it is (1.3 = 30% better).
+/// </summary>
+public sealed record ManagerHoney(MarketCard Card, string Position, int Grade, int Ovr, long Price, FcHelper.Core.Models.RankerStatus Stats,
+    double Score, double Expected)
+{
+    public double Ratio => Score / Expected;
+    public bool IsHoney => Ratio >= 1.2;
+
+    /// <summary>
+    /// 활약 점수 [계산] per game from ranker-stats: attack = goals ×10 + assists ×7 + shots on target ×2 + other shots ×0.5 +
+    /// dribbles won ×0.5 + passes completed ×0.05; defence = tackles ×2 + blocks ×3. Forwards count attack, full-backs and
+    /// centre-backs defence plus a little attack, midfielders both.
+    /// </summary>
+    public static double PlayScore(string role, FcHelper.Core.Models.RankerStatus s)
+    {
+        var attack = s.Goal * 10 + s.Assist * 7 + s.EffectiveShoot * 2 + (s.Shoot - s.EffectiveShoot) * 0.5 + s.DribbleSuccess * 0.5 + s.PassSuccess * 0.05;
+        var defence = s.Tackle * 2 + s.Block * 3;
+        return role switch
+        {
+            "ST" or "CF" or "W" => attack,
+            "CAM" or "SM" => attack + defence * 0.5,
+            "CM" or "CDM" => attack * 0.6 + defence,
+            "CB" or "FB" => defence + attack * 0.3,
+            _ => attack + defence,
+        };
+    }
+}
+
+/// <summary>꿀선수: priced well below what the card delivers (market or play). One rule for every screen.</summary>
+public static class Honey
+{
+    /// <summary>Trading at least 30% under the price of similar cards.</summary>
+    public const double Discount = -0.3;
+
+    public static bool IsHoney(double discount, CardLiquidity? liquidity = null) => discount <= Discount && liquidity is not { Tradable: false };
+
+    public const string Mark = "🐝";
+}
+
 public static partial class RankingParser
 {
     /// <summary>Every row of a ranking page (1vs1 or manager): the first (largest) team colour and the formation.</summary>

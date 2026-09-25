@@ -155,6 +155,53 @@ public sealed class SquadService(
             id => Card(id) is { } c ? (c.Name, c.Season) : nameOf?.Invoke(id) is { } n ? (n, "") : null);
     }
 
+    /// <summary>
+    /// 감독모드 꿀선수: cards at a position whose ranker-average play in manager mode (official ranker-stats, matchtype
+    /// 52) is well above what cards of their price do. Candidates are the strongest tradable cards in the price range
+    /// (and those manager rankers field there); listings that hardly trade are dropped. About one API call per 20 cards,
+    /// cached for the day.
+    /// </summary>
+    public async Task<IReadOnlyList<ManagerHoney>> ManagerHoneyAsync(string position, int grade, long minPrice, long maxPrice, int minOvr = 135,
+        int minMatches = 20, IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        var pos = Formations.Normalize(position);
+        grade = Math.Min(grade, Grades.MaxTradable);
+        var role = RankerAllocation.RoleOf(pos);
+        var used = (await ManagerSquadsCachedAsync()).SelectMany(s => s.Starters).Where(p => RankerAllocation.RoleOf(p.Position) == role).Select(p => p.SpId).ToHashSet();
+        var candidates = Pool().Where(c => c.IsTraded && c.OvrAt(pos, grade) is { } o && o >= minOvr)
+            .Where(c => c.PriceAt(grade) is var p && p > Grades.FloorPrice && p >= minPrice && p <= maxPrice)
+            .OrderByDescending(c => used.Contains(c.SpId)).ThenByDescending(c => c.OvrAt(pos, grade))
+            .DistinctBy(c => c.SpId).Take(120).ToList();
+        progress?.Report($"감독모드 랭커 기록 확인 중 ({candidates.Count}장, API 약 {(candidates.Count + 19) / 20}회)");
+        var stats = await RankerStatsAsync(candidates.Select(c => (c.SpId, pos)), ct, matchType: 52);
+        var rows = candidates.Where(c => stats.TryGetValue(c.SpId, out var s) && s.Status.MatchCount >= minMatches)
+            .Select(c => (Card: c, Stat: stats[c.SpId], Score: ManagerHoney.PlayScore(role, stats[c.SpId].Status))).ToList();
+        if (rows.Count == 0) return [];
+        // Expected play for the money: score ~ a + b·ln(price) over the candidates.
+        var xs = rows.Select(r => Math.Log(r.Card.PriceAt(grade))).ToArray();
+        var ys = rows.Select(r => r.Score).ToArray();
+        var mx = xs.Average();
+        var my = ys.Average();
+        var sxx = xs.Sum(x => (x - mx) * (x - mx));
+        var b = sxx > 1e-9 ? xs.Zip(ys).Sum(p => (p.First - mx) * (p.Second - my)) / sxx : 0;
+        var result = rows.Select(r =>
+        {
+            var expected = Math.Max(0.1, my + b * (Math.Log(r.Card.PriceAt(grade)) - mx));
+            return new ManagerHoney(r.Card, pos, grade, r.Card.OvrAt(pos, grade) ?? r.Card.OvrAt(grade), r.Card.PriceAt(grade), r.Stat.Status, r.Score, expected);
+        }).OrderByDescending(h => h.Ratio).ToList();
+        progress?.Report("거래량 확인 중…");
+        var bad = await IlliquidAsync(result.Take(30).Select(h => (h.Card.SpId, h.Grade)), progress, ct);
+        return result.Where(h => !bad.Contains((h.Card.SpId, h.Grade))).ToList();
+    }
+
+    /// <summary>The manager-mode squads already kept (no fetch), for choosing candidates.</summary>
+    private Task<IReadOnlyList<RankerSquad>> ManagerSquadsCachedAsync()
+    {
+        var cached = store.GetValue("manager.squads");
+        IReadOnlyList<RankerSquad> squads = cached is null ? [] : JsonSerializer.Deserialize<List<RankerSquad>>(cached.Value.Value) ?? [];
+        return Task.FromResult(squads);
+    }
+
     /// <summary>How rankers split price and salary per role, from squads worth 10억 or more at today's prices.</summary>
     public async Task<RankerAllocation?> RankerAllocationAsync(bool allowFetch = true, IProgress<string>? progress = null, CancellationToken ct = default)
     {
@@ -467,15 +514,17 @@ public sealed class SquadService(
     /// How top rankers did with each card at a position over 20 matches (official ranker-stats; uses the API quota,
     /// so only for the cards a screen shows; cached for the day). Missing = rankers did not use it.
     /// </summary>
-    public async Task<IReadOnlyDictionary<long, RankerStat>> RankerStatsAsync(IEnumerable<(long SpId, string Position)> cards, CancellationToken ct = default)
+    /// <param name="matchType">50 = 공식경기, 52 = 감독모드.</param>
+    public async Task<IReadOnlyDictionary<long, RankerStat>> RankerStatsAsync(IEnumerable<(long SpId, string Position)> cards, CancellationToken ct = default,
+        int matchType = OfficialMatch)
     {
         if (rankerStats is null) return new Dictionary<long, RankerStat>();
-        var day = DateOnly.FromDateTime(Now).ToString("yyyyMMdd");
+        var day = $"{matchType}|{DateOnly.FromDateTime(Now):yyyyMMdd}";
         var wanted = cards.Select(c => (c.SpId, Code: PositionCode(c.Position))).Distinct().ToList();
         var missing = wanted.Where(w => !_statsCache.ContainsKey($"{day}|{w.SpId}|{w.Code}")).ToList();
         if (missing.Count > 0)
         {
-            foreach (var s in await rankerStats.GetRankerStatsAsync(OfficialMatch, missing.Select(m => (m.SpId, m.Code)).ToList(), ct))
+            foreach (var s in await rankerStats.GetRankerStatsAsync(matchType, missing.Select(m => (m.SpId, m.Code)).ToList(), ct))
                 _statsCache[$"{day}|{s.SpId}|{s.SpPosition}"] = s;
             foreach (var m in missing) _statsCache.TryAdd($"{day}|{m.SpId}|{m.Code}", new RankerStat { SpId = m.SpId, SpPosition = m.Code });
         }

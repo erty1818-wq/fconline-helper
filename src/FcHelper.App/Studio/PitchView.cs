@@ -12,7 +12,7 @@ namespace FcHelper.App.Studio;
 /// </summary>
 public sealed class PitchView : Viewbox
 {
-    private const double W = 640, H = 760;
+    private const double W = 700, H = 800;
     private readonly Canvas _canvas = new() { Width = W, Height = H };
     private IReadOnlyList<SquadSlot> _slots = [];
     /// <summary>Empty slots of a hand-made squad: index and position.</summary>
@@ -135,10 +135,14 @@ public sealed class PitchView : Viewbox
             Text = s.Owned ? "보유" : Bp.Format(s.Price), FontSize = 12, Foreground = s.Owned ? accent : (Brush)res["Text"], HorizontalAlignment = HorizontalAlignment.Center,
         };
         var panel = new StackPanel { Children = { ovr, name, meta, price } };
+        // 🐝 꿀선수: trading well under similar cards (AI squads only hold cards that trade).
+        FrameworkElement body = !s.Owned && Honey.IsHoney(s.Discount)
+            ? new Grid { Children = { panel, new TextBlock { Text = Honey.Mark, Style = (Style)res["HoneyMark"], FontSize = 13, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top } } }
+            : panel;
         var outline = s.Index == Selected ? accent : Highlighted.Contains(s.Index) ? (Brush)res["Warn"] : (Brush)res["Line"];
         var border = new Border
         {
-            Child = panel, Background = Skin.Brush("card-frame") ?? (Brush)res["Raised"], BorderBrush = outline, BorderThickness = new Thickness(s.Index == Selected || Highlighted.Contains(s.Index) ? 2 : 1),
+            Child = body, Background = Skin.Brush("card-frame") ?? (Brush)res["Raised"], BorderBrush = outline, BorderThickness = new Thickness(s.Index == Selected || Highlighted.Contains(s.Index) ? 2 : 1),
             CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 5, 6, 6), Width = 136, Cursor = Cursors.Hand,
             ToolTip = $"{s.Card.Name} {s.Card.Season} +{s.Grade}\nOVR {s.Ovr}{(s.TeamColorBonus > 0 ? $" (+팀컬러 {s.TeamColorBonus:0.#})" : "")} · 환산 {s.EffectiveOvr:0.0} [추정]\n급여 {s.Pay}"
                 + (s.RankerUsers > 0 ? $" · 랭커 {s.RankerUsers}명" : "") + (s.Locked ? "\n고정됨" : ""),
@@ -147,7 +151,7 @@ public sealed class PitchView : Viewbox
         {
             // Detach the panel first: an element can have one parent (fixed and owned cards crashed 내 스쿼드 here).
             border.Child = null;
-            border.Child = new Grid { Children = { panel, new TextBlock { Text = "🔒", FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top } } };
+            border.Child = new Grid { Children = { body, new TextBlock { Text = "🔒", FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top } } };
         }
         border.MouseLeftButtonUp += (_, _) =>
         {

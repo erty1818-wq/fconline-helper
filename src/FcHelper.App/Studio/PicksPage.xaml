@@ -26,6 +26,7 @@
         <DataGrid x:Name="Results">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="포지션" Binding="{Binding Position}" Width="60" />
+                <DataGridTextColumn Header="꿀" Binding="{Binding Honey}" Width="34" ElementStyle="{StaticResource HoneyMark}" />
                 <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
                 <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="80" />
                 <DataGridTextColumn Header="강화" Binding="{Binding Grade}" Width="50" />

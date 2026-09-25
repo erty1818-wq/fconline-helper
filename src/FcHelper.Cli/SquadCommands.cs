@@ -7,7 +7,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "allocation", "mteam"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "allocation", "mteam", "mhoney"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -37,6 +37,13 @@ internal static class SquadCommands
             {
                 case "squad": return await Squad(squads, option, rankFrom, rankTo);
                 case "value": return await Value(squads, option);
+                case "mhoney":
+                    var honey = await squads.ManagerHoneyAsync(option("pos") ?? "ST", Int(option("grade"), 8), Price(option("min"), 0), Price(option("max"), long.MaxValue),
+                        Int(option("minovr"), 135), Int(option("matches"), 20));
+                    foreach (var h in honey.Take(Int(option("top"), 15)))
+                        Console.WriteLine($"  {(h.IsHoney ? "🐝" : "  ")} {h.Card.Name,-10} {h.Card.Season,-8} OVR {h.Ovr} · {Bp.Format(h.Price),7} · {h.Stats.MatchCount}경기 골 {h.Stats.Goal:0.00} 도움 {h.Stats.Assist:0.00} · 활약 {h.Score:0.0} (가격대 {h.Expected:0.0}) · {h.Ratio:0.00}배");
+                    Console.WriteLine($"{honey.Count}장 · 감독모드 ranker-stats [계산]");
+                    return 0;
                 case "mteam":
                     var mprogress = new Progress<string>(m => Console.Error.Write($"\r{m}          "));
                     if (option("tc") is { } tcName)

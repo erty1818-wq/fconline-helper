@@ -73,6 +73,7 @@ public partial class App : Application
             args.SetObserved();
         };
 
+        AppFont.Apply();
         Settings = AppSettings.Load();
         _db = new FcDatabase(AppPaths.DatabasePath);
         CreateTray();

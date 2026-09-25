@@ -103,7 +103,7 @@ public partial class ValuePage : UserControl
             // Stale prices of cards nobody sells look like bargains: check the top of the list and drop them.
             var bad = await squads.IlliquidAsync(picks.Take(30).Select(p => (p.Card.SpId, p.Grade)), new Progress<string>(m => Status.Text = $"상위 30장 {m}"));
             var kept = picks.Where(p => !bad.Contains((p.Card.SpId, p.Grade))).ToList();
-            Results.ItemsSource = kept.Take(300).Select(p => ValueRow.From(p, group)).ToList();
+            Results.ItemsSource = kept.Take(300).Select(p => ValueRow.From(p, group, squads.KnownLiquidity(p.Card.SpId, p.Grade))).ToList();
             Status.Text = $"{group.Name} +{grade} · {kept.Count}장 · 예상가보다 싼 순서 · {Filters.Summary(filter)}"
                 + (bad.Count > 0 ? $" · 거래가 거의 없는 {bad.Count}장 제외" : "") + $" (R² {model.R2:0.00}, 카드 {model.Cards}장)";
         });
