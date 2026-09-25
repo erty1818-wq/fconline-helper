@@ -1,0 +1,58 @@
+<UserControl x:Class="FcHelper.App.Studio.TrendsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,6">
+                    <Button x:Name="ShowButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="보기" Click="OnShow" />
+                    <StackPanel>
+                        <TextBlock Text="시세 추이" Style="{StaticResource H1}" />
+                        <TextBlock Style="{StaticResource Hint}" Text="매일 자동 갱신한 시세를 비교합니다. 급락했는데 스펙 대비 싼 카드는 갱신 뒤 트레이로도 알려 드립니다." />
+                    </StackPanel>
+                </DockPanel>
+                <WrapPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" MinWidth="70" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="기간" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="DaysBox" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinBox" Width="100" Text="1000만" /></StackPanel>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+        <TextBlock x:Name="Status" DockPanel.Dock="Top" Foreground="{StaticResource Muted}" Margin="0,0,0,8" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="많이 내린 카드" Style="{StaticResource H2}" />
+                <DataGrid x:Name="Down">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="70" />
+                        <DataGridTextColumn Header="강화" Binding="{Binding Grade}" Width="45" />
+                        <DataGridTextColumn Header="이전" Binding="{Binding Before}" Width="80" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="지금" Binding="{Binding Now}" Width="80" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="변화" Binding="{Binding Change}" Width="60" ElementStyle="{StaticResource Good}" />
+                        <DataGridTextColumn Header="스펙 대비" Binding="{Binding SpecDiff}" Width="70" ElementStyle="{StaticResource Num}" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+            <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top" Text="많이 오른 카드" Style="{StaticResource H2}" />
+                <DataGrid x:Name="Up">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="70" />
+                        <DataGridTextColumn Header="강화" Binding="{Binding Grade}" Width="45" />
+                        <DataGridTextColumn Header="이전" Binding="{Binding Before}" Width="80" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="지금" Binding="{Binding Now}" Width="80" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="변화" Binding="{Binding Change}" Width="60" ElementStyle="{StaticResource Num}" />
+                        <DataGridTextColumn Header="스펙 대비" Binding="{Binding SpecDiff}" Width="70" ElementStyle="{StaticResource Num}" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

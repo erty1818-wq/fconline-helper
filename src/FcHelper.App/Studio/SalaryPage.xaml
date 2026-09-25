@@ -1,0 +1,37 @@
+<UserControl x:Class="FcHelper.App.Studio.SalaryPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,6">
+                    <Button x:Name="FindButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="찾기" Click="OnFind" />
+                    <StackPanel>
+                        <TextBlock Text="급여 효율" Style="{StaticResource H1}" />
+                        <TextBlock Style="{StaticResource Hint}" Text="급여 1당 환산 OVR이 높은 카드. 급여 한도가 먼저 차는 스쿼드에서 씁니다. (환산 OVR [추정])" />
+                    </StackPanel>
+                </DockPanel>
+                <WrapPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="PositionBox" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" MinWidth="70" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 OVR" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinOvrBox" Width="70" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinBox" Width="100" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최대 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MaxBox" Width="100" /></StackPanel>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+        <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Foreground="{StaticResource Muted}" Margin="0,8,0,0" />
+        <DataGrid x:Name="Results">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
+                <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="80" />
+                <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="55" />
+                <DataGridTextColumn Header="환산 OVR" Binding="{Binding Effective}" Width="75" ElementStyle="{StaticResource Num}" />
+                <DataGridTextColumn Header="급여" Binding="{Binding Pay}" Width="50" ElementStyle="{StaticResource Num}" />
+                <DataGridTextColumn Header="급여 1당" Binding="{Binding PerPay}" Width="70" ElementStyle="{StaticResource Good}" />
+                <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="90" ElementStyle="{StaticResource Num}" />
+                <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="220" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</UserControl>

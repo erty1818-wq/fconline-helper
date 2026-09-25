@@ -158,6 +158,14 @@ public partial class SearchWindow : Window
         Card.DataContext = _view;
         Card.Visibility = Visibility.Visible;
         CopyButton.IsEnabled = true;
+        TailorButton.IsEnabled = true;
+    }
+
+    private void OnTailorClick(object sender, RoutedEventArgs e)
+    {
+        if (_view is null) return;
+        var nickname = _view.Report.Nickname;
+        _app.ShowStudio("opponent", page => ((Studio.OpponentPage)page).Analyse(nickname));
     }
 
     private void OnSaveMemoClick(object sender, RoutedEventArgs e)

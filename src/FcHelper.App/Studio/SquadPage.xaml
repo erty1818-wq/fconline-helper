@@ -1,0 +1,136 @@
+<UserControl x:Class="FcHelper.App.Studio.SquadPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:studio="clr-namespace:FcHelper.App.Studio"
+             xmlns:app="clr-namespace:FcHelper.App">
+    <DockPanel>
+        <!-- Request -->
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,10">
+                    <Button x:Name="BuildButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="스쿼드 짜기" Click="OnBuild" />
+                    <TextBlock Text="스쿼드 짜기" Style="{StaticResource H1}" />
+                </DockPanel>
+                <WrapPanel>
+                    <StackPanel Margin="0,0,14,6">
+                        <TextBlock Text="포메이션" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="FormationBox" MinWidth="120" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,14,6">
+                        <TextBlock Text="예산 (예: 100억)" Style="{StaticResource FieldLabel}" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="BudgetBox" Width="110" Text="100억" />
+                            <Button Style="{StaticResource Ghost}" Content="10억" Margin="4,0,0,0" Padding="7,3" Click="OnBudgetChip" />
+                            <Button Style="{StaticResource Ghost}" Content="50억" Margin="4,0,0,0" Padding="7,3" Click="OnBudgetChip" />
+                            <Button Style="{StaticResource Ghost}" Content="100억" Margin="4,0,0,0" Padding="7,3" Click="OnBudgetChip" />
+                            <Button Style="{StaticResource Ghost}" Content="500억" Margin="4,0,0,0" Padding="7,3" Click="OnBudgetChip" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,14,6">
+                        <TextBlock Text="급여 한도 (비우면 없음)" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="CapBox" Width="90" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,14,6">
+                        <TextBlock Text="강화 단계 (여러 개면 자동 선택)" Style="{StaticResource FieldLabel}" />
+                        <WrapPanel x:Name="GradeChips" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,14,6">
+                        <TextBlock Text="팀컬러" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="TeamColorBox" MinWidth="170" DisplayMemberPath="Label" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,14,6">
+                        <TextBlock Text="랭커 기준" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="RankBox" MinWidth="120" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,0,6" VerticalAlignment="Bottom">
+                        <CheckBox x:Name="RankerOnlyBox" Content="랭커가 쓰는 카드만" Margin="0,0,0,6" />
+                    </StackPanel>
+                </WrapPanel>
+                <TextBlock x:Name="LockInfo" Style="{StaticResource Hint}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Mode comparison -->
+        <ListBox x:Name="Modes" DockPanel.Dock="Top" Background="Transparent" BorderThickness="0" SelectionChanged="OnModeSelected"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,10">
+            <ListBox.ItemsPanel>
+                <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Margin" Value="0,0,8,0" />
+                    <Setter Property="Cursor" Value="Hand" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <Border x:Name="B" Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="12,10">
+                                    <ContentPresenter />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="B" Property="BorderBrush" Value="{StaticResource Accent}" />
+                                        <Setter TargetName="B" Property="Background" Value="{StaticResource Raised}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel>
+                        <DockPanel>
+                            <Border DockPanel.Dock="Right" Background="{StaticResource AccentSoft}">
+                                <Border.Style>
+                                    <Style TargetType="Border" BasedOn="{StaticResource Pill}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Badge}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding Badge}" FontSize="10" Foreground="{StaticResource Accent}" />
+                            </Border>
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14" />
+                        </DockPanel>
+                        <TextBlock Text="{Binding Total}" Style="{StaticResource BigNumber}" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding Ovr}" />
+                        <TextBlock Text="{Binding Effective}" Style="{StaticResource Hint}" />
+                        <TextBlock Text="{Binding Pay}" Style="{StaticResource Hint}" />
+                        <TextBlock Text="{Binding TeamColor}" Style="{StaticResource Hint}" Foreground="{StaticResource Accent}" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <TextBlock x:Name="Status" DockPanel.Dock="Top" Foreground="{StaticResource Warn}" Margin="0,0,0,6" />
+
+        <!-- Pitch + detail -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="300" />
+            </Grid.ColumnDefinitions>
+            <Grid>
+                <studio:PitchView x:Name="Pitch" Margin="0,0,12,0" />
+                <Border x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Background="{StaticResource Panel}"
+                        BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="24,18" MaxWidth="420">
+                    <StackPanel>
+                        <Image Source="{app:Skin empty}" MaxHeight="120" Margin="0,0,0,8" />
+                        <TextBlock Text="조건을 정하고 [스쿼드 짜기]를 누르세요" FontSize="15" HorizontalAlignment="Center" />
+                        <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0"
+                                   Text="최강 · 균형 · 가성비 · 랭커픽 4가지 안을 한 번에 비교합니다. 처음에는 랭커 데이터를 받느라 1분쯤 걸립니다." />
+                    </StackPanel>
+                </Border>
+            </Grid>
+            <Border Grid.Column="1" Style="{StaticResource CardPanel}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="Detail">
+                        <TextBlock Text="선수를 누르면 여기 자세히 나옵니다." Style="{StaticResource Hint}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

@@ -1,0 +1,22 @@
+<UserControl x:Class="FcHelper.App.Studio.OpponentPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+            <StackPanel>
+                <TextBlock Text="상대 맞춤" Style="{StaticResource H1}" />
+                <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,8" Text="상대의 실점 약점과 득점 위협, 추정 포메이션으로 이번 경기에 맞는 카드와 포메이션을 추천합니다. [추정]" />
+                <WrapPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="상대 닉네임" Style="{StaticResource FieldLabel}" /><TextBox x:Name="NickBox" Width="200" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" MinWidth="70" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="카드당 최대 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MaxBox" Width="100" /></StackPanel>
+                    <Button x:Name="GoButton" Style="{StaticResource Primary}" Content="분석" VerticalAlignment="Bottom" Click="OnGo" IsDefault="True" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+        <TextBlock x:Name="Status" DockPanel.Dock="Top" Foreground="{StaticResource Muted}" Margin="0,0,0,6" TextWrapping="Wrap" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="Result" />
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

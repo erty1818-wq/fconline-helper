@@ -29,7 +29,7 @@ public partial class App : Application
     private bool _recognizing;
     private MarketService? _market;
     private IRankerStatsSource? _rankerStats;
-    private ValueWindow? _valueWindow;
+    private Studio.StudioWindow? _studio;
     private readonly CancellationTokenSource _exit = new();
     private static readonly Uri SeasonListUrl = new("https://open.api.nexon.com/static/fconline/meta/seasonid.json");
     private SearchWindow? _search;
@@ -42,6 +42,8 @@ public partial class App : Application
     public FcHelperService? Service { get; private set; }
     /// <summary>Squad builder, ranker picks, team colours, grade/salary/price analyses: the engine the squad screens bind to.</summary>
     public SquadService? Squads { get; private set; }
+    /// <summary>The match cache (my matches, opponents) for the squad pages.</summary>
+    public FcDatabase? Db => _db;
     public int ApiCallCount => _limiter?.IssuedCount ?? 0;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -91,6 +93,10 @@ public partial class App : Application
             // First run: ask for the API key, then go straight to the search window.
             ShowSettings();
             if (Service is not null) ShowSearch();
+        }
+        else if (e.Args.Contains("--studio"))
+        {
+            ShowStudio();
         }
         else if (!e.Args.Contains("--tray"))
         {
@@ -292,16 +298,18 @@ public partial class App : Application
         }
     }
 
-    public void ShowValueWindow()
+    /// <summary>Opens the squad and market studio on a page ("squad", "value", "opponent", …).</summary>
+    public void ShowStudio(string page = "squad", Action<FrameworkElement>? then = null)
     {
-        if (_valueWindow is null)
+        if (_studio is null)
         {
-            _valueWindow = new ValueWindow(_market!);
-            _valueWindow.Closed += (_, _) => _valueWindow = null;
-            _valueWindow.Show();
+            _studio = new Studio.StudioWindow();
+            _studio.Closed += (_, _) => _studio = null;
+            _studio.Show();
         }
-        if (_valueWindow.WindowState == WindowState.Minimized) _valueWindow.WindowState = WindowState.Normal;
-        _valueWindow.Activate();
+        if (_studio.WindowState == WindowState.Minimized) _studio.WindowState = WindowState.Normal;
+        _studio.Activate();
+        _studio.Navigate(page, then);
     }
 
     private void UpdateTrayText()
@@ -363,7 +371,8 @@ public partial class App : Application
     {
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("상대 검색  (Ctrl+Alt+S)", null, (_, _) => ShowSearch());
-        menu.Items.Add("가성비 찾기", null, (_, _) => ShowValueWindow());
+        menu.Items.Add("스쿼드·시세", null, (_, _) => ShowStudio("squad"));
+        menu.Items.Add("가성비 찾기", null, (_, _) => ShowStudio("value"));
         menu.Items.Add("내 경기 동기화", null, (_, _) => SyncMine());
         menu.Items.Add("설정", null, (_, _) => ShowSettings());
         menu.Items.Add(new Forms.ToolStripSeparator());

@@ -1,0 +1,26 @@
+<UserControl x:Class="FcHelper.App.Studio.TeamColorPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="380" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                <TextBlock Text="팀컬러" Style="{StaticResource H1}" />
+                <TextBlock Style="{StaticResource Hint}" Text="랭커가 많이 쓰는 팀컬러가 위에 옵니다. 이름으로 전체 801개를 검색할 수 있습니다." />
+                <TextBox x:Name="SearchBox" Margin="0,8,0,0" TextChanged="OnSearch" />
+            </StackPanel>
+            <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Foreground="{StaticResource Muted}" Margin="0,6,0,0" TextWrapping="Wrap" />
+            <ListBox x:Name="List" Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" Foreground="{StaticResource Text}"
+                     DisplayMemberPath="Label" SelectionChanged="OnPick" />
+        </DockPanel>
+        <Border Grid.Column="2" Style="{StaticResource CardPanel}">
+            <StackPanel x:Name="Detail">
+                <TextBlock Text="왼쪽에서 팀컬러를 고르세요." Style="{StaticResource Hint}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,66 @@
+<UserControl x:Class="FcHelper.App.Studio.GradePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+            <StackPanel>
+                <TextBlock Text="강화 효율" Style="{StaticResource H1}" />
+                <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,8" Text="강화 단계별 시세와 OVR, 그리고 같은 OVR을 가장 싸게 주는 다른 카드. 강화를 올릴지 다른 카드를 살지 비교합니다." />
+                <WrapPanel>
+                    <StackPanel Margin="0,0,14,0">
+                        <TextBlock Text="선수 이름" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="NameBox" Width="200" TextChanged="OnNameChanged" />
+                        <Popup x:Name="Suggest" PlacementTarget="{Binding ElementName=NameBox}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                            <Border Background="{StaticResource Raised}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6">
+                                <ListBox x:Name="SuggestList" Background="Transparent" BorderThickness="0" Foreground="{StaticResource Text}" MaxHeight="320" MinWidth="280"
+                                         SelectionChanged="OnSuggestPicked" DisplayMemberPath="Label" />
+                            </Border>
+                        </Popup>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="PositionBox" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="지금 강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="FromBox" MinWidth="70" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="목표 강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="ToBox" MinWidth="70" /></StackPanel>
+                    <Button x:Name="ShowButton" Style="{StaticResource Primary}" Content="보기" VerticalAlignment="Bottom" Click="OnShow" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10" x:Name="Verdict" Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock x:Name="Title" Style="{StaticResource H2}" />
+                <TextBlock x:Name="Conclusion" />
+                <TextBlock x:Name="Upgrade" Foreground="{StaticResource Accent}" Margin="0,6,0,0" />
+            </StackPanel>
+        </Border>
+        <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Foreground="{StaticResource Warn}" Margin="0,8,0,0" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="Steps">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="46" />
+                                <ColumnDefinition Width="56" />
+                                <ColumnDefinition Width="260" />
+                                <ColumnDefinition Width="90" />
+                                <ColumnDefinition Width="110" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding Grade}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="{Binding Ovr, StringFormat=OVR {0}}" VerticalAlignment="Center" />
+                            <Grid Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0">
+                                <Border Background="{StaticResource Panel}" Height="14" CornerRadius="3" />
+                                <Border Background="{StaticResource Info}" Height="14" CornerRadius="3" HorizontalAlignment="Left" Width="{Binding BarWidth}" />
+                            </Grid>
+                            <TextBlock Grid.Column="3" Text="{Binding Price}" Style="{StaticResource Num}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="4" Text="{Binding PerOvr}" Style="{StaticResource Num}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="5" Margin="14,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                                <Run Text="{Binding Alternative, Mode=OneWay}" Foreground="{StaticResource Muted}" />
+                                <Run Text="{Binding Premium, Mode=OneWay}" Foreground="{StaticResource Warn}" />
+                            </TextBlock>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

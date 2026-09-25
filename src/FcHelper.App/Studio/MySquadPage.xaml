@@ -1,0 +1,50 @@
+<UserControl x:Class="FcHelper.App.Studio.MySquadPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:studio="clr-namespace:FcHelper.App.Studio">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,6">
+                    <Button x:Name="LoadButton" DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="내 스쿼드 불러오기" Click="OnLoad" />
+                    <StackPanel>
+                        <TextBlock Text="내 스쿼드 업그레이드" Style="{StaticResource H1}" />
+                        <TextBlock x:Name="Who" Style="{StaticResource Hint}" Text="최근 공식경기의 선발 11명과 강화 단계를 불러옵니다." />
+                    </StackPanel>
+                </DockPanel>
+                <WrapPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="예산 (판매 대금 포함 순비용)" Style="{StaticResource FieldLabel}" /><TextBox x:Name="BudgetBox" Width="110" Text="10억" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="판매 수수료 %" Style="{StaticResource FieldLabel}" /><TextBox x:Name="FeeBox" Width="70" Text="0" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="유지할 팀컬러" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="TeamColorBox" MinWidth="220" DisplayMemberPath="Label" /></StackPanel>
+                    <Button x:Name="FindButton" Style="{StaticResource Primary}" Content="교체 추천" VerticalAlignment="Bottom" Click="OnFind" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+        <TextBlock x:Name="Status" DockPanel.Dock="Top" Foreground="{StaticResource Muted}" Margin="0,0,0,6" TextWrapping="Wrap" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="420" />
+            </Grid.ColumnDefinitions>
+            <studio:PitchView x:Name="Pitch" Margin="0,0,12,0" />
+            <Border Grid.Column="1" Style="{StaticResource CardPanel}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="효과 큰 교체 (환산 OVR 증가 [추정])" Style="{StaticResource H2}" />
+                    <ListBox x:Name="Plans" Background="Transparent" BorderThickness="0" Foreground="{StaticResource Text}" SelectionChanged="OnPlanSelected"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Detail}" Style="{StaticResource Hint}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

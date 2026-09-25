@@ -1,0 +1,41 @@
+<UserControl x:Class="FcHelper.App.Studio.PicksPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,6">
+                    <Button x:Name="FindButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="찾기" Click="OnFind" />
+                    <StackPanel>
+                        <TextBlock Text="숨은 랭커픽" Style="{StaticResource H1}" />
+                        <TextBlock Style="{StaticResource Hint}" Text="상위 랭커들이 실제로 쓰는데, 같은 스펙 카드보다 싸게 거래되는 카드 (랭커 사용 = 전날 공식경기 · 예상가 [추정])" />
+                    </StackPanel>
+                </DockPanel>
+                <WrapPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="PositionBox" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinBox" Width="100" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최대 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MaxBox" Width="100" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 사용 랭커 수" Style="{StaticResource FieldLabel}" /><TextBox x:Name="UsersBox" Width="80" Text="10" /></StackPanel>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <Button x:Name="LockButton" DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="선택한 선수를 스쿼드에 고정" Click="OnLock" />
+            <TextBlock x:Name="Status" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
+        </DockPanel>
+        <DataGrid x:Name="Results">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="포지션" Binding="{Binding Position}" Width="60" />
+                <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
+                <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="80" />
+                <DataGridTextColumn Header="강화" Binding="{Binding Grade}" Width="50" />
+                <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="50" />
+                <DataGridTextColumn Header="랭커" Binding="{Binding Users}" Width="60" ElementStyle="{StaticResource Num}" />
+                <DataGridTextColumn Header="사용률" Binding="{Binding Share}" Width="60" ElementStyle="{StaticResource Num}" />
+                <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="90" ElementStyle="{StaticResource Num}" />
+                <DataGridTextColumn Header="예상가 [추정]" Binding="{Binding Expected}" Width="100" ElementStyle="{StaticResource Num}" />
+                <DataGridTextColumn Header="차이" Binding="{Binding Diff}" Width="70" ElementStyle="{StaticResource Good}" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</UserControl>
