@@ -1,5 +1,6 @@
 <UserControl x:Class="FcHelper.App.Studio.SalaryPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:market="clr-namespace:FcHelper.Market;assembly=FcHelper.Market"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <DockPanel>
         <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
@@ -15,8 +16,8 @@
                     <StackPanel Margin="0,0,14,0"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="PositionBox" /></StackPanel>
                     <StackPanel Margin="0,0,14,0"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" MinWidth="70" /></StackPanel>
                     <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 OVR" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinOvrBox" Width="70" /></StackPanel>
-                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinBox" Width="100" /></StackPanel>
-                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최대 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MaxBox" Width="100" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 가격 (억)" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinBox" Width="100" ToolTip="{x:Static market:Bp.InputHint}" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최대 가격 (억)" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MaxBox" Width="100" ToolTip="{x:Static market:Bp.InputHint}" /></StackPanel>
                 </WrapPanel>
             </StackPanel>
         </Border>

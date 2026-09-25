@@ -28,7 +28,7 @@ public partial class OpponentPage : UserControl
         var app = StudioKit.App;
         if (StudioKit.Squads is not { } squads || app.Db is not { } db) return;
         if (app.Service is not { } service) { Status.Text = "설정에서 API 키를 입력하세요."; return; }
-        if (!StudioKit.TryPrice(MaxBox, long.MaxValue, out var max)) { Status.Text = "가격은 10억처럼 입력하세요."; return; }
+        if (!StudioKit.TryPrice(MaxBox, long.MaxValue, out var max)) { Status.Text = "가격은 억 단위 숫자로 입력하세요 (예: 10 = 10억)."; return; }
         var nick = NickBox.Text.Trim();
         if (nick.Length == 0) return;
         var grade = GradeBox.SelectedIndex + 1;

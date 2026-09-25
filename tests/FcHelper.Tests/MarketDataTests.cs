@@ -40,7 +40,10 @@ public class ListRowParserTests
     [InlineData("2억 5,000만", 250_000_000L)]
     [InlineData("1.5조", 1_500_000_000_000L)]
     [InlineData("3000만", 30_000_000L)]
-    [InlineData("12345", 12_345L)]
+    [InlineData("12345BP", 12_345L)]
+    [InlineData("10", 1_000_000_000L)]
+    [InlineData("0.5", 50_000_000L)]
+    [InlineData("100", 10_000_000_000L)]
     public void Reads_bp_the_way_the_game_writes_it(string text, long expected)
     {
         Assert.True(Bp.TryParse(text, out var v));
@@ -51,7 +54,10 @@ public class ListRowParserTests
     public void Formats_and_rejects_bp()
     {
         Assert.Equal("7.5억", Bp.Format(750_000_000));
-        Assert.Equal("3,000만", Bp.Format(30_000_000));
+        Assert.Equal("0.3억", Bp.Format(30_000_000));
+        Assert.Equal("0.42억", Bp.Format(42_200_000));
+        Assert.Equal("1,234억", Bp.Format(123_400_000_000));
+        Assert.Equal("0.01억 미만", Bp.Format(1_760));
         Assert.False(Bp.TryParse("억만", out _));
         Assert.False(Bp.TryParse("", out _));
     }

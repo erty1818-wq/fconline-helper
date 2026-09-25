@@ -371,7 +371,7 @@ public partial class SquadPage : UserControl
         await RefreshWorkingAsync();
     }
 
-    private void OnBudgetChip(object sender, RoutedEventArgs e) => BudgetBox.Text = (string)((Button)sender).Content;
+    private void OnBudgetChip(object sender, RoutedEventArgs e) => BudgetBox.Text = ((string)((Button)sender).Content).Replace("억", "");
 
     // ── pitch size ─────────────────────────────────────────────────────────
 
@@ -540,7 +540,7 @@ public partial class SquadPage : UserControl
 
     private async Task<SquadRequest?> RequestAsync(SquadService squads, IReadOnlyDictionary<int, LockedCard> locked)
     {
-        if (!StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget)) { Status.Text = "예산은 100억, 5000만처럼 입력하세요."; return null; }
+        if (!StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget)) { Status.Text = "예산은 억 단위 숫자로 입력하세요 (예: 100 = 100억, 0.5 = 0.5억)."; return null; }
         var grades = _grades.Where(g => g.IsChecked == true).Select(g => (int)g.Tag).ToList();
         if (grades.Count == 0) { Status.Text = "강화 단계를 하나 이상 고르세요."; return null; }
         var targets = await squads.TargetsAsync([(TeamColorBox.SelectedItem as TeamColorItem)?.Id ?? 0, (FeatureBox.SelectedItem as TeamColorItem)?.Id ?? 0]);

@@ -65,7 +65,7 @@ public partial class MySquadPage : UserControl
     {
         if (StudioKit.Squads is not { } squads) return;
         if (_owned.Count == 0) { Status.Text = "먼저 내 스쿼드를 불러오세요."; return; }
-        if (!StudioKit.TryPrice(BudgetBox, 500_000_000, out var budget)) { Status.Text = "예산은 10억처럼 입력하세요."; return; }
+        if (!StudioKit.TryPrice(BudgetBox, 500_000_000, out var budget)) { Status.Text = "예산은 억 단위 숫자로 입력하세요 (예: 10 = 10억)."; return; }
         var fee = Fee();
         var tc = TeamColorChips.Children.OfType<ToggleButton>().Where(b => b.IsChecked == true).Select(b => (int)b.Tag).ToList();
         await StudioKit.Run(FindButton, Status, async () =>

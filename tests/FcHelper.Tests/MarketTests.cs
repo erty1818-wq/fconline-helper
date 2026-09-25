@@ -105,7 +105,7 @@ public class MarketLookupTests : IDisposable
         var report = await Service(market).LookupAsync("상대");
 
         Assert.Equal(132, report!.Market[Ronaldo].Ovr);
-        Assert.Contains("· +5 ST 132 · 시세 4,820", ReportText.Card(report)); // grade 5 from the match data
+        Assert.Contains("· +5 ST 132 · 시세 0.01억 미만", ReportText.Card(report)); // grade 5 from the match data; 4,820 BP in 억
     }
 
     [Fact]

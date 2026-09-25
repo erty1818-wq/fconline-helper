@@ -129,7 +129,7 @@ public partial class ManagerWindow : Window
         if (_app.Squads is not { } squads) return;
         if (!Bp.TryParse(HoneyMin.Text, out var min) && HoneyMin.Text.Trim().Length > 0 || !Bp.TryParse(HoneyMax.Text, out var max) && HoneyMax.Text.Trim().Length > 0)
         {
-            Status.Text = "가격은 1억, 5000만처럼 입력하세요.";
+            Status.Text = "가격은 억 단위 숫자로 입력하세요 (예: 1 = 1억, 0.5 = 0.5억).";
             return;
         }
         if (HoneyMax.Text.Trim().Length == 0) max = long.MaxValue;

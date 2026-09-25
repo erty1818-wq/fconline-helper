@@ -68,7 +68,7 @@ public static class ReportText
     /// <summary>" · +8 ST 132 · 시세 4,820" from the data center, or "" when not fetched.</summary>
     public static string MarketSuffix(OpponentReport r, int spId) =>
         r.Market.TryGetValue(spId, out var m)
-            ? $" · +{m.Strong} {m.Position} {m.Ovr}" + (m.Price is null ? "" : $" · 시세 {m.Price}")
+            ? $" · +{m.Strong} {m.Position} {m.Ovr}" + (m.Price is null ? "" : $" · 시세 {(long.TryParse(m.Price.Replace(",", ""), out var bp) ? FcHelper.Market.Bp.Format(bp) : m.Price)}")
             : "";
 
     /// <summary>"최근경기 등급 X · 최고 Y · ", with either part left out when unknown.</summary>

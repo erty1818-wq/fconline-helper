@@ -1,5 +1,6 @@
 <UserControl x:Class="FcHelper.App.Studio.SquadPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:market="clr-namespace:FcHelper.Market;assembly=FcHelper.Market"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:studio="clr-namespace:FcHelper.App.Studio"
              xmlns:app="clr-namespace:FcHelper.App">
@@ -20,9 +21,9 @@
                 <StackPanel x:Name="Conditions">
                 <WrapPanel>
                     <StackPanel Margin="0,0,14,6">
-                        <TextBlock Text="예산 (예: 100억)" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="예산 (억)" Style="{StaticResource FieldLabel}" />
                         <StackPanel Orientation="Horizontal">
-                            <TextBox x:Name="BudgetBox" Width="110" Text="100억" />
+                            <TextBox x:Name="BudgetBox" Width="110" Text="100" ToolTip="{x:Static market:Bp.InputHint}" />
                             <Button Style="{StaticResource Ghost}" Content="10억" Margin="4,0,0,0" Padding="7,3" Click="OnBudgetChip" />
                             <Button Style="{StaticResource Ghost}" Content="50억" Margin="4,0,0,0" Padding="7,3" Click="OnBudgetChip" />
                             <Button Style="{StaticResource Ghost}" Content="100억" Margin="4,0,0,0" Padding="7,3" Click="OnBudgetChip" />

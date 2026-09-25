@@ -21,7 +21,7 @@ public partial class TrendsPage : UserControl
     private void OnShow(object sender, RoutedEventArgs e)
     {
         if (StudioKit.Squads is not { } squads) return;
-        if (!StudioKit.TryPrice(MinBox, 0, out var min)) { Status.Text = "가격은 1000만처럼 입력하세요."; return; }
+        if (!StudioKit.TryPrice(MinBox, 0, out var min)) { Status.Text = "가격은 억 단위 숫자로 입력하세요 (예: 0.1 = 0.1억)."; return; }
         try
         {
             var moves = squads.PriceMoves(MarketStore.HistoryGrades[GradeBox.SelectedIndex], Days[DaysBox.SelectedIndex], min);

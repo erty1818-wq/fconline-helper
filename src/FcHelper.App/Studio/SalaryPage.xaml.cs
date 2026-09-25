@@ -18,7 +18,7 @@ public partial class SalaryPage : UserControl
     private async void OnFind(object sender, RoutedEventArgs e)
     {
         if (StudioKit.Squads is not { } squads) return;
-        if (!StudioKit.TryPrice(MinBox, 0, out var min) || !StudioKit.TryPrice(MaxBox, long.MaxValue, out var max)) { Status.Text = "가격은 1억, 5000만처럼 입력하세요."; return; }
+        if (!StudioKit.TryPrice(MinBox, 0, out var min) || !StudioKit.TryPrice(MaxBox, long.MaxValue, out var max)) { Status.Text = "가격은 억 단위 숫자로 입력하세요 (예: 1 = 1억, 0.5 = 0.5억)."; return; }
         var position = (string)PositionBox.SelectedItem;
         var grade = GradeBox.SelectedIndex + 1;
         var minOvr = StudioKit.IntOr(MinOvrBox, 0);

@@ -242,19 +242,27 @@ public static class Grades
     public static IEnumerable<int> Tradable => Enumerable.Range(1, MaxTradable);
 }
 
-/// <summary>BP amounts as the game writes them: "1억 5,000만", "3,000만", "1.5조".</summary>
+/// <summary>
+/// BP amounts in 억, the one unit the app shows and takes: a plain number means 억 ("10" = 10억, "0.5" = 0.5억), and
+/// the game's own spellings still work ("1억 5,000만", "3000만", "1.5조", "12345BP" for raw BP).
+/// </summary>
 public static partial class Bp
 {
-    private static readonly (string Unit, long Size)[] Units = [("조", 1_000_000_000_000), ("억", 100_000_000), ("만", 10_000)];
+    public const long Eok = 100_000_000;
+    private static readonly (string Unit, long Size)[] Units = [("조", 1_000_000_000_000), ("억", Eok), ("만", 10_000)];
+
+    /// <summary>What the price boxes' tooltips say.</summary>
+    public const string InputHint = "억 단위로 숫자만 입력: 10 = 10억, 0.5 = 0.5억(5,000만). 10억·5000만처럼 단위를 붙여도 됩니다.";
 
     public static bool TryParse(string? text, out long value)
     {
         value = 0;
         if (string.IsNullOrWhiteSpace(text)) return false;
+        var raw = text.Contains("BP", StringComparison.OrdinalIgnoreCase);
         var s = text.Replace(",", "").Replace(" ", "").Replace("BP", "", StringComparison.OrdinalIgnoreCase);
         if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var plain))
         {
-            value = (long)plain;
+            value = (long)Math.Round(raw ? plain : plain * Eok);
             return plain >= 0;
         }
         double total = 0;
@@ -269,13 +277,16 @@ public static partial class Bp
         return true;
     }
 
+    /// <summary>Always in 억: "1,234억", "12.3억", "0.42억"; under 100만 "0.01억 미만" (market floor listings).</summary>
     public static string Format(long bp)
     {
-        foreach (var (unit, size) in Units[..2])
-        {
-            if (bp >= size) return (bp / (double)size).ToString(bp >= size * 100 ? "#,0" : "#,0.#", CultureInfo.InvariantCulture) + unit;
-        }
-        return bp >= 10_000 ? $"{bp / 10_000:#,0}만" : bp.ToString("#,0", CultureInfo.InvariantCulture);
+        var eok = bp / (double)Eok;
+        if (bp < 0) return "-" + Format(-bp);
+        if (bp == 0) return "0억";
+        if (eok >= 100) return eok.ToString("#,0", CultureInfo.InvariantCulture) + "억";
+        if (eok >= 1) return eok.ToString("#,0.#", CultureInfo.InvariantCulture) + "억";
+        if (eok >= 0.01) return eok.ToString("0.0#", CultureInfo.InvariantCulture) + "억";
+        return "0.01억 미만";
     }
 
     [GeneratedRegex(@"(\d+(?:\.\d+)?)(조|억|만)")]

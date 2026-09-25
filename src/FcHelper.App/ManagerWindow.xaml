@@ -1,5 +1,6 @@
 <Window x:Class="FcHelper.App.ManagerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:market="clr-namespace:FcHelper.Market;assembly=FcHelper.Market"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:FcHelper.App"
         Title="감독모드 · FC Online Helper" Width="1280" Height="840" MinWidth="980" MinHeight="600"
@@ -93,9 +94,9 @@
                             <StackPanel Margin="0,0,14,0">
                                 <TextBlock Text="가격" Style="{StaticResource FieldLabel}" />
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBox x:Name="HoneyMin" Width="85" ToolTip="예: 1억" />
+                                    <TextBox x:Name="HoneyMin" Width="85" ToolTip="{x:Static market:Bp.InputHint}" />
                                     <TextBlock Text="~" Margin="5,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
-                                    <TextBox x:Name="HoneyMax" Width="85" />
+                                    <TextBox x:Name="HoneyMax" Width="85" ToolTip="{x:Static market:Bp.InputHint}" />
                                 </StackPanel>
                             </StackPanel>
                             <StackPanel Margin="0,0,14,0"><TextBlock Text="OVR 하한" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HoneyOvr" Width="55" Text="135" /></StackPanel>
