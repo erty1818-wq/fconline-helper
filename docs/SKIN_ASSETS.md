@@ -8,7 +8,7 @@ FC Online Helper의 화면 이미지는 **정해진 이름의 PNG 파일**로 �
 
 ## 글꼴 바꾸기
 
-`skinonts\` 폴더에 `.ttf`·`.otf` 파일을 넣으면 앱 전체 글꼴이 그 폰트가 된다(예: Pretendard, SUIT — 둘 다 무료 OFL). 폴더가 비어 있으면 설치된 Pretendard → SUIT → Noto Sans KR → 맑은 고딕 순으로 쓴다.
+`%LOCALAPPDATA%\FcHelper\skinonts\` 폴더에 `.ttf`·`.otf` 파일을 넣으면 앱 전체 글꼴이 그 폰트가 된다(예: Pretendard, SUIT — 둘 다 무료 OFL). 폴더가 비어 있으면 설치된 Pretendard → SUIT → Noto Sans KR → 맑은 고딕 순으로 쓴다.
 
 ## 공통 스타일 (모든 이미지에 적용)
 
