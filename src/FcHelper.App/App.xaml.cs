@@ -393,7 +393,6 @@ public partial class App : Application
         if (window.ShowDialog() == true)
         {
             ApplySettings();
-            if (_search is not null) _search.Topmost = Settings.KeepCardOnTop;
             _home?.Refresh();
         }
     }

@@ -16,7 +16,6 @@ public partial class SettingsWindow : Window
         WindowBox.Text = settings.MatchWindow.ToString(CultureInfo.InvariantCulture);
         RateBox.Text = settings.RequestsPerSecond.ToString(CultureInfo.InvariantCulture);
         VoiceBox.IsChecked = settings.VoiceBriefing;
-        TopmostBox.IsChecked = settings.KeepCardOnTop;
         StartupBox.IsChecked = settings.StartWithWindows;
         (settings.Detection == DetectionMode.Manual ? ManualModeBox : HotkeyModeBox).IsChecked = true;
         SaveCapturesBox.IsChecked = settings.SaveCaptures;
@@ -43,7 +42,6 @@ public partial class SettingsWindow : Window
         _settings.MatchWindow = window;
         _settings.RequestsPerSecond = rate;
         _settings.VoiceBriefing = VoiceBox.IsChecked == true;
-        _settings.KeepCardOnTop = TopmostBox.IsChecked == true;
         _settings.StartWithWindows = StartupBox.IsChecked == true;
         _settings.Detection = ManualModeBox.IsChecked == true ? DetectionMode.Manual : DetectionMode.Hotkey;
         _settings.SaveCaptures = SaveCapturesBox.IsChecked == true;

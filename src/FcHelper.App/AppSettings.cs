@@ -27,8 +27,6 @@ public sealed class AppSettings
     public int MatchWindow { get; set; } = 30;
     public bool VoiceBriefing { get; set; }
     public bool StartWithWindows { get; set; }
-    /// <summary>Off by default: an always-on-top card covers the game (docs/PLANNING.md 18.2).</summary>
-    public bool KeepCardOnTop { get; set; }
     public DetectionMode Detection { get; set; } = DetectionMode.Hotkey;
     /// <summary>Debug aid: keep each recognition screenshot and its OCR text. Off by default (PLANNING 19.5).</summary>
     public bool SaveCaptures { get; set; }

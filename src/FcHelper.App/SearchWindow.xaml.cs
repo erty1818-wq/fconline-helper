@@ -16,7 +16,8 @@ public partial class SearchWindow : Window
     {
         _app = app;
         InitializeComponent();
-        Topmost = app.Settings.KeepCardOnTop;
+        // Never always-on-top: it would cover the game (the user's rule). It opens beside the game window instead.
+        Topmost = false;
         PlaceNearRightEdge();
         // Opened by the capture hotkey, the card must not pull keyboard focus away from the game.
         Loaded += (_, _) => { if (ShowActivated) FocusSearchBox(); };
@@ -76,11 +77,9 @@ public partial class SearchWindow : Window
             var useRight = right >= left;
             Width = Math.Min(440, useRight ? right : left);
             Left = useRight ? game.Right + gap : game.Left - gap - Width;
-            Topmost = true;
             return true;
         }
         PlaceNearRightEdge();
-        Topmost = _app.Settings.KeepCardOnTop;
         return false;
     }
 

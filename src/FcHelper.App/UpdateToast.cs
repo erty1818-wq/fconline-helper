@@ -6,8 +6,8 @@ using System.Windows.Media;
 namespace FcHelper.App;
 
 /// <summary>
-/// The "새 버전" notice: a small window above the clock, on top of every app window whichever page is open, with
-/// [지금 업데이트] (download, check, restart in one click) and [나중에]. It does not take the focus from the game.
+/// The "새 버전" notice: a small window above the clock, with [지금 업데이트] (download, check, restart in one click)
+/// and [나중에]. Not always-on-top, so it never covers the game; the Windows notification by the clock goes with it.
 /// </summary>
 public sealed class UpdateToast : Window
 {
@@ -25,7 +25,7 @@ public sealed class UpdateToast : Window
         ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true;
         Background = Brushes.Transparent;
-        Topmost = true;
+        Topmost = false;
         ShowInTaskbar = false;
         ShowActivated = false;
         SizeToContent = SizeToContent.Height;
