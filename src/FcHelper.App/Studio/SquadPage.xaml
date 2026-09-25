@@ -14,7 +14,7 @@
                                   Margin="0,0,10,0" VerticalAlignment="Center" Click="OnToggleConditions" ToolTip="조건을 접으면 피치가 커집니다" />
                     <StackPanel>
                         <TextBlock Text="스쿼드 메이커" Style="{StaticResource H1}" />
-                        <TextBlock Style="{StaticResource Hint}" Text="AI 추천을 받아 고치거나, 빈 스쿼드에서 직접 짜거나, 일부만 넣고 나머지를 AI로 채울 수 있습니다." />
+                        <TextBlock x:Name="MakerHint" Style="{StaticResource Hint}" Text="AI 추천을 받아 고치거나, 빈 스쿼드에서 직접 짜거나, 일부만 넣고 나머지를 AI로 채울 수 있습니다." />
                     </StackPanel>
                 </DockPanel>
                 <StackPanel x:Name="Conditions">
@@ -69,37 +69,61 @@
         <!-- Pitch on the left at full height (like the official squad maker); plans, library and the slot panel on the right. -->
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="400" />
+                <ColumnDefinition Width="*" MinWidth="360" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition x:Name="SideColumn" Width="400" MinWidth="300" MaxWidth="720" />
             </Grid.ColumnDefinitions>
 
-            <DockPanel Margin="0,0,12,0">
+            <!-- Drag to give the pitch or the side panel more room. -->
+            <GridSplitter Grid.Column="1" Width="12" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeWE"
+                          ResizeBehavior="PreviousAndNext" ToolTip="끌어서 피치와 오른쪽 칸 크기 조절" />
+            <Border Grid.Column="1" Width="3" CornerRadius="2" Background="{StaticResource Line}" Height="48" IsHitTestVisible="False" />
+
+            <DockPanel>
                 <!-- Tools and totals of the eleven -->
-                <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Padding="12,8" Margin="0,0,0,8">
+                <!-- Kept to a few short lines: every pixel left goes to the pitch. -->
+                <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Padding="10,6" Margin="0,0,0,6">
                     <StackPanel>
                         <WrapPanel>
-                            <Button Style="{StaticResource Ghost}" Content="빈 스쿼드로 직접 짜기" Click="OnNewSquad" Padding="10,4" Margin="0,0,6,4" />
-                            <Button x:Name="FillButton" Style="{StaticResource Ghost}" Content="빈 자리 AI로 채우기" Click="OnFillEmpty" Padding="10,4" Margin="0,0,6,4"
-                                    ToolTip="지금 들어 있는 선수는 모두 두고, 빈 자리만 예산·급여·팀컬러에 맞춰 채웁니다." />
-                            <Button x:Name="UndoButton" Style="{StaticResource Ghost}" Content="↶ 되돌리기" Click="OnUndo" Padding="10,4" Margin="0,0,6,4" IsEnabled="False" ToolTip="Ctrl + Z" />
-                            <Button Style="{StaticResource Ghost}" Content="이미지로 저장" Click="OnSaveImage" Padding="10,4" Margin="0,0,14,4" ToolTip="피치와 합계를 PNG로 사진 폴더(FcHelper)에 저장" />
+                            <Button Style="{StaticResource Ghost}" Content="빈 스쿼드" Click="OnNewSquad" Padding="9,3" Margin="0,0,5,4" ToolTip="빈 스쿼드로 직접 짜기" />
+                            <Button x:Name="FillButton" Style="{StaticResource Ghost}" Content="빈 자리 AI" Click="OnFillEmpty" Padding="9,3" Margin="0,0,5,4"
+                                    ToolTip="지금 들어 있는 선수는 모두 두고, 빈 자리만 예산·급여·팀컬러에 맞춰 AI로 채웁니다." />
+                            <Button x:Name="UndoButton" Style="{StaticResource Ghost}" Content="↶" Click="OnUndo" Padding="9,3" Margin="0,0,5,4" IsEnabled="False" ToolTip="되돌리기 (Ctrl + Z)" />
+                            <Button Style="{StaticResource Ghost}" Content="🖼 저장" Click="OnSaveImage" Padding="9,3" Margin="0,0,12,4" ToolTip="피치와 합계를 PNG로 사진 폴더(FcHelper)에 저장" />
                             <TextBlock Text="전체 강화" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,2,4" />
-                            <StackPanel x:Name="BulkGrades" Orientation="Horizontal" Margin="0,0,14,4" />
-                            <TextBlock Text="확대" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,6,4" />
-                            <Slider x:Name="ZoomSlider" Minimum="1" Maximum="2.5" Value="1" Width="110" VerticalAlignment="Center" Margin="0,0,6,4"
-                                    SmallChange="0.1" LargeChange="0.25" ValueChanged="OnZoomChanged" ToolTip="Ctrl + 마우스 휠로도 확대·축소" />
-                            <TextBlock x:Name="ZoomText" Text="100%" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="0,0,0,4" />
+                            <StackPanel x:Name="BulkGrades" Orientation="Horizontal" Margin="0,0,12,4" />
+                            <!-- What the in-game OVR on the cards includes -->
+                            <TextBlock Text="적응도" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,6,4" />
+                            <ComboBox x:Name="AdaptBox" Width="62" Margin="0,0,14,4" SelectionChanged="OnFinalOptionChanged"
+                                      ToolTip="팀 적응도: 모든 능력치 +1 ~ +5 (데이터센터 기본값은 +1)" />
+                            <CheckBox x:Name="TrainingToggle" Content="집중훈련 최대 반영" Margin="0,0,14,4" VerticalAlignment="Center" Click="OnFinalOptionChanged"
+                                      ToolTip="포지션 가중치가 가장 큰 스탯 5개(+11부터 6개)를 +2씩 올렸을 때의 OVR" />
+                            <CheckBox x:Name="FacesToggle" Content="미니페이스" Margin="0,0,0,4" VerticalAlignment="Center" Click="OnFacesToggle" IsChecked="True"
+                                      ToolTip="선수 사진 표시 (선수를 누르면 시즌별 사진이나 내 이미지로 바꿀 수 있습니다)" />
                         </WrapPanel>
-                        <TextBlock x:Name="Totals" FontWeight="SemiBold" Margin="0,4,0,0" />
-                        <TextBlock x:Name="TeamColorsLine" Style="{StaticResource Hint}" Foreground="{StaticResource Accent}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="Totals" FontWeight="SemiBold" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                        <TextBlock x:Name="TeamColorsLine" Style="{StaticResource Hint}" Foreground="{StaticResource Accent}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                     </StackPanel>
                 </Border>
                 <Grid>
-                    <!-- The pitch fills the space; zoomed in, it grows past it and scrolls (Ctrl + wheel). -->
+                    <!-- Only the pitch zooms: wheel over it zooms around the pointer, drag moves it. -->
                     <ScrollViewer x:Name="PitchScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
-                                  PreviewMouseWheel="OnPitchWheel" SizeChanged="OnPitchAreaChanged">
+                                  PreviewMouseWheel="OnPitchWheel" SizeChanged="OnPitchAreaChanged"
+                                  PreviewMouseLeftButtonDown="OnPitchPress" PreviewMouseMove="OnPitchDrag" PreviewMouseLeftButtonUp="OnPitchRelease">
                         <studio:PitchView x:Name="Pitch" />
                     </ScrollViewer>
+                    <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,14,14" Background="{StaticResource Panel}" Opacity="0.94"
+                            BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="6,4">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Style="{StaticResource Ghost}" Content="−" Click="OnZoomOut" Width="30" Padding="0,2" ToolTip="축소" />
+                            <Slider x:Name="ZoomSlider" Minimum="1" Maximum="3" Value="1" Width="96" VerticalAlignment="Center" Margin="6,0"
+                                    SmallChange="0.1" LargeChange="0.25" ValueChanged="OnZoomChanged" ToolTip="피치 위에서 마우스 휠로 확대·축소, 끌어서 이동" />
+                            <Button Style="{StaticResource Ghost}" Content="+" Click="OnZoomIn" Width="30" Padding="0,2" ToolTip="확대" />
+                            <Button x:Name="ZoomText" Style="{StaticResource Ghost}" Content="100%" Click="OnZoomReset" MinWidth="52" Padding="6,2" Margin="6,0,0,0" ToolTip="원래 크기로" />
+                        </StackPanel>
+                    </Border>
                     <Border x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Background="{StaticResource Panel}"
                             BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="24,18" MaxWidth="420">
                         <StackPanel>
@@ -112,7 +136,7 @@
                 </Grid>
             </DockPanel>
 
-            <DockPanel Grid.Column="1">
+            <DockPanel Grid.Column="2">
                 <!-- AI plans: 2 × 2 -->
                 <ListBox x:Name="Modes" DockPanel.Dock="Top" Background="Transparent" BorderThickness="0" SelectionChanged="OnModeSelected"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,6">
@@ -127,7 +151,8 @@
                             <Setter Property="Template">
                                 <Setter.Value>
                                     <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="B" Background="{StaticResource PanelSheen}" BorderBrush="{StaticResource PanelEdge}" BorderThickness="1" CornerRadius="10" Padding="11,8">
+                                        <Border x:Name="B" Background="{StaticResource PanelSheen}" BorderBrush="{StaticResource PanelEdge}" BorderThickness="1" CornerRadius="10" Padding="10,6"
+                                                ToolTip="{Binding Details}">
                                             <ContentPresenter />
                                         </Border>
                                         <ControlTemplate.Triggers>
@@ -158,26 +183,22 @@
                                     </Border>
                                     <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14" />
                                 </DockPanel>
-                                <TextBlock Text="{Binding Total}" Style="{StaticResource BigNumber}" FontSize="20" Margin="0,2,0,0" />
-                                <TextBlock Text="{Binding Ovr}" Style="{StaticResource Hint}" Foreground="{StaticResource Text}" />
-                                <TextBlock Text="{Binding Effective}" Style="{StaticResource Hint}" />
-                                <TextBlock Text="{Binding TeamColor}" Style="{StaticResource Hint}" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="{Binding Total}" Style="{StaticResource BigNumber}" FontSize="18" Margin="0,1,0,0" />
+                                <TextBlock Text="{Binding Ovr}" Style="{StaticResource Hint}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
 
                 <!-- Squad library -->
-                <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Padding="10,8" Margin="0,0,6,8">
+                <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Padding="8,5" Margin="0,0,6,6">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Left" Text="보관함" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <WrapPanel>
-                            <TextBox x:Name="LibraryName" Width="110" Margin="0,0,4,2" ToolTip="저장할 스쿼드 이름 (비우면 날짜)" />
-                            <Button Style="{StaticResource Ghost}" Content="저장" Click="OnLibrarySave" Padding="9,3" Margin="0,0,8,2" />
-                            <ComboBox x:Name="LibraryBox" MinWidth="110" Margin="0,0,4,2" />
-                            <Button Style="{StaticResource Ghost}" Content="열기" Click="OnLibraryLoad" Padding="9,3" Margin="0,0,4,2" />
-                            <Button Style="{StaticResource Ghost}" Content="삭제" Click="OnLibraryDelete" Padding="9,3" Margin="0,0,0,2" />
-                        </WrapPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="보관함" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="✕" Click="OnLibraryDelete" Padding="7,2" ToolTip="고른 스쿼드 삭제" />
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="열기" Click="OnLibraryLoad" Padding="8,2" Margin="0,0,4,0" />
+                        <ComboBox x:Name="LibraryBox" DockPanel.Dock="Right" Width="96" Margin="0,0,4,0" />
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="저장" Click="OnLibrarySave" Padding="8,2" Margin="0,0,8,0" />
+                        <TextBox x:Name="LibraryName" ToolTip="저장할 스쿼드 이름 (비우면 날짜)" Margin="0,0,4,0" />
                     </DockPanel>
                 </Border>
 

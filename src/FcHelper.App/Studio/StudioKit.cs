@@ -128,4 +128,8 @@ public sealed record MoveRow(string Name, string Season, string Grade, string Be
 
 public sealed record GradeRow(string Grade, int Ovr, string Price, string PerOvr, string Alternative, string Premium, double BarWidth, bool Competitive);
 
-public sealed record ModeCard(SquadPlan Plan, string Title, string Total, string Ovr, string Effective, string Pay, string TeamColor, string Badge);
+public sealed record ModeCard(SquadPlan Plan, string Title, string Total, string Ovr, string Effective, string Pay, string TeamColor, string Badge)
+{
+    /// <summary>The full figures (the card shows two lines), as its tooltip.</summary>
+    public string Details => $"{Title} · {Total}\n{Ovr}\n{Effective} · {Pay}" + (TeamColor.Length > 0 ? $"\n{TeamColor}" : "");
+}

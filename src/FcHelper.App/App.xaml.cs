@@ -46,6 +46,8 @@ public partial class App : Application
     public SquadService? Squads { get; private set; }
     /// <summary>The match cache (my matches, opponents) for the squad pages.</summary>
     public FcDatabase? Db => _db;
+    /// <summary>The app's one HttpClient (data center, CDN pictures).</summary>
+    public HttpClient Http => _http;
     public int ApiCallCount => _limiter?.IssuedCount ?? 0;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -92,7 +94,9 @@ public partial class App : Application
             salaryCap: new SalaryCapCache(marketStore, new SalaryCapSource(_http, dataCenter)),
             rankerSquads: new RankerSquadClient(_http, dataCenter, () => _rankerStats as FcOnlineApi),
             liquidity: new LiquidityCache(marketStore, new PriceHistoryClient(_http, dataCenter)),
-            managerRankers: new RankerSquadClient(_http, dataCenter, () => _rankerStats as FcOnlineApi, "manager", 52));
+            managerRankers: new RankerSquadClient(_http, dataCenter, () => _rankerStats as FcOnlineApi, "manager", 52),
+            abilities: new AbilityCache(marketStore, new AbilityClient(_http, dataCenter)),
+            faces: new FaceClient(_http, dataCenter));
         _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
         _ = KeepMarketFreshAsync(_exit.Token);
         // The home screen asks for the key on first run; the squad helper works without one.

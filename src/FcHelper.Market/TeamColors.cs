@@ -24,7 +24,7 @@ public sealed record TeamColorLevel(int Level, int Members, int AllStats, IReadO
 {
     /// <summary>
     /// What the level adds to the OVR of a card at <paramref name="position"/>: "전체 능력치 +N" adds N; a single stat
-    /// adds its bonus times that stat's weight in the position's OVR formula [추정: 가중치는 공개되지 않은 근사값].
+    /// adds its bonus times that stat's weight in the position's OVR formula (<see cref="OvrFormula"/>; the rounding is left out).
     /// </summary>
     public double OvrGain(string position) =>
         AllStats + TeamColorParser.StatBonuses(Effects).Sum(kv => kv.Value * OvrWeights.Of(position, kv.Key));
@@ -101,56 +101,30 @@ public sealed record TeamColorTarget(TeamColor Color, IReadOnlySet<long> Members
         }
         return total + enhance;
     }
+
+    /// <summary>The levels reached that apply to one card, as the game stacks them: all of them, but one 강화 colour (the best).</summary>
+    public static IReadOnlyList<TeamColorLevel> LevelsFor(IReadOnlyList<TeamColorTarget> targets, IReadOnlyList<int> counts, Func<int, bool> applies)
+    {
+        var result = new List<TeamColorLevel>();
+        TeamColorLevel? enhance = null;
+        for (var i = 0; i < targets.Count; i++)
+        {
+            if (targets[i].Color.LevelFor(counts[i]) is not { } level || !applies(i)) continue;
+            if (targets[i].Color.Category != TeamColorCategory.Enhance) result.Add(level);
+            else if (enhance is null || level.AllStats > enhance.AllStats) enhance = level;
+        }
+        if (enhance is not null) result.Add(enhance);
+        return result;
+    }
 }
 
 /// <summary>A team colour as it ends up in a squad: how many members play and the level they reach.</summary>
 public sealed record AppliedTeamColor(TeamColor Color, int Members, TeamColorLevel? Level);
 
-/// <summary>
-/// Approximate weight of each stat in a position's OVR, used only to value single-stat team colour bonuses. The game
-/// does not publish its formula; these follow the long-known FIFA ratings formula and sum to 1 per position [추정].
-/// </summary>
+/// <summary>Weight of each stat in a position's OVR as a fraction (see <see cref="OvrFormula"/>), to value single-stat bonuses.</summary>
 public static class OvrWeights
 {
-    private static readonly Dictionary<string, Dictionary<string, double>> ByGroup = new()
-    {
-        ["ST"] = W(("골 결정력", .18), ("위치 선정", .13), ("헤더", .10), ("슛 파워", .10), ("반응 속도", .08), ("드리블", .07), ("볼 컨트롤", .10),
-            ("발리슛", .02), ("중거리 슛", .03), ("가속력", .04), ("속력", .05), ("몸싸움", .05), ("짧은 패스", .05)),
-        ["CF"] = W(("골 결정력", .11), ("위치 선정", .13), ("헤더", .02), ("슛 파워", .05), ("반응 속도", .09), ("드리블", .14), ("볼 컨트롤", .15),
-            ("짧은 패스", .09), ("중거리 슛", .04), ("가속력", .05), ("속력", .05), ("시야", .08)),
-        ["W"] = W(("크로스", .09), ("골 결정력", .10), ("짧은 패스", .09), ("드리블", .16), ("볼 컨트롤", .14), ("가속력", .07), ("속력", .06),
-            ("민첩성", .03), ("반응 속도", .07), ("위치 선정", .09), ("시야", .06), ("중거리 슛", .04)),
-        ["CAM"] = W(("짧은 패스", .16), ("볼 컨트롤", .15), ("드리블", .13), ("시야", .14), ("위치 선정", .09), ("반응 속도", .07), ("골 결정력", .07),
-            ("중거리 슛", .05), ("가속력", .04), ("민첩성", .03), ("긴 패스", .04), ("속력", .03)),
-        ["SM"] = W(("크로스", .10), ("짧은 패스", .11), ("드리블", .15), ("볼 컨트롤", .13), ("가속력", .07), ("속력", .06), ("스태미너", .05),
-            ("반응 속도", .07), ("위치 선정", .08), ("시야", .07), ("긴 패스", .05), ("중거리 슛", .06)),
-        ["CM"] = W(("짧은 패스", .17), ("긴 패스", .13), ("시야", .13), ("볼 컨트롤", .14), ("드리블", .07), ("반응 속도", .08), ("가로채기", .05),
-            ("위치 선정", .06), ("태클", .05), ("중거리 슛", .04), ("스태미너", .06), ("적극성", .02)),
-        ["CDM"] = W(("짧은 패스", .14), ("긴 패스", .10), ("가로채기", .14), ("대인 수비", .12), ("태클", .07), ("슬라이딩 태클", .05),
-            ("볼 컨트롤", .10), ("반응 속도", .07), ("몸싸움", .06), ("스태미너", .06), ("적극성", .05), ("시야", .04)),
-        ["CB"] = W(("대인 수비", .14), ("태클", .17), ("슬라이딩 태클", .14), ("가로채기", .13), ("헤더", .10), ("몸싸움", .10), ("반응 속도", .05),
-            ("점프", .03), ("짧은 패스", .05), ("볼 컨트롤", .04), ("적극성", .05)),
-        ["FB"] = W(("가속력", .05), ("속력", .07), ("스태미너", .08), ("반응 속도", .08), ("가로채기", .12), ("볼 컨트롤", .07), ("크로스", .09),
-            ("헤더", .04), ("짧은 패스", .07), ("대인 수비", .08), ("태클", .11), ("슬라이딩 태클", .14)),
-        ["WB"] = W(("가속력", .04), ("속력", .06), ("스태미너", .10), ("반응 속도", .08), ("가로채기", .12), ("볼 컨트롤", .08), ("크로스", .12),
-            ("드리블", .04), ("짧은 패스", .10), ("대인 수비", .07), ("태클", .08), ("슬라이딩 태클", .11)),
-        ["GK"] = W(("GK 다이빙", .24), ("GK 핸들링", .22), ("GK 킥", .04), ("GK 반응속도", .24), ("GK 위치 선정", .22), ("반응 속도", .04)),
-    };
-
-    public static double Of(string position, string stat) =>
-        ByGroup.TryGetValue(GroupOf(Formations.Normalize(position)), out var w) ? w.GetValueOrDefault(stat) : 0;
-
-    private static string GroupOf(string position) => position switch
-    {
-        "ST" or "CF" or "CAM" or "CM" or "CDM" or "CB" or "GK" => position,
-        "LW" or "RW" => "W",
-        "LM" or "RM" => "SM",
-        "LB" or "RB" => "FB",
-        "LWB" or "RWB" => "WB",
-        _ => "",
-    };
-
-    private static Dictionary<string, double> W(params (string Stat, double Weight)[] w) => w.ToDictionary(x => x.Stat, x => x.Weight);
+    public static double Of(string position, string stat) => OvrFormula.Weight(position, stat) / 100.0;
 }
 
 /// <summary>Team colour catalogue, level rules and members from the data center (personal use, cached by the caller).</summary>

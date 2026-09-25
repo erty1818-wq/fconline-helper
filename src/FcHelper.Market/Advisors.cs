@@ -237,7 +237,11 @@ public static class Advisors
     public static IReadOnlyList<SquadSlot> WithTeamColors(IReadOnlyList<SquadSlot> squad, IReadOnlyList<TeamColorTarget> teamColors)
     {
         var counts = teamColors.Select(t => squad.Count(s => t.Counts(s.Card.SpId, s.Grade))).ToArray();
-        return squad.Select(s => s with { TeamColorBonus = TeamColorBonusAt(s.Position, s.Card.SpId, s.Grade, teamColors, counts) }).ToList();
+        return squad.Select(s => s with
+        {
+            TeamColorBonus = TeamColorBonusAt(s.Position, s.Card.SpId, s.Grade, teamColors, counts),
+            ColorLevels = TeamColorTarget.LevelsFor(teamColors, counts, i => teamColors[i].Color.AppliesToSquad || teamColors[i].Counts(s.Card.SpId, s.Grade)),
+        }).ToList();
     }
 
     /// <summary>OVR the colours add to a card at a position and grade, at the levels the member counts reach.</summary>

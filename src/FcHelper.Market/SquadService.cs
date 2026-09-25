@@ -13,7 +13,7 @@ namespace FcHelper.Market;
 public sealed class SquadService(
     MarketService market, MarketStore store, IRankerChartSource charts, TeamColorCache teamColors,
     IRankerStatsSource? rankerStats = null, TimeProvider? time = null, SalaryCapCache? salaryCap = null, IRankerSquadSource? rankerSquads = null,
-    LiquidityCache? liquidity = null, RankerSquadClient? managerRankers = null)
+    LiquidityCache? liquidity = null, RankerSquadClient? managerRankers = null, AbilityCache? abilities = null, FaceClient? faces = null)
 {
     public const int OfficialMatch = 50;
     public static readonly TimeSpan ChartTtl = TimeSpan.FromHours(12);
@@ -259,6 +259,25 @@ public sealed class SquadService(
             }
         }
         return bad;
+    }
+
+    /// <summary>A card's full stats when already fetched (for the exact in-game OVR), without a request.</summary>
+    public CardAbility? KnownAbility(long spId) => abilities?.Known(spId);
+
+    /// <summary>A card's full stats: fetched once from the data center (one request), then kept a week.</summary>
+    public async Task<CardAbility?> AbilityAsync(long spId, CancellationToken ct = default) =>
+        abilities is null ? null : await abilities.GetAsync(spId, ct);
+
+    /// <summary>The pictures the official squad maker offers for this footballer (every season), kept a week.</summary>
+    public async Task<IReadOnlyList<FaceOption>> FaceOptionsAsync(long spId, CancellationToken ct = default)
+    {
+        var key = $"faces.{spId % 1_000_000}";
+        if (store.GetValue(key) is { } v && Now - v.UpdatedAt < TimeSpan.FromDays(7)) return FaceClient.Parse(v.Value);
+        if (faces is null) return [];
+        var json = await faces.FetchAsync(spId, ct);
+        var options = FaceClient.Parse(json);
+        if (options.Count > 0) store.SetValue(key, json, Now);
+        return options;
     }
 
     /// <summary>Known liquidity without a request, for marking search results.</summary>

@@ -63,6 +63,12 @@ public sealed record SquadSlot(int Index, string Position, MarketCard Card, int 
     /// <summary>OVR + team colour bonus + what the market pays for the rest of the card, in OVR points [추정].</summary>
     public double EffectiveOvr => Ovr + TeamColorBonus + Premium;
     public double Discount => Expected > 0 ? Price / (double)Expected - 1 : 0;
+    /// <summary>The team colour levels that reach this card (set with the bonuses; of 강화 colours only the best).</summary>
+    public IReadOnlyList<TeamColorLevel> ColorLevels { get; init; } = [];
+    /// <summary>The in-game OVR with grade, 적응도, team colours and 집중훈련, when the squad maker worked it out.</summary>
+    public FinalOvr? Final { get; init; }
+    /// <summary>What the pitch shows as the card's OVR: the in-game figure when known, else OVR + team colour bonus.</summary>
+    public double ShownOvr => Final?.Value ?? Ovr + TeamColorBonus;
 }
 
 public sealed record SquadPlan(string Label, SquadMode Mode, Formation Formation, IReadOnlyList<SquadSlot> Slots, IReadOnlyList<AppliedTeamColor> TeamColors)
@@ -328,6 +334,19 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
             }
             return total;
         }
+
+        /// <summary>The levels that reach the card at this slot (for its in-game OVR), with the same rules as <see cref="At"/>.</summary>
+        public IReadOnlyList<TeamColorLevel> Levels(Candidate c, int[] members)
+        {
+            var result = new List<TeamColorLevel>();
+            var enhance = BestEnhance(members);
+            for (var t = 0; t < members.Length; t++)
+            {
+                if (IsEnhance(t) && t != enhance) continue;
+                if (_r.TeamColors[t].Color.LevelFor(members[t]) is { } level && (_r.TeamColors[t].Color.AppliesToSquad || (c.Members & (1 << t)) != 0)) result.Add(level);
+            }
+            return result;
+        }
     }
 
     private static int Differs(SquadPlan plan, Candidate[] picks) =>
@@ -336,7 +355,7 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
     private static SquadPlan ToPlan(SquadRequest r, State s, TeamColorBonus bonus)
     {
         var slots = s.Picks.Select((c, i) => new SquadSlot(i, r.Formation.Slots[i], c.Card, c.Grade, c.Ovr, c.Premium, bonus.At(i, c, s.Members),
-            c.Price, c.Expected, c.Card.Pay, c.RankerUsers, c.RankerShare, c.Locked, c.Owned)).ToList();
+            c.Price, c.Expected, c.Card.Pay, c.RankerUsers, c.RankerShare, c.Locked, c.Owned) { ColorLevels = bonus.Levels(c, s.Members) }).ToList();
         var enhance = bonus.BestEnhance(s.Members);
         var colors = r.TeamColors.Select((t, i) => (t, i))
             .Where(x => x.t.Color.Category != TeamColorCategory.Enhance || x.i == enhance)

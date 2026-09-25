@@ -23,7 +23,9 @@ internal static class SquadCommands
             salaryCap: new SalaryCapCache(store, new SalaryCapSource(http, dataCenter)),
             rankerSquads: new RankerSquadClient(http, dataCenter, () => api),
             liquidity: new LiquidityCache(store, new PriceHistoryClient(http, dataCenter)),
-            managerRankers: new RankerSquadClient(http, dataCenter, () => api, "manager", 52));
+            managerRankers: new RankerSquadClient(http, dataCenter, () => api, "manager", 52),
+            abilities: new AbilityCache(store, new AbilityClient(http, dataCenter)),
+            faces: new FaceClient(http, dataCenter));
         if (store.LatestFinished() is null)
         {
             Console.Error.WriteLine("시세 데이터가 없습니다. 앱을 켜 두면 자동으로 받습니다.");

@@ -32,6 +32,9 @@ public partial class SquadPage : UserControl
     private string[] _positions = Formations.All[0].Slots;
     /// <summary>The user started a hand-made squad: the pitch shows its empty slots.</summary>
     private bool _manual;
+    private bool _optionsReady;
+    private const string AdaptKey = "squad.adaptability";
+    private const string TrainingKey = "squad.training";
 
     public SquadPage()
     {
@@ -58,6 +61,11 @@ public partial class SquadPage : UserControl
         FeatureBox.ItemsSource = new[] { new TeamColorItem("없음", 0) };
         FeatureBox.SelectedIndex = 0;
         FeatureBox.SelectionChanged += async (_, _) => await RefreshWorkingAsync();
+        AdaptBox.ItemsSource = Enumerable.Range(1, FinalOvrMath.MaxAdaptability).Select(a => $"+{a}").ToList();
+        AdaptBox.SelectedIndex = (int.TryParse(StudioKit.App.Db?.GetValue(AdaptKey)?.Value, out var adapt) ? Math.Clamp(adapt, 1, 5) : FinalOvrMath.MaxAdaptability) - 1;
+        TrainingToggle.IsChecked = StudioKit.App.Db?.GetValue(TrainingKey)?.Value == "1";
+        FacesToggle.IsChecked = Faces.Enabled;
+        _optionsReady = true;
         Pitch.SlotClicked += s => _ = ShowSlotAsync(s.Index);
         Pitch.EmptySlotClicked += (i, _) => { var shown = ShowSlotAsync(i); };
         Loaded += async (_, _) =>
@@ -326,18 +334,73 @@ public partial class SquadPage : UserControl
         ConditionsToggle.IsChecked = show;
         Conditions.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         ConditionsToggle.Content = show ? "조건 접기" : "조건 펴기";
+        MakerHint.Visibility = Conditions.Visibility; // folded, the page is all pitch
     }
 
     private void OnZoomChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => ApplyZoom();
 
     private void OnPitchAreaChanged(object sender, SizeChangedEventArgs e) => ApplyZoom();
 
-    /// <summary>Ctrl + wheel zooms the pitch around the view; a plain wheel scrolls.</summary>
+    /// <summary>The wheel over the pitch zooms only the pitch, around the pointer (the rest of the page stays as it is).</summary>
     private void OnPitchWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
     {
-        if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0) return;
-        ZoomSlider.Value = Math.Clamp(ZoomSlider.Value + (e.Delta > 0 ? 0.15 : -0.15), ZoomSlider.Minimum, ZoomSlider.Maximum);
+        ZoomAround(e.GetPosition(PitchScroll), ZoomSlider.Value * (e.Delta > 0 ? 1.15 : 1 / 1.15));
         e.Handled = true;
+    }
+
+    private void ZoomAround(Point anchor, double zoom)
+    {
+        var old = ZoomSlider.Value;
+        zoom = Math.Clamp(zoom, ZoomSlider.Minimum, ZoomSlider.Maximum);
+        if (Math.Abs(zoom - old) < 0.001) return;
+        var x = PitchScroll.HorizontalOffset + anchor.X;
+        var y = PitchScroll.VerticalOffset + anchor.Y;
+        ZoomSlider.Value = zoom; // ApplyZoom resizes the pitch
+        PitchScroll.UpdateLayout();
+        PitchScroll.ScrollToHorizontalOffset(x * zoom / old - anchor.X);
+        PitchScroll.ScrollToVerticalOffset(y * zoom / old - anchor.Y);
+    }
+
+    private Point Center => new(PitchScroll.ActualWidth / 2, PitchScroll.ActualHeight / 2);
+    private void OnZoomIn(object sender, RoutedEventArgs e) => ZoomAround(Center, ZoomSlider.Value + 0.25);
+    private void OnZoomOut(object sender, RoutedEventArgs e) => ZoomAround(Center, ZoomSlider.Value - 0.25);
+    private void OnZoomReset(object sender, RoutedEventArgs e) => ZoomSlider.Value = 1;
+
+    private Point? _dragFrom;
+    private (double X, double Y) _dragOffset;
+    private bool _dragged;
+
+    /// <summary>Zoomed in, dragging the pitch moves it (a short press is still a click on a card).</summary>
+    private void OnPitchPress(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        _dragged = false;
+        _dragFrom = ZoomSlider.Value > 1.001 ? e.GetPosition(PitchScroll) : null;
+        _dragOffset = (PitchScroll.HorizontalOffset, PitchScroll.VerticalOffset);
+    }
+
+    private void OnPitchDrag(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_dragFrom is not { } from || e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+        var now = e.GetPosition(PitchScroll);
+        if (!_dragged && (now - from).Length < 5) return;
+        if (!_dragged)
+        {
+            _dragged = true;
+            PitchScroll.CaptureMouse();
+            PitchScroll.Cursor = System.Windows.Input.Cursors.SizeAll;
+        }
+        PitchScroll.ScrollToHorizontalOffset(_dragOffset.X - (now.X - from.X));
+        PitchScroll.ScrollToVerticalOffset(_dragOffset.Y - (now.Y - from.Y));
+    }
+
+    private void OnPitchRelease(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        _dragFrom = null;
+        if (!_dragged) return;
+        PitchScroll.ReleaseMouseCapture();
+        PitchScroll.Cursor = null;
+        _dragged = false;
+        e.Handled = true; // the end of a drag is not a click on the card under the pointer
     }
 
     /// <summary>The pitch takes the whole area at 100% and grows with the zoom (the cards and names grow with it).</summary>
@@ -352,7 +415,7 @@ public partial class SquadPage : UserControl
         var h = Math.Max(200, PitchScroll.ActualHeight - (zoom > 1.001 ? 12 : 0));
         Pitch.Width = w * zoom;
         Pitch.Height = h * zoom;
-        if (ZoomText is not null) ZoomText.Text = $"{zoom * 100:0}%";
+        if (ZoomText is not null) ZoomText.Content = $"{zoom * 100:0}%";
     }
 
     // ── AI ─────────────────────────────────────────────────────────────────
@@ -408,7 +471,8 @@ public partial class SquadPage : UserControl
             var cheapest = plans.MinBy(p => p.TotalPrice);
             var strongest = plans.MaxBy(p => p.AverageEffectiveOvr);
             Modes.ItemsSource = plans.Select(p => new ModeCard(p, p.Label, Bp.Format(p.TotalPrice),
-                $"평균 OVR {p.AverageOvr:0.0}", $"환산 {p.AverageEffectiveOvr:0.0} [추정]", $"급여 {p.TotalPay}",
+                $"인게임 {p.Slots.Average(x => FinalOvrMath.Compute(x.Card, squads.KnownAbility(x.Card.SpId), x.Position, x.Grade, Adaptability, x.ColorLevels).Value):0.0} · 급여 {p.TotalPay}",
+                $"환산 {p.AverageEffectiveOvr:0.0} [추정]", $"급여 {p.TotalPay}",
                 string.Join("\n", p.TeamColors.Select(StudioKit.TeamColorLine)),
                 ReferenceEquals(p, cheapest) ? "가장 쌈" : ReferenceEquals(p, strongest) ? "가장 강함" : "")).ToList();
             Modes.SelectedIndex = plans.Count > 1 ? 1 : 0;
@@ -426,7 +490,9 @@ public partial class SquadPage : UserControl
         _workingColors = card.Plan.TeamColors;
         _positions = card.Plan.Formation.Slots;
         _selected = null;
+        ApplyFinals();
         ShowWorking();
+        _ = LoadAbilitiesAsync();
         ShowHint($"'{card.Plan.Label}' 안을 불러왔습니다. 선수를 누르면 바꾸거나 강화를 고칠 수 있습니다.");
     }
 
@@ -509,8 +575,68 @@ public partial class SquadPage : UserControl
                 // Team colours could not be read: the eleven stays without bonuses.
             }
         }
+        ApplyFinals();
         ShowWorking();
+        _ = LoadAbilitiesAsync();
     }
+
+    // ── in-game OVR ────────────────────────────────────────────────────────
+
+    private int Adaptability => AdaptBox.SelectedIndex + 1;
+
+    /// <summary>The OVR the game shows for each card: grade, 적응도, the team colour levels that reach it and (if on) 집중훈련.</summary>
+    private void ApplyFinals()
+    {
+        var training = TrainingToggle.IsChecked == true;
+        for (var i = 0; i < _working.Length; i++)
+        {
+            if (_working[i] is not { } s) continue;
+            var ability = StudioKit.Squads?.KnownAbility(s.Card.SpId);
+            var plan = training ? FinalOvrMath.Training(s.Position, s.Grade).AsBonus : null;
+            _working[i] = s with { Final = FinalOvrMath.Compute(s.Card, ability, s.Position, s.Grade, Adaptability, s.ColorLevels, plan) };
+        }
+    }
+
+    private bool _loadingAbilities;
+
+    /// <summary>Fetches the stats of cards seen for the first time (one data center request each, kept a week), then redraws exactly.</summary>
+    private async Task LoadAbilitiesAsync()
+    {
+        if (_loadingAbilities || StudioKit.Squads is not { } squads) return;
+        _loadingAbilities = true;
+        try
+        {
+            while (_working.Where(x => x is not null).Select(x => x!.Card.SpId).FirstOrDefault(id => squads.KnownAbility(id) is null) is var next && next != 0)
+            {
+                var missing = _working.Count(x => x is not null && squads.KnownAbility(x.Card.SpId) is null);
+                Status.Text = $"인게임 OVR을 정확히 계산하려고 카드 스탯을 받는 중… (남은 {missing}장, 한 번 받으면 일주일 보관)";
+                if (await squads.AbilityAsync(next) is null) break;
+                ApplyFinals();
+                ShowWorking();
+            }
+            if (Status.Text.StartsWith("인게임 OVR을 정확히")) Status.Text = "";
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            Status.Text = "카드 스탯을 받지 못해 인게임 OVR 일부는 추정값(~)입니다.";
+        }
+        finally
+        {
+            _loadingAbilities = false;
+        }
+    }
+
+    private void OnFinalOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_optionsReady) return;
+        StudioKit.App.Db?.SetValue(AdaptKey, Adaptability.ToString());
+        StudioKit.App.Db?.SetValue(TrainingKey, TrainingToggle.IsChecked == true ? "1" : "0");
+        ApplyFinals();
+        ShowWorking();
+        if (_selected is { } i) _ = ShowSlotAsync(i);
+    }
+
+    private void OnFacesToggle(object sender, RoutedEventArgs e) => Faces.Enabled = FacesToggle.IsChecked == true;
 
     private void ShowWorking()
     {
@@ -525,7 +651,7 @@ public partial class SquadPage : UserControl
         var price = filled.Where(s => !s.Owned).Sum(s => s.Price);
         Totals.Text = filled.Count == 0 ? "빈 스쿼드"
             : $"{filled.Count}/{_positions.Length}명 · 시세 {Bp.Format(price)}{(budget < long.MaxValue ? $" / 예산 {Bp.Format(budget)}" : "")} · 급여 {pay}{(cap < int.MaxValue ? $"/{cap} ({pay * 100 / cap}%)" : "")}"
-              + $" · 평균 OVR {filled.Average(s => s.Ovr + s.TeamColorBonus):0.0} (최고 {filled.Max(s => s.Ovr + s.TeamColorBonus):0} · 최저 {filled.Min(s => s.Ovr + s.TeamColorBonus):0})"
+              + $" · 인게임 평균 OVR {filled.Average(s => s.ShownOvr):0.0} (최고 {filled.Max(s => s.ShownOvr):0} · 최저 {filled.Min(s => s.ShownOvr):0})"
               + $" · 환산 {filled.Average(s => s.EffectiveOvr):0.0} [추정]";
         Totals.Foreground = (System.Windows.Media.Brush)FindResource(pay > cap || price > budget ? "Warn" : "Text");
         TeamColorsLine.Text = string.Join("   ", _workingColors.Select(StudioKit.TeamColorLine));
@@ -564,7 +690,8 @@ public partial class SquadPage : UserControl
             gradeBox.SelectionChanged += async (_, _) => await SetSlotAsync(index, maker.WithGrade(s, gradeBox.SelectedIndex + 1));
             Detail.Children.Add(new TextBlock { Text = "강화", Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
             Detail.Children.Add(gradeBox);
-            Line("OVR", $"{s.Ovr}" + (s.TeamColorBonus > 0 ? $" + 팀컬러 {s.TeamColorBonus:0.#}" + (s.TeamColorBonus % 1 != 0 ? " [추정]" : "") : ""));
+            ShowFinal(s);
+            ShowTraining(s);
             Line("시세 · 같은 스펙 예상가 [추정]", s.Owned ? "보유 (0으로 계산)" : $"{Bp.Format(s.Price)} · {Bp.Format(s.Expected)} ({StudioKit.Pct(s.Discount)})");
             if (s.RankerUsers > 0) Line("랭커 사용", $"{s.RankerUsers}명 ({s.RankerShare:P1}, 전날 공식경기)");
             if (c.Tags.Count > 0) Line("특성·개인기·체형", StudioKit.Tags(c));
@@ -584,6 +711,7 @@ public partial class SquadPage : UserControl
                 return Task.CompletedTask;
             }));
             Detail.Children.Add(actions);
+            _ = ShowFacesAsync(s);
             _ = ShowRankerStatsAsync(s);
         }
         else
@@ -717,7 +845,9 @@ public partial class SquadPage : UserControl
     {
         if (StudioKit.Squads is not { } squads) return;
         var line = new TextBlock { Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 4, 0, 0), Text = "랭커 20경기 기록 불러오는 중…", TextWrapping = TextWrapping.Wrap };
-        Detail.Children.Insert(Math.Min(Detail.Children.Count, 12), line);
+        // Just above the card's buttons (the first row of them), under the prices and stats.
+        var buttons = Detail.Children.OfType<WrapPanel>().FirstOrDefault();
+        Detail.Children.Insert(buttons is null ? Detail.Children.Count : Detail.Children.IndexOf(buttons), line);
         try
         {
             var stats = await squads.RankerStatsAsync([(s.Card.SpId, s.Position)]);
@@ -729,6 +859,114 @@ public partial class SquadPage : UserControl
         {
             line.Text = "랭커 20경기 기록을 불러오지 못했습니다.";
         }
+    }
+
+    /// <summary>The in-game OVR of the card and where each point comes from.</summary>
+    private void ShowFinal(SquadSlot s)
+    {
+        if (s.Final is not { } f)
+        {
+            Line("OVR", $"{s.Ovr}" + (s.TeamColorBonus > 0 ? $" + 팀컬러 {s.TeamColorBonus:0.#} [추정]" : ""));
+            return;
+        }
+        Detail.Children.Add(new TextBlock { Text = "인게임 OVR" + (f.Exact ? " [계산]" : " [추정]"), Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
+        Detail.Children.Add(new TextBlock { Text = f.Value.ToString(), Style = (Style)FindResource("BigNumber"), Foreground = (System.Windows.Media.Brush)FindResource("Accent") });
+        Detail.Children.Add(new TextBlock { Text = f.Breakdown, Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
+        var colors = s.ColorLevels.Select(l => string.Join(", ", l.Effects)).Where(e => e.Length > 0).ToList();
+        if (colors.Count > 0)
+            Detail.Children.Add(new TextBlock { Text = "적용 팀컬러: " + string.Join(" / ", colors), Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
+        if (!f.Exact)
+            Detail.Children.Add(new TextBlock { Text = "카드 스탯을 받으면 정확한 값으로 바뀝니다.", Style = (Style)FindResource("Hint") });
+    }
+
+    /// <summary>
+    /// 집중훈련 for this card at its slot: the stats the position's OVR weighs most (+2 each, 5 of them, 6 from +11), what
+    /// that adds, and the fewest steps to the next OVR; below, every stat of the position with its weight.
+    /// </summary>
+    private void ShowTraining(SquadSlot s)
+    {
+        var weights = OvrFormula.Of(s.Position);
+        if (weights.Count == 0) return;
+        var ability = StudioKit.Squads?.KnownAbility(s.Card.SpId);
+        var before = FinalOvrMath.Compute(s.Card, ability, s.Position, s.Grade, Adaptability, s.ColorLevels);
+        var plan = FinalOvrMath.Training(s.Position, s.Grade, before);
+        Detail.Children.Add(new TextBlock { Text = $"집중훈련 추천 ({s.Position})", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 2) });
+        Detail.Children.Add(new TextBlock
+        {
+            Text = $"스탯 {plan.Stats.Count}개 +2씩: " + string.Join(" · ", plan.Stats.Select(t => $"{t.Stat} +2")) + $"\n= 가중 {plan.Points}점 → OVR +{plan.Gain}"
+                + (plan.PointsToNext is { } need ? $" (지금 다음 OVR까지 {need}점)" : " (카드 스탯을 받으면 정확히 계산)"),
+            TextWrapping = TextWrapping.Wrap,
+        });
+        if (plan.Cheapest.Count > 0 && plan.PointsToNext is { } n)
+            Detail.Children.Add(new TextBlock
+            {
+                Text = $"OVR +1만 원하면: " + string.Join(" · ", plan.Cheapest.Select(c => $"{c.Stat} +{c.Plus}")) + $" ({n}점 이상)",
+                Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap,
+            });
+        Detail.Children.Add(new TextBlock
+        {
+            Text = $"{s.Position} OVR에 들어가는 스탯 (가중치, 합 100): " + string.Join(" · ", weights.Select(kv => $"{kv.Key} {kv.Value}"))
+                + "\n스탯 1 오를 때 OVR +가중치/100. 공식 데이터센터 카드 244장에서 계산해 모두 일치 [계산].",
+            Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+        });
+    }
+
+    /// <summary>Mini face: this card's own picture, any other season's picture of the footballer, an image of the user's, or none.</summary>
+    private async Task ShowFacesAsync(SquadSlot s)
+    {
+        var index = s.Index;
+        var header = new TextBlock { Text = "미니페이스", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 2) };
+        var hint = new TextBlock { Text = "시즌별 사진 불러오는 중…", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap };
+        var grid = new WrapPanel();
+        var buttons = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var at = Math.Min(Detail.Children.Count, Detail.Children.IndexOf(Detail.Children.OfType<WrapPanel>().FirstOrDefault()) + 1);
+        foreach (var e in new UIElement[] { header, hint, grid, buttons }.Reverse()) Detail.Children.Insert(Math.Max(0, at), e);
+        buttons.Children.Add(Action("이 시즌 기본", () => { Faces.Pick(s.Card.SpId, null); return Task.CompletedTask; }));
+        buttons.Children.Add(Action("내 이미지…", () =>
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "이미지|*.png;*.jpg;*.jpeg;*.webp;*.bmp", Title = $"{s.Card.Name} 미니페이스" };
+            if (dialog.ShowDialog(Window.GetWindow(this)) == true)
+            {
+                try { Faces.PickFile(s.Card.SpId, dialog.FileName); }
+                catch (System.IO.IOException) { Status.Text = "이미지를 복사하지 못했습니다."; }
+            }
+            return Task.CompletedTask;
+        }));
+        buttons.Children.Add(Action("사진 없음", () => { Faces.PickNone(s.Card.SpId); return Task.CompletedTask; }));
+        if (StudioKit.Squads is not { } squads) return;
+        IReadOnlyList<FaceOption> options;
+        try
+        {
+            options = await squads.FaceOptionsAsync(s.Card.SpId);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            options = [];
+        }
+        if (_selected != index) return;
+        hint.Text = options.Count == 0 ? "시즌별 사진 목록을 받지 못했습니다. 내 이미지는 넣을 수 있습니다."
+            : $"이 선수의 시즌별 사진 {options.Count}장 (공식 스쿼드메이커 목록). 카드마다 따로 고를 수 있습니다.";
+        var chosen = Faces.Choice(s.Card.SpId);
+        foreach (var o in options)
+        {
+            var image = new Image { Height = 54, Width = 54, Stretch = System.Windows.Media.Stretch.Uniform };
+            var picked = chosen == o.Url || chosen is null && o.SpId == s.Card.SpId;
+            var b = new Button
+            {
+                Content = new StackPanel { Children = { image, new TextBlock { Text = (picked ? "✓ " : "") + o.Season, FontSize = 10, FontWeight = picked ? FontWeights.Bold : FontWeights.Normal, Foreground = (System.Windows.Media.Brush)FindResource(picked ? "Accent" : "Text"), HorizontalAlignment = HorizontalAlignment.Center } } },
+                Style = (Style)FindResource("Ghost"), Padding = new Thickness(3), Margin = new Thickness(0, 0, 4, 4), ToolTip = $"{o.Season} 사진",
+                BorderBrush = (System.Windows.Media.Brush)FindResource(picked ? "Accent" : "Line"), BorderThickness = new Thickness(picked ? 2 : 1),
+            };
+            b.Click += (_, _) => { Faces.Pick(s.Card.SpId, o.Url); _ = ShowSlotAsync(index); };
+            grid.Children.Add(b);
+            _ = SetImageAsync(image, b, o.Url);
+        }
+    }
+
+    private static async Task SetImageAsync(Image image, Button button, string url)
+    {
+        if (await Faces.LoadAsync(url) is { } source) image.Source = source;
+        else button.Visibility = Visibility.Collapsed; // withdrawn pictures (licence) are not offered
     }
 
     private void Line(string label, string value)
