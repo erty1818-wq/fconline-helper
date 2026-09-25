@@ -1,6 +1,7 @@
 <Application x:Class="FcHelper.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:app="clr-namespace:FcHelper.App"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
         <ResourceDictionary>
@@ -461,6 +462,8 @@
 
         <!-- Result tables. -->
         <Style TargetType="DataGrid">
+            <!-- Money and percentage columns sort by value (9억 < 93.7억 < 99.2억), see SmartSort.cs. -->
+            <Setter Property="app:SmartSort.Enabled" Value="True" />
             <Setter Property="AutoGenerateColumns" Value="False" />
             <Setter Property="IsReadOnly" Value="True" />
             <Setter Property="HeadersVisibility" Value="Column" />
