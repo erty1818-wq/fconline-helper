@@ -63,6 +63,23 @@ public sealed class PriceModel
 
     public double Predict(MarketCard c) => Math.Exp(Dot(_beta, Features(c)));
 
+    /// <summary>
+    /// What the market pays for this card beyond its OVR, season and salary (weak foot, stats relative to OVR, traits,
+    /// skill moves, body), converted to OVR points at the card's own OVR: e.g. +1.4 means "priced like 1.4 OVR more".
+    /// Used as the playing-value premium of a card; a market reading, not a measurement [추정].
+    /// </summary>
+    public double PremiumInOvr(MarketCard c)
+    {
+        var x = Features(c);
+        const int firstPremium = 3; // after const, OVR, OVR²; salary (index 5) is a cost, not a quality
+        var end = 6 + _stats.Length + _tags.Length;
+        double premium = 0;
+        for (var i = firstPremium; i < end; i++)
+            if (i != 5) premium += _beta[i] * x[i];
+        var slope = _beta[1] + 2 * _beta[2] * (c.Ovr1 - _ovrMean);
+        return slope > 0.01 ? Math.Clamp(premium / slope, -6, 10) : 0;
+    }
+
     public IReadOnlyList<PriceEffect> Effects() =>
         _names.Select((n, i) => (n, i))
             .Where(t => t.i > 0 && t.n != "OVR²" && !t.n.StartsWith("season:"))

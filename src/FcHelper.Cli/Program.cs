@@ -33,6 +33,11 @@ if (command == "value")
 }
 
 var apiKey = Option("key") ?? Environment.GetEnvironmentVariable("FCH_API_KEY");
+if (SquadCommands.Names.Contains(command))
+{
+    // Market data needs no key; ranker stats and opponent lookups use it when present.
+    return await SquadCommands.RunAsync(command, positional, Option, apiKey);
+}
 if (string.IsNullOrWhiteSpace(apiKey))
 {
     Console.Error.WriteLine("API 키가 없습니다. FCH_API_KEY 환경 변수나 --key 옵션으로 넘겨주세요.");

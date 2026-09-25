@@ -61,6 +61,7 @@ public sealed class MarketService(
             var progress = new Immediate(Report);
             await new MarketHarvester(source, store).RunAsync(snapshot, kind, latest?.Id, newSeasons.Select(s => s.Id).ToList(), progress, ct);
             store.FinishSnapshot(snapshot, Now);
+            store.RecordPriceHistory(snapshot, Now);
             store.AddSeasons(newSeasons, Now);
             lock (_models) { _models.Clear(); _cards.Clear(); }
             return true;

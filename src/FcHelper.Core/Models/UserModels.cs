@@ -22,6 +22,34 @@ public sealed record MaxDivision
     [JsonPropertyName("achievementDate")] public DateTime AchievementDate { get; init; }
 }
 
+/// <summary>
+/// ranker-stats: the TOP 10,000 rankers' average per match with one card at one position, over 20 matches
+/// (official API). Cards rankers did not use are missing from the response.
+/// </summary>
+public sealed record RankerStat
+{
+    [JsonPropertyName("spid")] public long SpId { get; init; }
+    [JsonPropertyName("spPosition")] public int SpPosition { get; init; }
+    [JsonPropertyName("status")] public RankerStatus Status { get; init; } = new();
+    [JsonPropertyName("createDate")] public DateTime CreateDate { get; init; }
+}
+
+public sealed record RankerStatus
+{
+    [JsonPropertyName("shoot")] public double Shoot { get; init; }
+    [JsonPropertyName("effectiveShoot")] public double EffectiveShoot { get; init; }
+    [JsonPropertyName("assist")] public double Assist { get; init; }
+    [JsonPropertyName("goal")] public double Goal { get; init; }
+    [JsonPropertyName("dribble")] public double Dribble { get; init; }
+    [JsonPropertyName("dribbleTry")] public double DribbleTry { get; init; }
+    [JsonPropertyName("dribbleSuccess")] public double DribbleSuccess { get; init; }
+    [JsonPropertyName("passTry")] public double PassTry { get; init; }
+    [JsonPropertyName("passSuccess")] public double PassSuccess { get; init; }
+    [JsonPropertyName("block")] public double Block { get; init; }
+    [JsonPropertyName("tackle")] public double Tackle { get; init; }
+    [JsonPropertyName("matchCount")] public int MatchCount { get; init; }
+}
+
 public sealed record MatchTypeMeta
 {
     [JsonPropertyName("matchtype")] public int MatchType { get; init; }

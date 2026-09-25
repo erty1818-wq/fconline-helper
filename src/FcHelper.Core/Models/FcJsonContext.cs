@@ -20,6 +20,7 @@ namespace FcHelper.Core.Models;
 [JsonSerializable(typeof(List<SpPositionMeta>))]
 [JsonSerializable(typeof(List<SeasonIdMeta>))]
 [JsonSerializable(typeof(NexonErrorResponse))]
+[JsonSerializable(typeof(List<RankerStat>))]
 public sealed partial class FcJsonContext : JsonSerializerContext;
 
 public sealed record NexonErrorResponse

@@ -39,9 +39,30 @@ public sealed class NexonApiException(HttpStatusCode status, string errorName, s
     public bool IsInvalidInput => ErrorName is InvalidIdentifier or InvalidParameter;
 }
 
-/// <summary>Client for https://open.api.nexon.com/fconline/v1/. Every call goes through the shared <see cref="RateLimiter"/>.</summary>
-public sealed class FcOnlineApi : IFcOnlineApi
+public interface IRankerStatsSource
 {
+    /// <summary>Rankers' averages for (card, position) pairs; pairs rankers did not use are left out.</summary>
+    Task<IReadOnlyList<RankerStat>> GetRankerStatsAsync(int matchType, IReadOnlyList<(long SpId, int Position)> players, CancellationToken ct = default);
+}
+
+/// <summary>Client for https://open.api.nexon.com/fconline/v1/. Every call goes through the shared <see cref="RateLimiter"/>.</summary>
+public sealed class FcOnlineApi : IFcOnlineApi, IRankerStatsSource
+{
+    /// <summary>Pairs per ranker-stats call; the API takes a JSON list in the query string.</summary>
+    public const int RankerStatsBatch = 20;
+
+    public async Task<IReadOnlyList<RankerStat>> GetRankerStatsAsync(int matchType, IReadOnlyList<(long SpId, int Position)> players, CancellationToken ct = default)
+    {
+        var result = new List<RankerStat>();
+        foreach (var batch in players.Chunk(RankerStatsBatch))
+        {
+            var json = "[" + string.Join(",", batch.Select(p => $"{{\"id\":{p.SpId},\"po\":{p.Position}}}")) + "]";
+            result.AddRange(await GetAsync($"{ApiPrefix}ranker-stats?matchtype={matchType}&players={Uri.EscapeDataString(json)}",
+                FcJsonContext.Default.ListRankerStat, ct));
+        }
+        return result;
+    }
+
     public static readonly Uri DefaultBaseAddress = new("https://open.api.nexon.com/");
     private const string ApiPrefix = "fconline/v1/";
     private const string MetaPrefix = "static/fconline/meta/";

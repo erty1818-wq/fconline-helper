@@ -5,6 +5,7 @@
     <ProjectReference Include="..\FcHelper.NexonApi\FcHelper.NexonApi.csproj" />
     <ProjectReference Include="..\FcHelper.Data\FcHelper.Data.csproj" />
     <ProjectReference Include="..\FcHelper.Analysis\FcHelper.Analysis.csproj" />
+    <ProjectReference Include="..\FcHelper.Market\FcHelper.Market.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

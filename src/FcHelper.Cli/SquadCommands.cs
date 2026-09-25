@@ -1,0 +1,205 @@
+using System.Globalization;
+using FcHelper.Data;
+using FcHelper.Market;
+using FcHelper.NexonApi;
+using FcHelper.Services;
+
+/// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
+internal static class SquadCommands
+{
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor"];
+
+    public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
+    {
+        var dbPath = option("db") ?? AppPaths.DatabasePath;
+        var http = new HttpClient();
+        var dataCenter = new RateLimiter(0.5);
+        var store = new MarketStore(dbPath);
+        var lists = new DataCenterListClient(http, dataCenter);
+        var market = new MarketService(lists, store, _ => Task.FromResult("[]"));
+        FcOnlineApi? api = string.IsNullOrWhiteSpace(apiKey) ? null : new FcOnlineApi(http, apiKey, new RateLimiter(5));
+        var squads = new SquadService(market, store, new DataCenterChartClient(http, dataCenter),
+            new TeamColorCache(store, new DataCenterTeamColorClient(http, dataCenter, lists)), api);
+        if (store.LatestFinished() is null)
+        {
+            Console.Error.WriteLine("시세 데이터가 없습니다. 앱을 켜 두면 자동으로 받습니다.");
+            return 3;
+        }
+        var (rankFrom, rankTo) = Range(option("rankers"));
+
+        try
+        {
+            switch (command)
+            {
+                case "squad": return await Squad(squads, option, rankFrom, rankTo);
+                case "picks":
+                    foreach (var h in (await squads.HiddenRankerPicksAsync(option("pos"), Price(option("min"), 0), Price(option("max"), long.MaxValue),
+                                 Int(option("users"), 10), rankFrom, rankTo)).Take(Int(option("top"), 15)))
+                        Console.WriteLine($"{h.Position,-4} {h.Card.Name,-10} {h.Card.Season,-8} +{h.Grade,-2} OVR {h.Ovr} · 랭커 {h.Users}명({h.Share:P1}) · 시세 {Bp.Format(h.Price),7} · 예상 {Bp.Format(h.Expected),7} · {h.Discount:+0%;-0%}");
+                    Console.WriteLine("랭커 사용 = 데일리 차트(전날 공식경기). 예상가 = 같은 스펙 카드의 오늘 시세 [추정].");
+                    return 0;
+                case "grade": return Grade(squads, option);
+                case "salary":
+                    foreach (var s in squads.SalaryEfficiency(option("pos") ?? "ST", Int(option("grade"), 8), Price(option("min"), 0), Price(option("max"), long.MaxValue),
+                                 Int(option("minovr"), 0)).Take(Int(option("top"), 15)))
+                        Console.WriteLine($"{s.Card.Name,-10} {s.Card.Season,-8} OVR {s.Ovr} (환산 {s.EffectiveOvr:0.0}) · 급여 {s.Pay} · 급여당 {s.OvrPerPay:0.00} · 시세 {Bp.Format(s.Price)}");
+                    return 0;
+                case "movers":
+                    var moves = squads.PriceMoves(Int(option("grade"), 8), Int(option("days"), 7), Price(option("min"), 10_000_000));
+                    if (moves.Count == 0) Console.WriteLine("비교할 과거 시세가 아직 없습니다. 하루 이상 자동 갱신이 쌓이면 보입니다.");
+                    foreach (var m in moves.Take(10).Concat(moves.TakeLast(5)))
+                        Console.WriteLine($"{m.Card.Name,-10} {m.Card.Season,-8} +{m.Grade} {Bp.Format(m.Before),7} → {Bp.Format(m.Now),7} ({m.Change:+0%;-0%}, {m.Since:M/d} 대비) · 스펙 대비 {m.Discount:+0%;-0%}");
+                    return 0;
+                case "formation":
+                    var vs = option("vs") ?? "4-2-2-2";
+                    if (await squads.FormationAdviceAsync(vs, rankFrom, rankTo) is not { } advice) { Console.WriteLine("데일리 차트를 받지 못했습니다."); return 5; }
+                    Console.WriteLine($"상대 {vs} 상대로 랭커 전적 (전날 공식경기, 30경기 이상):");
+                    foreach (var m in advice.Best) Console.WriteLine($"  강함 {m.Formation,-10} {m.Wins}승 {m.Draws}무 {m.Losses}패 (승률 {m.WinRate:P0})");
+                    foreach (var m in advice.Worst) Console.WriteLine($"  약함 {m.Formation,-10} {m.Wins}승 {m.Draws}무 {m.Losses}패 (승률 {m.WinRate:P0})");
+                    return 0;
+                case "teamcolor": return await TeamColor(squads, option);
+                case "upgrade": return await Upgrade(squads, option, dbPath);
+                case "tailor": return await Tailor(squads, positional, option, api, dbPath);
+            }
+        }
+        catch (InvalidOperationException e)
+        {
+            Console.Error.WriteLine(e.Message);
+            return 4;
+        }
+        return 1;
+    }
+
+    private static async Task<int> Squad(SquadService squads, Func<string, string?> option, int rankFrom, int rankTo)
+    {
+        var formation = option("formation") is { } f && f.Contains(',')
+            ? Formations.Custom("사용자", f.Split(','))
+            : Formations.Find(option("formation") ?? "4-2-2-2") ?? throw new InvalidOperationException(
+                $"포메이션은 {string.Join(", ", Formations.All.Select(x => x.Name))} 또는 GK,LB,CB,... 11개입니다.");
+        (TeamColor Color, IReadOnlySet<long> Members)? tc = option("teamcolor") is { } id ? await squads.TeamColorAsync(Int(id, 0)) : null;
+        var request = new SquadRequest
+        {
+            Formation = formation,
+            Budget = Price(option("budget"), long.MaxValue),
+            SalaryCap = Int(option("cap"), int.MaxValue),
+            Grades = (option("grades") ?? "8").Split(',').Select(g => Int(g, 8)).ToList(),
+            TeamColor = tc?.Color,
+            TeamColorMembers = tc?.Members ?? new HashSet<long>(),
+            RankerPicksOnly = option("ranker-only") is "yes" or "y" or "1",
+        };
+        var mode = option("mode") ?? "all";
+        var plans = mode == "all"
+            ? await squads.CompareModesAsync(request, rankFrom, rankTo)
+            : await squads.BuildAsync(request with { Mode = mode switch { "balanced" => SquadMode.Balanced, "value" => SquadMode.Value, "ranker" => SquadMode.RankerPicks, _ => SquadMode.Strongest } }, rankFrom, rankTo);
+        foreach (var p in plans)
+        {
+            Console.WriteLine($"\n■ {p.Label} · {p.Formation.Name} · 총 {Bp.Format(p.TotalPrice)} · 급여 {p.TotalPay} · 평균 OVR {p.AverageOvr:0.0} · 환산 {p.AverageEffectiveOvr:0.0}"
+                + (p.TeamColorLevel is { } l ? $" · 팀컬러 {request.TeamColor!.Name} {l.Level}단계({p.TeamColorMembers}명, +{l.AllStats})" : request.TeamColor is not null ? $" · 팀컬러 {p.TeamColorMembers}명(단계 미달)" : ""));
+            foreach (var s in p.Slots)
+                Console.WriteLine($"  {s.Position,-4} {s.Card.Name,-10} {s.Card.Season,-8} +{s.Grade,-2} OVR {s.Ovr + s.TeamColorBonus}{(s.TeamColorBonus > 0 ? "*" : " ")} 환산 {s.EffectiveOvr,5:0.0} · {Bp.Format(s.Price),7} · 급여 {s.Pay,2}"
+                    + (s.RankerUsers > 0 ? $" · 랭커 {s.RankerUsers}명" : "") + (s.Discount < -0.15 ? $" · 스펙 대비 {s.Discount:P0}" : ""));
+        }
+        Console.WriteLine("\n환산 OVR = OVR + 시장이 약발·특성·개인기·능력치에 매기는 값(OVR 단위) [추정]. * = 팀컬러 보너스 포함.");
+        return 0;
+    }
+
+    private static int Grade(SquadService squads, Func<string, string?> option)
+    {
+        var card = option("spid") is { } id ? squads.Card(long.Parse(id, CultureInfo.InvariantCulture))
+            : squads.Pool().Where(c => option("name") is { } n && c.Name.Contains(n)).OrderByDescending(c => c.Ovr1).FirstOrDefault();
+        if (card is null) { Console.Error.WriteLine("선수를 찾지 못했습니다 (--name 또는 --spid)."); return 3; }
+        var pos = option("pos") ?? card.Positions.MaxBy(kv => kv.Value).Key;
+        var a = squads.Grade(card.SpId, pos, option("from") is { } f ? Int(f, 1) : null, option("to") is { } t ? Int(t, 1) : null)!;
+        Console.WriteLine($"{card.Name} ({card.Season}) · {pos}");
+        foreach (var s in a.Steps)
+            Console.WriteLine($"  +{s.Grade,-2} OVR {s.Ovr} · {Bp.Format(s.Price),8}" + (s.CostPerOvrFromPrevious is { } c ? $" · OVR 1당 {Bp.Format(c),7}" : "".PadRight(15))
+                + (s.Alternative is { } alt ? $" · 같은 OVR 최저: {alt.Name} {alt.Season} +{s.AlternativeGrade} {Bp.Format(s.AlternativePrice!.Value)} ({s.PremiumOverAlternative:+0%;-0%})" : ""));
+        Console.WriteLine(a.CompetitiveUpTo is { } up
+            ? $"  → +{up}까지는 같은 OVR 대안과 비슷한 값. 그 위로는 다른 카드가 더 싸게 같은 OVR을 줍니다."
+            : "  → 모든 단계에서 같은 OVR 대안보다 20% 넘게 비쌉니다: OVR 말고 특성·팀컬러·체감에 값을 치르는 카드입니다.");
+        if (a.UpgradeCost is { } cost)
+            Console.WriteLine($"  +{a.FromGrade} → +{a.ToGrade}: 시세 차이 {Bp.Format(cost)}"
+                + (a.Alternative is { } alt ? $" · 같은 OVR 이상 다른 카드: {alt.Name} {alt.Season} +{a.AlternativeGrade} {Bp.Format(a.AlternativePrice!.Value)}" : ""));
+        return 0;
+    }
+
+    private static async Task<int> TeamColor(SquadService squads, Func<string, string?> option)
+    {
+        if (option("id") is { } id)
+        {
+            if (await squads.TeamColorAsync(Int(id, 0)) is not { } tc) { Console.Error.WriteLine("팀컬러를 찾지 못했습니다."); return 3; }
+            Console.WriteLine($"{tc.Color.Name} ({tc.Color.Kind}) · 적용 선수 {tc.Members.Count}장");
+            foreach (var l in tc.Color.Levels) Console.WriteLine($"  {l.Level}단계 {l.Members}명: {string.Join(", ", l.Effects)}");
+            return 0;
+        }
+        var popular = await squads.PopularTeamColorsAsync();
+        foreach (var (color, usage) in popular) Console.WriteLine($"  {color.Id,6} {color.Name,-14} 랭커 {usage.Users}명 ({usage.Share:P1}) · 최대 {color.MaxMembers}명");
+        if (popular.Count == 0)
+            foreach (var t in (await squads.TeamColorsAsync()).Where(t => t.Kind == TeamColorKind.Club).Take(20)) Console.WriteLine($"  {t.Id,6} {t.Name}");
+        Console.WriteLine("상세와 적용 선수: fch teamcolor --id <번호>. 스쿼드에 적용: fch squad --teamcolor <번호>");
+        return 0;
+    }
+
+    private static async Task<int> Upgrade(SquadService squads, Func<string, string?> option, string dbPath)
+    {
+        var db = new FcDatabase(dbPath);
+        var me = option("me") is { } nick ? db.FindUserByNickname(nick) : null;
+        if (me is null) { Console.Error.WriteLine("--me <내 닉네임>이 필요합니다 (먼저 fch sync --me 로 내 경기를 받아 두세요)."); return 2; }
+        var owned = SquadContext.MyCurrentCards(db, me.Ouid);
+        if (owned.Count == 0) { Console.Error.WriteLine("캐시에 내 공식경기가 없습니다."); return 3; }
+        var current = squads.CurrentSquad(owned);
+        Console.WriteLine($"지금 스쿼드 (최근 공식경기): 시세 합 {Bp.Format(current.Sum(s => s.Price))} · 평균 OVR {current.Average(s => s.Ovr):0.0} · 환산 {current.Average(s => s.EffectiveOvr):0.0}");
+        foreach (var s in current) Console.WriteLine($"  {s.Position,-4} {s.Card.Name,-10} {s.Card.Season,-8} +{s.Grade,-2} OVR {s.Ovr} · {Bp.Format(s.Price)}");
+        var teamColor = Int(option("teamcolor"), 0);
+        if (teamColor == 0 && option("teamcolor") is null)
+        {
+            var detected = await squads.DetectTeamColorsAsync(owned);
+            if (detected.Count > 0)
+            {
+                Console.WriteLine($"팀컬러 감지: {string.Join(", ", detected.Select(d => $"{d.Color.Name}({d.Color.Id}) {d.Owned}명 {d.Level.Level}단계 {string.Join("/", d.Level.Effects)}"))}");
+                teamColor = detected[0].Color.Id;
+                Console.WriteLine($"→ {detected[0].Color.Name} 팀컬러를 유지하는 교체만 봅니다 (끄려면 --teamcolor 0).");
+            }
+        }
+        // By default look at the grades the user already plays with.
+        var grades = option("grades") is { } gs ? gs.Split(',').Select(g => Int(g, 8)).ToList() : owned.Select(o => o.Grade).Distinct().Order().ToList();
+        var plans = await squads.UpgradesAsync(owned, Price(option("budget"), 500_000_000), grades,
+            double.TryParse(option("fee"), NumberStyles.Float, CultureInfo.InvariantCulture, out var fee) ? fee : 0, teamColorId: teamColor);
+        Console.WriteLine($"\n예산 {Bp.Format(Price(option("budget"), 500_000_000))} 안에서 효과 큰 교체:");
+        foreach (var p in plans)
+            Console.WriteLine("  " + string.Join(" + ", p.Moves.Select(m => $"{m.Out.Card.Name}→{m.In.Name} {m.In.Season} +{m.Grade} (OVR {m.Ovr}, +{m.EffectiveGain:0.0})"))
+                + $" · 순비용 {Bp.Format(Math.Max(0, p.NetCost))} · 환산 +{p.TotalGain:0.0}");
+        return 0;
+    }
+
+    private static async Task<int> Tailor(SquadService squads, List<string> positional, Func<string, string?> option, FcOnlineApi? api, string dbPath)
+    {
+        if (api is null || positional.Count == 0) { Console.Error.WriteLine("fch tailor <상대 닉네임> (API 키 필요)"); return 2; }
+        var db = new FcDatabase(dbPath);
+        var service = new FcHelperService(api, db, new FcHelperOptions());
+        var report = await service.LookupAsync(positional[0]);
+        if (report is null) { Console.Error.WriteLine("닉네임을 찾지 못했습니다."); return 3; }
+        var needs = SquadContext.NeedsAgainst(report.Analysis);
+        var formation = SquadContext.OpponentFormation(db, report.Ouid);
+        Console.WriteLine($"{report.Nickname}: {report.OneLine}");
+        Console.WriteLine($"추정 포메이션: {formation ?? "알 수 없음"} [추정]");
+        if (formation is not null && await squads.FormationAdviceAsync(formation) is { Best.Count: > 0 } adv)
+            Console.WriteLine("  랭커 전적상 유리한 포메이션: " + string.Join(", ", adv.Best.Select(m => $"{m.Formation} ({m.WinRate:P0}, {m.Games}경기)")));
+        if (needs.Count == 0) { Console.WriteLine("뚜렷한 맞춤 포인트가 없습니다."); return 0; }
+        foreach (var g in squads.Tailored(needs, Int(option("grade"), 8), Price(option("max"), long.MaxValue), 4).GroupBy(t => t.Need))
+        {
+            Console.WriteLine($"\n{g.First().Reason}");
+            foreach (var t in g) Console.WriteLine($"  {t.Position,-4} {t.Card.Name,-10} {t.Card.Season,-8} +{t.Grade} OVR {t.Ovr} · {Bp.Format(t.Price)} · {string.Join(" ", t.Card.Tags.Select(MarketGroups.TagLabel))}");
+        }
+        return 0;
+    }
+
+    private static (int, int) Range(string? text)
+    {
+        var parts = (text ?? "1-10000").Split('-');
+        return (Int(parts[0], 1), Int(parts.Length > 1 ? parts[1] : "10000", 10000));
+    }
+
+    private static int Int(string? s, int fallback) => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+    private static long Price(string? s, long fallback) => s is not null && Bp.TryParse(s, out var v) ? v : fallback;
+}

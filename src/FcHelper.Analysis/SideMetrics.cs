@@ -7,7 +7,7 @@ namespace FcHelper.Analysis;
 /// Per-match proportions shared by the baseline and by a single user's analysis, so both are always
 /// computed the same way. Keys look like "goal.type.2" or "conceded.zone.BoxCenter".
 /// </summary>
-internal sealed class SideMetrics
+public sealed class SideMetrics
 {
     public const string GoalType = "goal.type.";
     public const string GoalZone = "goal.zone.";

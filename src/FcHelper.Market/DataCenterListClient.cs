@@ -16,11 +16,17 @@ public sealed record ListQuery(string Positions, int OvrMin, int OvrMax, string[
     public string Body { get; init; } = "";
     /// <summary>",100," style season filter (season id = the first three digits of spid).</summary>
     public string Seasons { get; init; } = "";
+    /// <summary>Only cards that count for this team colour (0 = any).</summary>
+    public int TeamColor { get; init; }
 }
 
 /// <summary>A list row before it is assigned to a group: stats hold only the four the query asked for.</summary>
 public sealed record ListRow(long SpId, string Name, string Season, int Pay, int Ovr1, int WeakFoot,
-    double? Rating, int RatingCount, Dictionary<int, long> Prices, Dictionary<string, int> Stats);
+    double? Rating, int RatingCount, Dictionary<int, long> Prices, Dictionary<string, int> Stats)
+{
+    /// <summary>OVR at +1 for each position the card lists (e.g. CF 127, ST 126).</summary>
+    public Dictionary<string, int> Positions { get; init; } = [];
+}
 
 public interface IMarketListSource
 {
@@ -46,7 +52,7 @@ public sealed class DataCenterListClient(HttpClient http, RateLimiter limiter) :
             ["strAbility1"] = "", ["strAbility2"] = "", ["strAbility3"] = "", ["strTrait1"] = q.Trait, ["strTrait2"] = "", ["strTrait3"] = "",
             ["strTraitNon1"] = "", ["strTraitNon2"] = "", ["strTraitNon3"] = "", ["n1Strong"] = "1", ["n1Grow"] = "0", ["n1TeamColor"] = "0",
             ["strSkill1"] = q.Stats[0], ["strSkill2"] = q.Stats[1], ["strSkill3"] = q.Stats[2], ["strSkill4"] = q.Stats[3],
-            ["strSearchStatus"] = "off", ["strOrderby"] = "", ["teamcolorid"] = "0", ["strTeamColorCategory"] = "", ["n1History"] = "0",
+            ["strSearchStatus"] = "off", ["strOrderby"] = "", ["teamcolorid"] = I(q.TeamColor), ["strTeamColorCategory"] = "", ["n1History"] = "0",
             ["n4PlayYear"] = "0", ["IsSummaryPlayer"] = "0", ["strPlayerName"] = "", ["strTeamName"] = "", ["strNationName"] = "",
             ["strTeamColorName"] = "", ["n4OvrMin"] = I(q.OvrMin), ["n4OvrMax"] = I(q.OvrMax), ["n4SalaryMin"] = I(q.PayMin),
             ["n4SalaryMax"] = I(q.PayMax), ["n1Ability1Min"] = "40", ["n1Ability1Max"] = "200", ["n1Ability2Min"] = "40",
@@ -88,19 +94,22 @@ public static partial class ListRowParser
             var foot = FootRegex().Match(chunk).Groups[1].Value;
             var left = FootLeftRegex().Match(foot);
             var right = FootRightRegex().Match(foot);
-            var positions = PositionRegex().Matches(chunk).Select(m => int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture)).ToList();
+            var positions = PositionRegex().Matches(chunk)
+                .GroupBy(m => m.Groups[1].Value)
+                .ToDictionary(g => g.Key, g => int.Parse(g.First().Groups[2].Value, CultureInfo.InvariantCulture));
             var score = ScoreRegex().Match(chunk);
             rows.Add(new ListRow(
                 long.Parse(spid.Groups[1].Value, CultureInfo.InvariantCulture),
                 WebUtility.HtmlDecode(NameRegex().Match(chunk).Groups[1].Value.Trim()),
                 SeasonRegex().Match(chunk).Groups[1].Value,
                 Int(PayRegex().Match(chunk).Groups[1].Value),
-                positions.Count == 0 ? 0 : positions.Max(),
+                positions.Count == 0 ? 0 : positions.Values.Max(),
                 Math.Min(left.Success ? Int(left.Groups[1].Value) : 0, right.Success ? Int(right.Groups[1].Value) : 0),
                 score.Success ? double.Parse(score.Groups[1].Value, CultureInfo.InvariantCulture) : null,
                 score.Success ? Int(score.Groups[2].Value) : 0,
                 PriceRegex().Matches(chunk).ToDictionary(m => Int(m.Groups[1].Value), m => long.Parse(m.Groups[2].Value.Replace(",", ""), CultureInfo.InvariantCulture)),
-                StatRegex().Matches(chunk).GroupBy(m => m.Groups[1].Value).ToDictionary(g => g.Key, g => Int(g.First().Groups[2].Value))));
+                StatRegex().Matches(chunk).GroupBy(m => m.Groups[1].Value).ToDictionary(g => g.Key, g => Int(g.First().Groups[2].Value)))
+            { Positions = positions });
         }
         return rows;
     }

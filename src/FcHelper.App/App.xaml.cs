@@ -28,6 +28,7 @@ public partial class App : Application
     private ScreenReader? _reader;
     private bool _recognizing;
     private MarketService? _market;
+    private IRankerStatsSource? _rankerStats;
     private ValueWindow? _valueWindow;
     private readonly CancellationTokenSource _exit = new();
     private static readonly Uri SeasonListUrl = new("https://open.api.nexon.com/static/fconline/meta/seasonid.json");
@@ -39,6 +40,8 @@ public partial class App : Application
 
     public AppSettings Settings { get; private set; } = new();
     public FcHelperService? Service { get; private set; }
+    /// <summary>Squad builder, ranker picks, team colours, grade/salary/price analyses: the engine the squad screens bind to.</summary>
+    public SquadService? Squads { get; private set; }
     public int ApiCallCount => _limiter?.IssuedCount ?? 0;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -61,8 +64,13 @@ public partial class App : Application
 
         ApplySettings();
         // Market data needs no API key: the data center and the season list are public.
-        _market = new MarketService(new DataCenterListClient(_http, new RateLimiter(0.5)), new MarketStore(AppPaths.DatabasePath),
-            ct => _http.GetStringAsync(SeasonListUrl, ct));
+        // One limiter for every data center request (market lists, daily chart, team colours): one per two seconds.
+        var dataCenter = new RateLimiter(0.5);
+        var marketStore = new MarketStore(AppPaths.DatabasePath);
+        var lists = new DataCenterListClient(_http, dataCenter);
+        _market = new MarketService(lists, marketStore, ct => _http.GetStringAsync(SeasonListUrl, ct));
+        Squads = new SquadService(_market, marketStore, new DataCenterChartClient(_http, dataCenter),
+            new TeamColorCache(marketStore, new DataCenterTeamColorClient(_http, dataCenter, lists)), _rankerStats);
         _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
         _ = KeepMarketFreshAsync(_exit.Token);
         if (Service is null)
@@ -101,6 +109,7 @@ public partial class App : Application
         }
         _limiter = new RateLimiter(Settings.RequestsPerSecond);
         var api = new FcOnlineApi(_http, key, _limiter);
+        _rankerStats = api;
         // The data center is a website, not the Open API: one request per second at most.
         var market = Settings.ShowMarket ? new DataCenterClient(_http, new RateLimiter(1)) : null;
         Service = new FcHelperService(api, _db!, Settings.ToOptions(), market: market);
@@ -228,7 +237,9 @@ public partial class App : Application
                 if (Settings.MarketAutoRefresh)
                 {
                     await WaitForGameToCloseAsync(ct);
-                    await _market!.RefreshIfDueAsync(ct: ct);
+                    if (await _market!.RefreshIfDueAsync(ct: ct)) NotifyPriceAlerts();
+                    // The daily chart (ranker picks, formations) changes once a day; the service re-fetches when it is 12 h old.
+                    try { await Squads!.ChartAsync(ct: ct); } catch (InvalidOperationException) { }
                 }
                 var due = _market!.NextDue ?? DateTime.UtcNow;
                 var wait = due - DateTime.UtcNow;
@@ -237,6 +248,22 @@ public partial class App : Application
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    /// <summary>After a price refresh: a few cards that just dropped and are cheap for their spec, as one tray notice.</summary>
+    private void NotifyPriceAlerts()
+    {
+        try
+        {
+            var alerts = Squads?.Alerts() ?? [];
+            if (alerts.Count == 0) return;
+            Dispatcher.BeginInvoke(() => Notify("시세 급락 가성비: " + string.Join(", ",
+                alerts.Take(3).Select(a => $"{a.Card.Name} {a.Card.Season} +{a.Grade} {a.Change:+0%;-0%}"))));
+        }
+        catch (InvalidOperationException)
+        {
+            // No market data yet.
         }
     }
 

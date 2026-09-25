@@ -85,9 +85,17 @@ public sealed record MarketCard
     public IReadOnlyDictionary<int, long> Prices { get; init; } = new Dictionary<int, long>();
     public IReadOnlyDictionary<string, int> Stats { get; init; } = new Dictionary<string, int>();
     public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
+    /// <summary>OVR at +1 for each position the card lists; the card can be fielded only there.</summary>
+    public IReadOnlyDictionary<string, int> Positions { get; init; } = new Dictionary<string, int>();
 
     public int SeasonId => (int)(SpId / 1_000_000);
+    /// <summary>The same footballer across seasons: a squad cannot field two of them.</summary>
+    public int PlayerId => (int)(SpId % 1_000_000);
     public int OvrAt(int grade) => Ovr1 - Grades.Bonus[1] + Grades.Bonus[grade];
+
+    /// <returns>OVR at a rated position and grade, or null when the card does not list that position.</returns>
+    public int? OvrAt(string position, int grade) =>
+        Positions.TryGetValue(position, out var ovr) ? ovr - Grades.Bonus[1] + Grades.Bonus[grade] : null;
     public long PriceAt(int grade) => Prices.GetValueOrDefault(grade);
     /// <summary>Cards with one price at every grade are not really traded (e.g. bound cards).</summary>
     public bool IsTraded => Prices.Values.Distinct().Count() > 1;
