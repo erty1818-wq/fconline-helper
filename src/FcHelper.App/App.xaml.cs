@@ -447,6 +447,13 @@ public partial class App : Application
     private async void OnUpdateFound(UpdateInfo info)
     {
         if (_updater is null) return;
+        UpdateAvailable?.Invoke(info);
+        // Found by the update button: the button itself turns green, no extra window.
+        if (_manualCheck)
+        {
+            _manualCheck = false;
+            return;
+        }
         var downloaded = false;
         if (Settings.AutoUpdate)
         {
@@ -462,6 +469,33 @@ public partial class App : Application
             _updateItem.Font = new System.Drawing.Font(_updateItem.Font, System.Drawing.FontStyle.Bold);
         }
         ShowUpdateToast(info, downloaded);
+    }
+
+    private bool _manualCheck;
+
+    /// <summary>The newer version found, if any (the update buttons show it).</summary>
+    public UpdateInfo? AvailableUpdate => _updater?.Available;
+
+    /// <summary>Raised when a newer version is found, by the timer or a button.</summary>
+    public event Action<UpdateInfo>? UpdateAvailable;
+
+    /// <summary>Asks the release page now; null when this is the newest version (or it cannot be reached).</summary>
+    public async Task<UpdateInfo?> CheckUpdateNowAsync()
+    {
+        if (_updater is null) return null;
+        _manualCheck = true;
+        var info = await _updater.CheckAsync();
+        if (info is null) _manualCheck = false;
+        return info;
+    }
+
+    /// <summary>Downloads the new version, checks it, swaps the exe and restarts; false when that did not work.</summary>
+    public async Task<bool> UpdateNowAsync(IProgress<double>? progress = null)
+    {
+        if (_updater?.Available is not { } info || !await _updater.DownloadAsync(info, progress)) return false;
+        if (!Updater.ApplyAndRestart()) return false;
+        Shutdown();
+        return true;
     }
 
     private void ShowUpdateToast(UpdateInfo info, bool downloaded)

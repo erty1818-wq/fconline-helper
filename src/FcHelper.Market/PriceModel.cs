@@ -275,6 +275,10 @@ public sealed record CardFilter
     public IReadOnlySet<long>? Members { get; init; }
     /// <summary>Cards almost nobody rated are rarely traded; their low price says little.</summary>
     public int MinRatings { get; init; } = 10;
+    /// <summary>Only cards of these seasons (e.g. "26TOTS"); null = any.</summary>
+    public IReadOnlySet<string>? OnlySeasons { get; init; }
+    /// <summary>Seasons left out, e.g. ones that hardly trade.</summary>
+    public IReadOnlySet<string> ExcludedSeasons { get; init; } = new HashSet<string>();
 
     public bool Matches(MarketCard c, int grade, string? position = null)
     {
@@ -296,6 +300,7 @@ public sealed record CardFilter
         if (MinCoreGap is { } gap && (MarketGroups.Get(c.Group).CoreGap(c) is not { } g || g < gap)) return false;
         if (Name is { Length: > 0 } name && !c.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) return false;
         if (Members is not null && !Members.Contains(c.SpId)) return false;
+        if (OnlySeasons is not null && !OnlySeasons.Contains(c.Season) || ExcludedSeasons.Contains(c.Season)) return false;
         return true;
     }
 

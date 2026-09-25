@@ -22,6 +22,86 @@ public partial class FilterPanel : UserControl
         BodyBox.ItemsSource = new[] { new Choice(Any, ""), new Choice("마름", "thin"), new Choice("보통", "normal"), new Choice("건장", "heavy") };
         SetGroup(null);
         Reset();
+        _excludedSeasons = LoadExcluded();
+        UpdateSeasonButtons();
+    }
+
+    // ── seasons ──
+
+    private const string ExcludedKey = "filter.excludedSeasons";
+    private HashSet<string> _onlySeasons = [];
+    private HashSet<string> _excludedSeasons = [];
+
+    private static HashSet<string> LoadExcluded() =>
+        StudioKit.App.Db?.GetValue(ExcludedKey)?.Value is { Length: > 0 } v ? v.Split('|', StringSplitOptions.RemoveEmptyEntries).ToHashSet() : [];
+
+    private void UpdateSeasonButtons()
+    {
+        OnlySeasonsButton.Content = _onlySeasons.Count == 0 ? "시즌 고르기: 전체" : $"시즌 고르기: {Short(_onlySeasons)}";
+        ExcludedSeasonsButton.Content = _excludedSeasons.Count == 0 ? "시즌 제외: 없음" : $"시즌 제외: {Short(_excludedSeasons)}";
+    }
+
+    private static string Short(IReadOnlyCollection<string> seasons) =>
+        seasons.Count <= 3 ? string.Join(", ", seasons.Order()) : $"{string.Join(", ", seasons.Order().Take(2))} 외 {seasons.Count - 2}개";
+
+    private void OnOnlySeasons(object sender, RoutedEventArgs e) => ShowSeasonPicker((Button)sender, _onlySeasons, remember: false);
+
+    private void OnExcludedSeasons(object sender, RoutedEventArgs e) => ShowSeasonPicker((Button)sender, _excludedSeasons, remember: true);
+
+    /// <summary>A checklist of every season in the market (newest first, with its card count), filtered by typing.</summary>
+    private void ShowSeasonPicker(Button anchor, HashSet<string> chosen, bool remember)
+    {
+        var seasons = StudioKit.Squads?.Pool().GroupBy(c => c.Season).OrderByDescending(g => g.Max(c => c.SeasonId))
+            .Select(g => (Season: g.Key, Cards: g.Count())).ToList() ?? [];
+        var list = new StackPanel();
+        var search = new TextBox { Margin = new Thickness(0, 0, 0, 6), ToolTip = "시즌 이름으로 거르기 (예: TOTS, 26)" };
+        void Fill()
+        {
+            list.Children.Clear();
+            foreach (var (season, cards) in seasons.Where(s => search.Text.Trim().Length == 0 || s.Season.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                var box = new CheckBox { Content = $"{season}  ({cards}장)", IsChecked = chosen.Contains(season), Margin = new Thickness(0, 2, 0, 2) };
+                box.Click += (_, _) =>
+                {
+                    if (box.IsChecked == true) chosen.Add(season);
+                    else chosen.Remove(season);
+                    Changed();
+                };
+                list.Children.Add(box);
+            }
+        }
+        void Changed()
+        {
+            if (remember) StudioKit.App.Db?.SetValue(ExcludedKey, string.Join("|", chosen));
+            UpdateSeasonButtons();
+        }
+        search.TextChanged += (_, _) => Fill();
+        var clear = new Button { Content = "모두 해제", Style = (Style)FindResource("Ghost"), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 6, 6, 0) };
+        clear.Click += (_, _) => { chosen.Clear(); Changed(); Fill(); };
+        var close = new Button { Content = "닫기", Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 6, 0, 0) };
+        var popup = new System.Windows.Controls.Primitives.Popup
+        {
+            PlacementTarget = anchor, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true,
+            Child = new Border
+            {
+                Background = (System.Windows.Media.Brush)FindResource("Panel"), BorderBrush = (System.Windows.Media.Brush)FindResource("Line"),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(12), Width = 260,
+                Child = new StackPanel
+                {
+                    Children =
+                    {
+                        new TextBlock { Text = remember ? "뺄 시즌 (기억됨)" : "이 시즌만 찾기", Style = (Style)FindResource("FieldLabel") },
+                        search,
+                        new ScrollViewer { Content = list, MaxHeight = 320, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+                        new StackPanel { Orientation = Orientation.Horizontal, Children = { clear, close } },
+                    },
+                },
+            },
+        };
+        close.Click += (_, _) => popup.IsOpen = false;
+        Fill();
+        popup.IsOpen = true;
+        search.Focus();
     }
 
     /// <summary>Traits and stats offered for a group (null: every group).</summary>
@@ -54,6 +134,8 @@ public partial class FilterPanel : UserControl
         foreach (var box in new[] { FootBox, BodyBox, Trait1Box, Trait2Box, Stat1Box, Stat2Box, Stat3Box }) box.SelectedIndex = 0;
         SkillBox.IsChecked = false;
         TeamColorBox.IsChecked = true;
+        _onlySeasons?.Clear(); // the excluded seasons are a standing choice: 조건 초기화 keeps them
+        if (OnlySeasonsButton is not null && _excludedSeasons is not null) UpdateSeasonButtons();
     }
 
     /// <returns>The filter, or null with <paramref name="error"/> set when an entry cannot be read.</returns>
@@ -61,7 +143,7 @@ public partial class FilterPanel : UserControl
     {
         if (!StudioKit.TryPrice(MinPriceBox, 0, out var minPrice) || !StudioKit.TryPrice(MaxPriceBox, long.MaxValue, out var maxPrice))
         {
-            status("가격은 1억, 5000만처럼 입력하세요.");
+            status("가격은 억 단위 숫자로 입력하세요 (예: 1 = 1억, 0.5 = 0.5억).");
             return null;
         }
         var stats = new Dictionary<string, int>();
@@ -90,6 +172,8 @@ public partial class FilterPanel : UserControl
             Name = NameBox.Text.Trim() is { Length: > 0 } n ? n : null,
             Members = members,
             MinRatings = minRatings,
+            OnlySeasons = _onlySeasons.Count > 0 ? _onlySeasons.ToHashSet() : null,
+            ExcludedSeasons = _excludedSeasons.ToHashSet(),
         };
     }
 
@@ -105,6 +189,8 @@ public partial class FilterPanel : UserControl
         if (f.MinHeight is not null || f.MaxHeight is not null) parts.Add($"키 {f.MinHeight}~{f.MaxHeight}");
         parts.AddRange(f.MinStats.Select(kv => $"{MarketGroups.StatNames.GetValueOrDefault(kv.Key, kv.Key)}≥{kv.Value}"));
         if (f.MinCoreGap is { } g) parts.Add($"코어 {g:+0;-0}");
+        if (f.OnlySeasons is { Count: > 0 } only) parts.Add($"시즌 {Short(only)}");
+        if (f.ExcludedSeasons.Count > 0) parts.Add($"제외 {Short(f.ExcludedSeasons)}");
         return string.Join(" · ", parts);
     }
 

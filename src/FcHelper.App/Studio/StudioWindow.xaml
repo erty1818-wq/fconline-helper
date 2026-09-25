@@ -25,6 +25,7 @@
                     </StackPanel>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Bottom">
+                    <app:UpdateButton Margin="0,0,0,8" HorizontalAlignment="Stretch" />
                     <TextBlock x:Name="DataStatus" Style="{StaticResource Hint}" Margin="4,0,4,8" />
                     <Button x:Name="RefreshButton" Style="{StaticResource Ghost}" Content="시세 지금 갱신" Click="OnRefresh" />
                 </StackPanel>

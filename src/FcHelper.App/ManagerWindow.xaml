@@ -92,7 +92,7 @@
                             <StackPanel Margin="0,0,14,0"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="HoneyPosition" MinWidth="90" /></StackPanel>
                             <StackPanel Margin="0,0,14,0"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="HoneyGrade" MinWidth="70" /></StackPanel>
                             <StackPanel Margin="0,0,14,0">
-                                <TextBlock Text="가격" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="가격 (억)" Style="{StaticResource FieldLabel}" ToolTip="{x:Static market:Bp.InputHint}" />
                                 <StackPanel Orientation="Horizontal">
                                     <TextBox x:Name="HoneyMin" Width="85" ToolTip="{x:Static market:Bp.InputHint}" />
                                     <TextBlock Text="~" Margin="5,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />

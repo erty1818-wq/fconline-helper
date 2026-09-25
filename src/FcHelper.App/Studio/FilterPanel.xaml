@@ -14,7 +14,7 @@
                 </StackPanel>
             </StackPanel>
             <StackPanel Margin="0,0,14,6">
-                <TextBlock Text="가격" Style="{StaticResource FieldLabel}" />
+                <TextBlock Text="가격 (억)" Style="{StaticResource FieldLabel}" ToolTip="{x:Static market:Bp.InputHint}" />
                 <StackPanel Orientation="Horizontal">
                     <TextBox x:Name="MinPriceBox" Width="85" ToolTip="{x:Static market:Bp.InputHint}" />
                     <TextBlock Text="~" Margin="5,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
@@ -51,6 +51,10 @@
             </StackPanel>
         </WrapPanel>
         <WrapPanel>
+            <Button x:Name="OnlySeasonsButton" Content="시즌 고르기: 전체" Style="{StaticResource Ghost}" Padding="8,2" Margin="0,0,6,0" Click="OnOnlySeasons"
+                    ToolTip="고른 시즌의 카드만 찾습니다 (비우면 전체)" />
+            <Button x:Name="ExcludedSeasonsButton" Content="시즌 제외: 없음" Style="{StaticResource Ghost}" Padding="8,2" Margin="0,0,16,0" Click="OnExcludedSeasons"
+                    ToolTip="거래가 안 되거나 구하기 힘든 시즌을 뺍니다. 고른 시즌은 기억해 두었다가 다음에도 뺍니다." />
             <CheckBox x:Name="SkillBox" Content="개인기 5성 이상" Margin="0,2,16,0" />
             <CheckBox x:Name="TeamColorBox" Content="랭커 주요 팀컬러 20개 선수만" IsChecked="True" Margin="0,2,16,0"
                       ToolTip="어제 랭커가 가장 많이 쓴 소속 팀컬러 20개 중 하나라도 해당되는 카드만 (처음에는 팀컬러 멤버를 받느라 2분쯤 걸립니다)" />
