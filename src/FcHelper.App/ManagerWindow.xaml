@@ -40,12 +40,12 @@
                         <DataGrid x:Name="PickRates" SelectionChanged="OnPickSelected">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="#" Binding="{Binding Rank}" Width="40" />
-                                <DataGridTextColumn Header="팀컬러" Binding="{Binding Name}" Width="*" />
+                                <DataGridTextColumn Header="팀컬러" Binding="{Binding Name}" Width="170" />
                                 <DataGridTextColumn Header="랭커 수" Binding="{Binding Rankers}" Width="70" ElementStyle="{StaticResource Num}" />
                                 <DataGridTextColumn Header="비율" Binding="{Binding Share}" Width="60" ElementStyle="{StaticResource Num}" />
                                 <DataGridTextColumn Header="평균 구단 가치" Binding="{Binding Average}" Width="110" ElementStyle="{StaticResource Num}" />
-                                <DataGridTextColumn Header="최고" Binding="{Binding Richest}" Width="170" />
-                                <DataGridTextColumn Header="최저" Binding="{Binding Poorest}" Width="170" />
+                                <DataGridTextColumn Header="최고" Binding="{Binding Richest}" Width="*" />
+                                <DataGridTextColumn Header="최저" Binding="{Binding Poorest}" Width="*" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>
