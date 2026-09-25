@@ -35,6 +35,7 @@ public sealed class SquadMaker(SquadService squads, RankerUsage? rankers = null)
         CandidateSort sort = CandidateSort.Ovr, IReadOnlySet<int>? usedPlayers = null, int top = 60, IReadOnlySet<long>? members = null)
     {
         var pos = Formations.Normalize(position);
+        grade = Math.Min(grade, Grades.MaxTradable); // +12/+13 cannot be bought
         var slots = squads.Pool()
             .Where(c => c.OvrAt(pos, grade) is not null && c.PriceAt(grade) > 0)
             .Where(c => string.IsNullOrWhiteSpace(name) || c.Name.Contains(name.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -130,12 +131,17 @@ public sealed class SquadMaker(SquadService squads, RankerUsage? rankers = null)
             }
             if (best is { } b) targets.Insert(0, b.Target);
         }
+        // The 강화 colour follows the grades in the eleven: the best one reached applies.
+        if (targets.All(t => t.Color.Category != TeamColorCategory.Enhance)) targets.AddRange(await squads.EnhanceTargetsAsync(ct));
         var slots = Advisors.WithTeamColors(filled, targets);
         var colors = targets.Select(t =>
         {
-            var n = filled.Count(s => t.Members.Contains(s.Card.SpId));
+            var n = filled.Count(s => t.Counts(s.Card.SpId, s.Grade));
             return new AppliedTeamColor(t.Color, n, t.Color.LevelFor(n));
         }).ToList();
+        // Show one 강화 colour: the best one reached (or none).
+        var enhance = colors.Where(c => c.Color.Category == TeamColorCategory.Enhance && c.Level is not null).MaxBy(c => c.Level!.AllStats);
+        colors = colors.Where(c => c.Color.Category != TeamColorCategory.Enhance || ReferenceEquals(c, enhance)).ToList();
         return (slots, colors);
     }
 }

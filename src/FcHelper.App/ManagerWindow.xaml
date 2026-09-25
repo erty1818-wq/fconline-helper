@@ -1,0 +1,144 @@
+<Window x:Class="FcHelper.App.ManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="clr-namespace:FcHelper.App"
+        Title="감독모드 · FC Online Helper" Width="1280" Height="840" MinWidth="980" MinHeight="600"
+        Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen" FontFamily="Malgun Gothic, Segoe UI">
+    <DockPanel Margin="20,16,20,10">
+        <!-- Header: title and the two views -->
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <ToggleButton x:Name="PicksTab" Style="{StaticResource Chip}" Content="팀컬러 픽률" IsChecked="True" Click="OnTab" Checked="OnTab" />
+                <ToggleButton x:Name="CoachTab" Style="{StaticResource Chip}" Content="구단주 분석" Click="OnTab" Checked="OnTab" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal">
+                <Image Source="{app:Skin logo}" Width="34" Height="34" />
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="감독모드" Style="{StaticResource H1}" />
+                    <TextBlock Style="{StaticResource Hint}" Text="공식 감독모드 랭킹 · 랭커 최근 감독모드 경기 · 구단주 감독모드 경기 (NEXON Open API)" />
+                </StackPanel>
+            </StackPanel>
+        </DockPanel>
+        <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Style="{StaticResource Hint}" Margin="0,8,0,0" TextWrapping="Wrap" />
+
+        <Grid>
+            <!-- 팀컬러 픽률 -->
+            <Grid x:Name="PicksView">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*" />
+                    <ColumnDefinition Width="2*" />
+                </Grid.ColumnDefinitions>
+                <Border Style="{StaticResource CardPanel}" Margin="0,0,12,0">
+                    <DockPanel>
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <Button x:Name="PicksButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="불러오기" Click="OnLoadPicks" />
+                            <StackPanel>
+                                <TextBlock Text="감독모드 팀컬러 픽률" Style="{StaticResource H2}" />
+                                <TextBlock Style="{StaticResource Hint}" Text="감독모드 랭킹 상위 1,000명이 마지막 경기에 쓴 팀컬러 (12시간마다 갱신)" />
+                            </StackPanel>
+                        </DockPanel>
+                        <DataGrid x:Name="PickRates" SelectionChanged="OnPickSelected">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="#" Binding="{Binding Rank}" Width="40" />
+                                <DataGridTextColumn Header="팀컬러" Binding="{Binding Name}" Width="*" />
+                                <DataGridTextColumn Header="랭커 수" Binding="{Binding Rankers}" Width="70" ElementStyle="{StaticResource Num}" />
+                                <DataGridTextColumn Header="비율" Binding="{Binding Share}" Width="60" ElementStyle="{StaticResource Num}" />
+                                <DataGridTextColumn Header="평균 구단 가치" Binding="{Binding Average}" Width="110" ElementStyle="{StaticResource Num}" />
+                                <DataGridTextColumn Header="최고" Binding="{Binding Richest}" Width="170" />
+                                <DataGridTextColumn Header="최저" Binding="{Binding Poorest}" Width="170" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Border>
+                <Border Grid.Column="1" Style="{StaticResource CardPanel}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <TextBlock x:Name="TeamTitle" Text="팀컬러를 고르세요" Style="{StaticResource H2}" />
+                            <TextBlock x:Name="TeamHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                                       Text="고른 팀컬러의 랭커들이 포지션별로 가장 많이 쓰는 선수 (상위 150명의 최근 감독모드 경기, 3일마다 갱신)" />
+                        </StackPanel>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="TeamPlayers" />
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Grid>
+
+            <!-- 구단주 분석 -->
+            <DockPanel x:Name="CoachView" Visibility="Collapsed">
+                <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
+                    <WrapPanel>
+                        <StackPanel Margin="0,0,14,0">
+                            <TextBlock Text="구단주 닉네임" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="NicknameBox" Width="200" KeyDown="OnNicknameKey" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,14,0">
+                            <TextBlock Text="최근 경기 수" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="CountBox" Width="60" Text="100" />
+                        </StackPanel>
+                        <Button x:Name="AnalyseButton" Style="{StaticResource Primary}" Content="감독모드 분석" VerticalAlignment="Bottom" Click="OnAnalyse" />
+                    </WrapPanel>
+                </Border>
+                <UniformGrid DockPanel.Dock="Top" Columns="4" Margin="0,0,0,10">
+                    <Border Style="{StaticResource CardPanel}" Margin="0,0,8,0"><StackPanel><TextBlock Text="전적" Style="{StaticResource Hint}" /><TextBlock x:Name="RecordText" Text="-" Style="{StaticResource BigNumber}" /></StackPanel></Border>
+                    <Border Style="{StaticResource CardPanel}" Margin="0,0,8,0"><StackPanel><TextBlock Text="승률" Style="{StaticResource Hint}" /><TextBlock x:Name="WinText" Text="-" Style="{StaticResource BigNumber}" /></StackPanel></Border>
+                    <Border Style="{StaticResource CardPanel}" Margin="0,0,8,0"><StackPanel><TextBlock Text="평균 득점" Style="{StaticResource Hint}" /><TextBlock x:Name="ForText" Text="-" Style="{StaticResource BigNumber}" /></StackPanel></Border>
+                    <Border Style="{StaticResource CardPanel}"><StackPanel><TextBlock Text="평균 실점" Style="{StaticResource Hint}" /><TextBlock x:Name="AgainstText" Text="-" Style="{StaticResource BigNumber}" /></StackPanel></Border>
+                </UniformGrid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="300" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource CardPanel}" Margin="0,0,12,0">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" Text="선수 지표 (경기당)" Style="{StaticResource H2}" />
+                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource Hint}" Margin="0,0,0,6" TextWrapping="Wrap"
+                                       Text="공격 = 골×10 + 도움×7 + 유효 슈팅×2 + 그 밖의 슈팅×0.5 + 드리블 성공×0.5 + 패스 성공×0.05 · 수비 = 태클×2 + 차단×3 + 가로채기×2 + 공중볼 성공 + 수비 행동×0.5 [계산]" />
+                            <DataGrid x:Name="Players">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="포지션" Binding="{Binding Position}" Width="55" />
+                                    <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="강화" Binding="{Binding Grade}" Width="45" />
+                                    <DataGridTextColumn Header="출전" Binding="{Binding Games}" Width="45" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="승률" Binding="{Binding Win}" Width="55" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="공격" Binding="{Binding Attack}" Width="55" ElementStyle="{StaticResource Num}" SortMemberPath="AttackValue" />
+                                    <DataGridTextColumn Header="수비" Binding="{Binding Defence}" Width="55" ElementStyle="{StaticResource Num}" SortMemberPath="DefenceValue" />
+                                    <DataGridTextColumn Header="골" Binding="{Binding Goals}" Width="50" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="도움" Binding="{Binding Assists}" Width="50" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="유효 슈팅" Binding="{Binding Shots}" Width="65" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="패스" Binding="{Binding Pass}" Width="50" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="태클" Binding="{Binding Tackles}" Width="50" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="차단" Binding="{Binding Blocks}" Width="50" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="가로채기" Binding="{Binding Intercepts}" Width="65" ElementStyle="{StaticResource Num}" />
+                                    <DataGridTextColumn Header="평점" Binding="{Binding Rating}" Width="50" ElementStyle="{StaticResource Num}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </Border>
+                    <Border Grid.Column="1" Style="{StaticResource CardPanel}">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" Text="전술 분석" Style="{StaticResource H2}" />
+                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource Hint}" Margin="0,0,0,6" Text="수비-수미-미드-공미-공격 인원" />
+                            <ItemsControl x:Name="Formations">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="0,8">
+                                            <DockPanel>
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding Record}" Style="{StaticResource Hint}" VerticalAlignment="Center" />
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Lines}" FontSize="17" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding Win}" Foreground="{StaticResource Accent}" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

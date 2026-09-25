@@ -22,21 +22,34 @@ public interface IRankerSquadSource
 /// Who the top rankers are from the official ranking (data center, 20 per page), then each one's latest official
 /// match through the NEXON Open API: id → match list → match detail, three calls per ranker. Personal use.
 /// </summary>
-public sealed partial class RankerSquadClient(HttpClient http, RateLimiter dataCenter, Func<FcOnlineApi?> api) : IRankerSquadSource
+/// <param name="ranking">"1vs1" (공식경기) or "manager" (감독모드), as the ranking page names them.</param>
+/// <param name="matchType">50 = 공식경기, 52 = 감독모드.</param>
+public sealed partial class RankerSquadClient(HttpClient http, RateLimiter dataCenter, Func<FcOnlineApi?> api, string ranking = "1vs1", int matchType = 50)
+    : IRankerSquadSource
 {
-    private const int OfficialMatch = 50, PerPage = 20;
+    private const int PerPage = 20;
+    private int OfficialMatch => matchType;
+
+    /// <summary>The top of the ranking, 20 rows per page (one data center request each).</summary>
+    public async Task<IReadOnlyList<RankRow>> RankingAsync(int count, IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        var rows = new List<RankRow>();
+        for (var page = 1; rows.Count < count && page <= (count + PerPage - 1) / PerPage; page++)
+        {
+            progress?.Report($"랭킹 {page}/{(count + PerPage - 1) / PerPage}페이지 읽는 중");
+            var found = RankingParser.Rows(await GetAsync($"https://fconline.nexon.com/datacenter/rank_inner?rt={ranking}&n4seasonno=0&n4pageno={page}", ct));
+            if (found.Count == 0) break;
+            rows.AddRange(found);
+        }
+        return rows.Take(count).ToList();
+    }
 
     public async Task<IReadOnlyList<RankerSquad>> FetchAsync(int count, IProgress<string>? progress = null, CancellationToken ct = default)
     {
         var client = api() ?? throw new InvalidOperationException("랭커 스쿼드는 NEXON Open API 키가 있어야 받을 수 있습니다.");
-        var rankers = new List<(int Rank, string Nickname, long Value)>();
-        for (var page = 1; rankers.Count < count && page <= (count + PerPage - 1) / PerPage; page++)
-        {
-            progress?.Report($"랭킹 {page}페이지 읽는 중");
-            rankers.AddRange(Parse(await GetAsync($"https://fconline.nexon.com/datacenter/rank_inner?rt=1vs1&n4seasonno=0&n4pageno={page}", ct)));
-        }
+        var rankers = (await RankingAsync(count, progress, ct)).Select(r => (r.Rank, r.Nickname, Value: r.TeamValue)).ToList();
         var squads = new List<RankerSquad>();
-        foreach (var (rank, nickname, value) in rankers.Take(count))
+        foreach (var (rank, nickname, value) in rankers)
         {
             progress?.Report($"랭커 스쿼드 {squads.Count + 1}/{Math.Min(count, rankers.Count)} · {rank}위");
             try
@@ -87,8 +100,14 @@ public sealed record RoleShare(string Role, int Slots, double PriceShare, double
     double Pay, int PayLow, int PayHigh, double Ovr);
 
 /// <summary>The price and salary split of top rankers' squads, from squads worth at least <see cref="MinSquadValue"/>.</summary>
+/// <param name="PlusElevenCounts">How many squads field k cards at +11 (k → squads): shows the "+11 8명 + 3명" pattern of
+/// the 백금빛 물결 colour.</param>
+/// <param name="RoleGrade">Average grade per role.</param>
 public sealed record RankerAllocation(int Squads, int Skipped, long MedianValue, double MedianPay, IReadOnlyDictionary<string, RoleShare> Roles)
 {
+    public IReadOnlyDictionary<int, int> PlusElevenCounts { get; init; } = new Dictionary<int, int>();
+    public IReadOnlyDictionary<string, double> RoleGrade { get; init; } = new Dictionary<string, double>();
+
     /// <summary>Squads cheaper than this are usually being rebuilt (sold cards, fillers) and are left out.</summary>
     public const long MinSquadValue = 1_000_000_000;
 
@@ -118,7 +137,8 @@ public sealed record RankerAllocation(int Squads, int Skipped, long MedianValue,
     /// <summary>Prices the rankers' eleven at today's market (their grades); squads with unknown cards are skipped.</summary>
     public static RankerAllocation Analyse(IEnumerable<RankerSquad> squads, IReadOnlyDictionary<long, MarketCard> cards, long minSquadValue = MinSquadValue)
     {
-        var rows = new List<(string Role, double Share, int Pay, int Ovr)>();
+        var rows = new List<(string Role, double Share, int Pay, int Ovr, int Grade)>();
+        var elevens = new Dictionary<int, int>();
         var values = new List<long>();
         var pays = new List<int>();
         var skipped = 0;
@@ -130,8 +150,10 @@ public sealed record RankerAllocation(int Squads, int Skipped, long MedianValue,
             if (total < minSquadValue) { skipped++; continue; }
             values.Add(total);
             pays.Add(priced.Sum(x => x.Card?.Pay ?? 0));
+            var k = squad.Starters.Count(p => p.Grade >= 11);
+            elevens[k] = elevens.GetValueOrDefault(k) + 1;
             foreach (var (p, card) in priced.Where(x => x.Card is not null))
-                rows.Add((RoleOf(p.Position), card!.PriceAt(p.Grade) / (double)total, card.Pay, card.OvrAt(Formations.Normalize(p.Position), p.Grade) ?? card.OvrAt(p.Grade)));
+                rows.Add((RoleOf(p.Position), card!.PriceAt(p.Grade) / (double)total, card.Pay, card.OvrAt(Formations.Normalize(p.Position), p.Grade) ?? card.OvrAt(p.Grade), p.Grade));
         }
         var roles = rows.GroupBy(r => r.Role).ToDictionary(g => g.Key, g =>
         {
@@ -143,7 +165,11 @@ public sealed record RankerAllocation(int Squads, int Skipped, long MedianValue,
         });
         values.Sort();
         pays.Sort();
-        return new RankerAllocation(values.Count, skipped, values.Count > 0 ? values[values.Count / 2] : 0, pays.Count > 0 ? pays[pays.Count / 2] : 0, roles);
+        return new RankerAllocation(values.Count, skipped, values.Count > 0 ? values[values.Count / 2] : 0, pays.Count > 0 ? pays[pays.Count / 2] : 0, roles)
+        {
+            PlusElevenCounts = elevens,
+            RoleGrade = rows.GroupBy(r => r.Role).ToDictionary(g => g.Key, g => g.Average(r => (double)r.Grade)),
+        };
     }
 
     private static double Quantile(IReadOnlyList<double> sorted, double q)

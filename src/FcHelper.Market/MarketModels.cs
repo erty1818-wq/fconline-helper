@@ -217,6 +217,15 @@ public static class Grades
 
     /// <summary>At or below this a price is the market floor, not a valuation.</summary>
     public const long FloorPrice = 1200;
+
+    /// <summary>
+    /// The highest grade one can buy: +12 and +13 come from no pack, only from enhancing, and their owners do not sell
+    /// them on the market (listed prices there are not real offers). They count only for cards the user owns.
+    /// </summary>
+    public const int MaxTradable = 11;
+
+    /// <summary>Grades offered for buying: 1 to +11.</summary>
+    public static IEnumerable<int> Tradable => Enumerable.Range(1, MaxTradable);
 }
 
 /// <summary>BP amounts as the game writes them: "1억 5,000만", "3,000만", "1.5조".</summary>

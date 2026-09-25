@@ -83,6 +83,18 @@ try
         case "dump" when positional.Count == 1:
             return await Dump(api, positional[0], int.TryParse(Option("count"), out var c) ? Math.Clamp(c, 1, 20) : 3, Option("out") ?? "docs/samples");
 
+        case "manager" when positional.Count == 1:
+            var mr = await service.ManagerAnalysisAsync(positional[0], Math.Clamp(int.TryParse(Option("count"), out var mc) ? mc : 100, 1, 100),
+                new Progress<string>(m => Console.Error.Write($"\r{m}          ")));
+            Console.Error.WriteLine();
+            if (mr is null) { Console.Error.WriteLine($"'{positional[0]}' 닉네임을 찾지 못했습니다."); return 3; }
+            Console.WriteLine($"{mr.Nickname} · 감독모드 {mr.Games}경기 · {mr.Wins}승 {mr.Draws}무 {mr.Losses}패 (승률 {mr.WinRate:P1}) · 평균 득점 {mr.GoalsFor:0.00} · 실점 {mr.GoalsAgainst:0.00}");
+            foreach (var p in mr.Players.Take(14))
+                Console.WriteLine($"  {p.Position,-4} {p.Name,-10} +{p.Grade,-2} {p.Games,3}경기 승률 {p.WinRate,5:P0} · 공격 {p.Attack,5:0.0} 수비 {p.Defence,5:0.0} · 골 {p.Goals:0.00} 도움 {p.Assists:0.00} · 패스 {p.PassRate:P0} · 평점 {p.Rating:0.0}");
+            foreach (var f in mr.Formations.Take(6)) Console.WriteLine($"  전술 {f.Lines} · {f.Games}경기 {f.Wins}승 {f.Draws}무 {f.Losses}패 ({f.WinRate:P1})");
+            Console.WriteLine("공격·수비 = 경기당 기록의 가중합 [계산]. Data based on NEXON Open API.");
+            return 0;
+
         case "sync":
             if (options.MyNickname is null)
             {

@@ -10,11 +10,14 @@
                 <DockPanel Margin="0,0,0,10">
                     <Button x:Name="BuildButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="AI 추천 스쿼드" Click="OnBuild"
                             ToolTip="4가지 방식(최강·균형·가성비·랭커픽)으로 짜서 비교합니다. 🔒 고정한 선수는 그대로 둡니다." />
+                    <ToggleButton x:Name="ConditionsToggle" DockPanel.Dock="Right" Style="{StaticResource Chip}" Content="조건 접기" IsChecked="True"
+                                  Margin="0,0,10,0" VerticalAlignment="Center" Click="OnToggleConditions" ToolTip="조건을 접으면 피치가 커집니다" />
                     <StackPanel>
                         <TextBlock Text="스쿼드 메이커" Style="{StaticResource H1}" />
                         <TextBlock Style="{StaticResource Hint}" Text="AI 추천을 받아 고치거나, 빈 스쿼드에서 직접 짜거나, 일부만 넣고 나머지를 AI로 채울 수 있습니다." />
                     </StackPanel>
                 </DockPanel>
+                <StackPanel x:Name="Conditions">
                 <WrapPanel>
                     <StackPanel Margin="0,0,14,6">
                         <TextBlock Text="포메이션" Style="{StaticResource FieldLabel}" />
@@ -56,6 +59,7 @@
                                   ToolTip="상위 랭커 100명의 최근 스쿼드(시세 10억 이상)에서 포지션별 가격 비중·급여의 평균과 10~90% 범위를 구해, 그 범위 안에서 짭니다. 공격수에 돈을 쓰는 랭커 방식입니다." />
                     </StackPanel>
                 </WrapPanel>
+                </StackPanel>
                 <TextBlock x:Name="LockInfo" Style="{StaticResource Hint}" />
             </StackPanel>
         </Border>
@@ -124,7 +128,11 @@
                     <Button x:Name="FillButton" Style="{StaticResource Ghost}" Content="빈 자리 AI로 채우기" Click="OnFillEmpty" Padding="10,4" Margin="0,0,14,4"
                             ToolTip="지금 들어 있는 선수는 모두 두고, 빈 자리만 예산·급여·팀컬러에 맞춰 채웁니다." />
                     <TextBlock Text="전체 강화" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,2,4" />
-                    <StackPanel x:Name="BulkGrades" Orientation="Horizontal" Margin="0,0,0,4" />
+                    <StackPanel x:Name="BulkGrades" Orientation="Horizontal" Margin="0,0,14,4" />
+                    <TextBlock Text="피치 확대" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,6,4" />
+                    <Slider x:Name="ZoomSlider" Minimum="1" Maximum="2.5" Value="1" Width="140" VerticalAlignment="Center" Margin="0,0,6,4"
+                            SmallChange="0.1" LargeChange="0.25" ValueChanged="OnZoomChanged" ToolTip="Ctrl + 마우스 휠로도 확대·축소" />
+                    <TextBlock x:Name="ZoomText" Text="100%" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="0,0,0,4" />
                 </WrapPanel>
                 <TextBlock x:Name="Totals" FontWeight="SemiBold" Margin="0,4,0,0" />
                 <TextBlock x:Name="TeamColorsLine" Style="{StaticResource Hint}" Foreground="{StaticResource Accent}" TextWrapping="Wrap" />
@@ -138,7 +146,11 @@
                 <ColumnDefinition Width="340" />
             </Grid.ColumnDefinitions>
             <Grid>
-                <studio:PitchView x:Name="Pitch" Margin="0,0,12,0" />
+                <!-- The pitch fills the space; zoomed in, it grows past it and scrolls (Ctrl + wheel). -->
+                <ScrollViewer x:Name="PitchScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Margin="0,0,12,0"
+                              PreviewMouseWheel="OnPitchWheel" SizeChanged="OnPitchAreaChanged">
+                    <studio:PitchView x:Name="Pitch" />
+                </ScrollViewer>
                 <Border x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Background="{StaticResource Panel}"
                         BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="24,18" MaxWidth="420">
                     <StackPanel>

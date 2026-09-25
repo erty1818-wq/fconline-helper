@@ -11,7 +11,7 @@ public partial class ValuePage : UserControl
     {
         InitializeComponent();
         GroupBox.ItemsSource = MarketGroups.All;
-        GradeBox.ItemsSource = Enumerable.Range(1, 13).Select(g => $"+{g}").ToList();
+        GradeBox.ItemsSource = Grades.Tradable.Select(g => $"+{g}").ToList();
         GradeBox.SelectedIndex = 7;
         GroupBox.SelectedIndex = 0;
     }

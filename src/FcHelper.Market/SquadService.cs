@@ -13,7 +13,7 @@ namespace FcHelper.Market;
 public sealed class SquadService(
     MarketService market, MarketStore store, IRankerChartSource charts, TeamColorCache teamColors,
     IRankerStatsSource? rankerStats = null, TimeProvider? time = null, SalaryCapCache? salaryCap = null, IRankerSquadSource? rankerSquads = null,
-    LiquidityCache? liquidity = null)
+    LiquidityCache? liquidity = null, RankerSquadClient? managerRankers = null)
 {
     public const int OfficialMatch = 50;
     public static readonly TimeSpan ChartTtl = TimeSpan.FromHours(12);
@@ -108,6 +108,53 @@ public sealed class SquadService(
         return fresh.Count > 0 ? fresh : squads ?? [];
     }
 
+    // ── 감독모드 ────────────────────────────────────────────────────────────
+
+    public static readonly TimeSpan ManagerRankingTtl = TimeSpan.FromHours(12);
+    public const int ManagerRankingCount = 1000, ManagerSquadCount = 150;
+
+    /// <summary>
+    /// The top of the 감독모드 ranking (1,000 rankers, 50 data center pages, kept 12 hours): each one's club value,
+    /// team colour and formation.
+    /// </summary>
+    public async Task<IReadOnlyList<RankRow>> ManagerRankingAsync(IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        if (managerRankers is null) return [];
+        const string key = "manager.ranking";
+        if (store.GetValue(key) is { } c && Now - c.UpdatedAt < ManagerRankingTtl)
+            return JsonSerializer.Deserialize<List<RankRow>>(c.Value) ?? [];
+        var rows = await managerRankers.RankingAsync(ManagerRankingCount, progress, ct);
+        if (rows.Count > 0) store.SetValue(key, JsonSerializer.Serialize(rows), Now);
+        return rows;
+    }
+
+    public async Task<IReadOnlyList<ManagerPickRate>> ManagerPickRatesAsync(IProgress<string>? progress = null, CancellationToken ct = default) =>
+        RankingParser.PickRates(await ManagerRankingAsync(progress, ct));
+
+    /// <summary>The top 150 감독모드 rankers' latest manager-mode elevens (about 450 API calls), kept three days.</summary>
+    public async Task<IReadOnlyList<RankerSquad>> ManagerSquadsAsync(IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        const string key = "manager.squads";
+        var cached = store.GetValue(key);
+        var squads = cached is null ? null : JsonSerializer.Deserialize<List<RankerSquad>>(cached.Value.Value);
+        if (squads is not null && Now - cached!.Value.UpdatedAt < RankerSquadTtl || managerRankers is null) return squads ?? [];
+        var fresh = await managerRankers.FetchAsync(ManagerSquadCount, progress, ct);
+        if (fresh.Count > 0) store.SetValue(key, JsonSerializer.Serialize(fresh), Now);
+        return fresh.Count > 0 ? fresh : squads ?? [];
+    }
+
+    /// <summary>The cards 감독모드 rankers of one team colour field most, per role.</summary>
+    /// <param name="nameOf">Names of cards outside the market data (e.g. keepers), from the official player list.</param>
+    public async Task<ManagerTeamPlayers> ManagerTeamPlayersAsync(string teamColor, IProgress<string>? progress = null, CancellationToken ct = default,
+        Func<long, string?>? nameOf = null)
+    {
+        var colorOf = (await ManagerRankingAsync(progress, ct)).Where(r => r.TeamColor is not null)
+            .GroupBy(r => r.Nickname).ToDictionary(g => g.Key, g => g.First().TeamColor!);
+        var squads = await ManagerSquadsAsync(progress, ct);
+        return ManagerAnalysisMath.TeamPlayers(teamColor, squads, colorOf,
+            id => Card(id) is { } c ? (c.Name, c.Season) : nameOf?.Invoke(id) is { } n ? (n, "") : null);
+    }
+
     /// <summary>How rankers split price and salary per role, from squads worth 10억 or more at today's prices.</summary>
     public async Task<RankerAllocation?> RankerAllocationAsync(bool allowFetch = true, IProgress<string>? progress = null, CancellationToken ct = default)
     {
@@ -127,6 +174,8 @@ public sealed class SquadService(
         var chart = await ChartAsync(rankFrom, rankTo, ct: ct);
         var rankers = chart is null ? null : new RankerUsage(chart.Picks);
         var pool = Pool();
+        if (request.AutoEnhance && request.TeamColors.All(t => t.Color.Category != TeamColorCategory.Enhance))
+            request = request with { TeamColors = [.. request.TeamColors, .. await EnhanceTargetsAsync(ct)] };
         var plans = await Task.Run(() => new SquadBuilder(pool, c => ModelOf(c), rankers).Build(request), ct);
         for (var round = 0; round < 3 && liquidity is not null; round++)
         {
@@ -254,7 +303,7 @@ public sealed class SquadService(
         int maxMoves = 2, IReadOnlyList<int>? teamColorIds = null, CancellationToken ct = default, bool checkLiquidity = true)
     {
         var targets = await TargetsAsync(teamColorIds ?? [], ct);
-        // Cards that do not trade at their grade (often +13 listings of cheap seasons) are excluded and the search is
+        // Cards that do not trade at their grade (thin listings of cheap seasons) are excluded and the search is
         // run again, up to three rounds, so the plans only buy what can be bought.
         var current = CurrentSquad(owned, targets);
         var excluded = new HashSet<(long, int)>();
@@ -282,6 +331,15 @@ public sealed class SquadService(
         return targets;
     }
 
+    /// <summary>The 강화 colours (백금빛 · 금빛 · 은빛 · 동빛) with their levels, as grade-based targets.</summary>
+    public async Task<IReadOnlyList<TeamColorTarget>> EnhanceTargetsAsync(CancellationToken ct = default)
+    {
+        var targets = new List<TeamColorTarget>();
+        foreach (var color in (await TeamColorsAsync(ct)).Where(t => t.EnhanceMinGrade is not null))
+            if (await TeamColorAsync(color.Id, ct) is { } tc) targets.Add(new TeamColorTarget(tc.Color, new HashSet<long>()));
+        return targets;
+    }
+
     /// <summary>The detected colours the game would run: the strongest of each category.</summary>
     public static IReadOnlyList<int> ActiveTeamColors(IEnumerable<(TeamColor Color, int Owned, TeamColorLevel Level)> detected) =>
         detected.GroupBy(d => d.Color.Category).Select(g => g.First().Color.Id).ToList();
@@ -304,7 +362,8 @@ public sealed class SquadService(
         foreach (var id in counts.Where(kv => kv.Value * 2 >= Math.Min(samples, ownedList.Count)).Select(kv => kv.Key))
         {
             if (await TeamColorAsync(id, ct) is not { } tc) continue;
-            var count = ids.Count(tc.Members.Contains);
+            var target = new TeamColorTarget(tc.Color, tc.Members);
+            var count = ownedList.Count(o => target.Counts(o.SpId, o.Grade));
             if (tc.Color.LevelFor(count) is { } level) result.Add((tc.Color, count, level));
         }
         // Strongest first within a category: all-stats bonus, then the extra single-stat bonuses.

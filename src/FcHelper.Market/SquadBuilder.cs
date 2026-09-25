@@ -12,7 +12,7 @@ public enum SquadMode
     RankerPicks,
 }
 
-/// <summary>What the user asks for. Prices are BP; grades 1-13.</summary>
+/// <summary>What the user asks for. Prices are BP; grades 1-11 (<see cref="Grades.MaxTradable"/>) for buying.</summary>
 public sealed record SquadRequest
 {
     public required Formation Formation { get; init; }
@@ -38,6 +38,11 @@ public sealed record SquadRequest
     /// slots are kept as the user set them.
     /// </summary>
     public bool OnlyAffiliationMembers { get; init; } = true;
+    /// <summary>
+    /// Also weigh the 강화 colours (백금빛 +11 · 금빛 +8 · 은빛 +5, 8명이면 최고 단계), so the optimiser can pick e.g.
+    /// eight +11 cards and three cheaper high-salary ones. Added by <see cref="SquadService.BuildAsync"/>.
+    /// </summary>
+    public bool AutoEnhance { get; init; } = true;
     /// <summary>
     /// How rankers split price and salary per role. When set, each slot's candidates keep to the rankers' 10–90% range
     /// of price share (of the budget) and of salary, widened a little, so the money goes where rankers put it (attack)
@@ -139,7 +144,7 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
             if (r.OnlyAffiliationMembers && r.TeamColors.Any(t => t.Color.Category == TeamColorCategory.Affiliation && !t.Members.Contains(card.SpId))) continue;
             if (card.OvrAt(position, 1) is null) continue;
             if (r.RankerPicksOnly && rankers?.Users(position, card.SpId) is not > 0) continue;
-            foreach (var g in r.Grades)
+            foreach (var g in r.Grades.Where(g => g <= Grades.MaxTradable))
             {
                 var price = card.PriceAt(g);
                 if (price <= Grades.FloorPrice || price > r.Budget || r.ExcludedCards.Contains((card.SpId, g))) continue;
@@ -168,14 +173,14 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
         var price = card.PriceAt(grade);
         return new Candidate(card, grade, card.OvrAt(position, grade) ?? card.OvrAt(grade), model?.PremiumInOvr(card) ?? 0, price,
             ExpectedAt(model, card, grade), rankers?.Users(position, card.SpId) ?? 0, rankers?.Share(position, card.SpId) ?? 0,
-            MembersOf(r, card.SpId), locked, owned);
+            MembersOf(r, card.SpId, grade), locked, owned);
     }
 
-    private static int MembersOf(SquadRequest r, long spId)
+    private static int MembersOf(SquadRequest r, long spId, int grade)
     {
         var mask = 0;
         for (var i = 0; i < r.TeamColors.Count; i++)
-            if (r.TeamColors[i].Members.Contains(spId)) mask |= 1 << i;
+            if (r.TeamColors[i].Counts(spId, grade)) mask |= 1 << i;
         return mask;
     }
 
@@ -278,25 +283,46 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
             _squadTotal = _gain.Select(levels => levels.Select(g => g.Sum()).ToArray()).ToArray();
         }
 
+        /// <summary>Of the 강화 colours (grade-based, squad-wide) only the best reached one applies, as in the game.</summary>
+        private bool IsEnhance(int t) => _r.TeamColors[t].Color.Category == TeamColorCategory.Enhance;
+
         public double Total(Candidate?[] picks, int[] members)
         {
-            var total = 0.0;
+            double total = 0, enhance = 0;
             for (var t = 0; t < members.Length; t++)
             {
                 var level = _r.TeamColors[t].Color.LevelIndexFor(members[t]);
                 if (level < 0) continue;
+                if (IsEnhance(t)) { enhance = Math.Max(enhance, _squadTotal[t][level]); continue; }
                 if (_r.TeamColors[t].Color.AppliesToSquad) { total += _squadTotal[t][level]; continue; }
                 for (var i = 0; i < picks.Length; i++)
                     if (picks[i] is { } c && (c.Members & (1 << t)) != 0) total += _gain[t][level][i];
             }
-            return total;
+            return total + enhance;
+        }
+
+        /// <summary>The 강화 colour in effect: the one whose reached level adds the most (index into the request's colours).</summary>
+        public int? BestEnhance(int[] members)
+        {
+            int? best = null;
+            double bestTotal = 0;
+            for (var t = 0; t < members.Length; t++)
+            {
+                var level = _r.TeamColors[t].Color.LevelIndexFor(members[t]);
+                if (!IsEnhance(t) || level < 0 || _squadTotal[t][level] <= bestTotal) continue;
+                best = t;
+                bestTotal = _squadTotal[t][level];
+            }
+            return best;
         }
 
         public double At(int slot, Candidate c, int[] members)
         {
             var total = 0.0;
+            var enhance = BestEnhance(members);
             for (var t = 0; t < members.Length; t++)
             {
+                if (IsEnhance(t) && t != enhance) continue;
                 var level = _r.TeamColors[t].Color.LevelIndexFor(members[t]);
                 if (level >= 0 && (_r.TeamColors[t].Color.AppliesToSquad || (c.Members & (1 << t)) != 0)) total += _gain[t][level][slot];
             }
@@ -311,7 +337,10 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
     {
         var slots = s.Picks.Select((c, i) => new SquadSlot(i, r.Formation.Slots[i], c.Card, c.Grade, c.Ovr, c.Premium, bonus.At(i, c, s.Members),
             c.Price, c.Expected, c.Card.Pay, c.RankerUsers, c.RankerShare, c.Locked, c.Owned)).ToList();
-        var colors = r.TeamColors.Select((t, i) => new AppliedTeamColor(t.Color, s.Members[i], t.Color.LevelFor(s.Members[i]))).ToList();
+        var enhance = bonus.BestEnhance(s.Members);
+        var colors = r.TeamColors.Select((t, i) => (t, i))
+            .Where(x => x.t.Color.Category != TeamColorCategory.Enhance || x.i == enhance)
+            .Select(x => new AppliedTeamColor(x.t.Color, s.Members[x.i], x.t.Color.LevelFor(s.Members[x.i]))).ToList();
         return new SquadPlan("", r.Mode, r.Formation, slots, colors);
     }
 }

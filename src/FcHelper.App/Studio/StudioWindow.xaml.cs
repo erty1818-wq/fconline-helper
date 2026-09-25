@@ -19,6 +19,7 @@ public partial class StudioWindow : Window
     public StudioWindow()
     {
         InitializeComponent();
+        if (Skin.Brush("background", System.Windows.Media.Stretch.UniformToFill) is { } background) Background = background;
         _pages =
         [
             new("squad", "스쿼드 짜기", "", () => new SquadPage()),

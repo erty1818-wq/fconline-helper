@@ -2,17 +2,18 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:FcHelper.App"
-        Title="FC Online Helper" Width="620" SizeToContent="Height" ResizeMode="CanMinimize"
+        Title="FC Online Helper" Width="900" SizeToContent="Height" ResizeMode="CanMinimize"
         Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen" FontFamily="Malgun Gothic, Segoe UI">
     <Window.Resources>
         <!-- One big entry card: icon, title, one line of what it does. -->
         <Style x:Key="EntryCard" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Background" Value="{StaticResource Panel}" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Frame" Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                        <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{StaticResource Line}" BorderThickness="1"
                                 CornerRadius="10" Padding="20,18">
                             <ContentPresenter />
                         </Border>
@@ -67,23 +68,34 @@
             </StackPanel>
         </Border>
 
-        <UniformGrid Columns="2">
+        <UniformGrid Columns="3">
             <Button x:Name="SearchEntry" Style="{StaticResource EntryCard}" Margin="0,0,7,0" Click="OnSearch">
                 <StackPanel>
                     <ContentControl x:Name="SearchIcon" Height="44" HorizontalAlignment="Left" Focusable="False" />
-                    <TextBlock Text="구단주 검색" FontSize="20" FontWeight="SemiBold" Margin="0,12,0,4" />
+                    <TextBlock Text="구단주 검색" FontSize="20" FontWeight="SemiBold" Margin="0,12,0,0" />
+                    <TextBlock Text="공식경기" Style="{StaticResource Hint}" Foreground="{StaticResource Info}" Margin="0,0,0,4" />
                     <TextBlock x:Name="SearchHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
                                Text="상대 닉네임으로 최근 공식경기 분석: 득점·실점 패턴, 위험 선수, 약점, 나와의 전적" />
                     <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0" Foreground="{StaticResource Info}" Text="게임 중: Ctrl + Alt + S · 매칭 화면 캡처 Ctrl + Alt + F" TextWrapping="Wrap" />
                 </StackPanel>
             </Button>
-            <Button x:Name="SquadEntry" Style="{StaticResource EntryCard}" Margin="7,0,0,0" Click="OnSquad">
+            <Button x:Name="SquadEntry" Style="{StaticResource EntryCard}" Margin="7,0,7,0" Click="OnSquad">
                 <StackPanel>
                     <ContentControl x:Name="SquadIcon" Height="44" HorizontalAlignment="Left" Focusable="False" />
-                    <TextBlock Text="스쿼드 도우미" FontSize="20" FontWeight="SemiBold" Margin="0,12,0,4" />
+                    <TextBlock Text="스쿼드 도우미" FontSize="20" FontWeight="SemiBold" Margin="0,12,0,0" />
+                    <TextBlock Text="스쿼드 메이커 · 시세" Style="{StaticResource Hint}" Foreground="{StaticResource Info}" Margin="0,0,0,4" />
                     <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
                                Text="예산·급여·팀컬러로 스쿼드 짜기, 가성비·숨은 랭커픽, 강화·급여 효율, 시세 추이, 내 스쿼드 업그레이드" />
                     <TextBlock x:Name="MarketLine" Style="{StaticResource Hint}" Margin="0,10,0,0" Foreground="{StaticResource Info}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Button>
+            <Button x:Name="ManagerEntry" Style="{StaticResource EntryCard}" Margin="7,0,0,0" Click="OnManager">
+                <StackPanel>
+                    <ContentControl x:Name="ManagerIcon" Height="44" HorizontalAlignment="Left" Focusable="False" />
+                    <TextBlock Text="감독모드" FontSize="20" FontWeight="SemiBold" Margin="0,12,0,0" />
+                    <TextBlock Text="팀컬러 픽률 · 구단주 분석" Style="{StaticResource Hint}" Foreground="{StaticResource Info}" Margin="0,0,0,4" />
+                    <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
+                               Text="감독모드 랭커의 팀컬러 픽률과 팀컬러별 포지션 인기 선수, 구단주의 감독모드 100경기 선수 지표와 전술 분석" />
                 </StackPanel>
             </Button>
         </UniformGrid>

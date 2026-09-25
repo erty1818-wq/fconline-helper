@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Markup;
 using System.Windows.Media;
@@ -18,7 +18,7 @@ public static class Skin
     public static readonly string[] Keys =
     [
         "logo", "pitch", "hero", "empty", "player",
-        "nav-squad", "nav-picks", "nav-value", "nav-grade", "nav-salary", "nav-trends", "nav-mysquad", "nav-opponent", "nav-teamcolor", "home-search", "home-squad",
+        "nav-squad", "nav-picks", "nav-value", "nav-grade", "nav-salary", "nav-trends", "nav-mysquad", "nav-opponent", "nav-teamcolor", "home-search", "home-squad", "home-manager", "card-frame", "card-empty", "home-card", "background",
     ];
 
     private static readonly Dictionary<string, ImageSource?> Cache = [];
@@ -57,6 +57,10 @@ public static class Skin
     public static ImageSource Get(string key) => Custom(key) ?? Placeholder(key);
 
     public static bool HasCustom(string key) => Custom(key) is not null;
+
+    /// <summary>A custom image as a stretched brush (card frames, window backgrounds), or null to keep the drawn look.</summary>
+    public static System.Windows.Media.ImageBrush? Brush(string key, System.Windows.Media.Stretch stretch = System.Windows.Media.Stretch.Fill) =>
+        Custom(key) is { } image ? new System.Windows.Media.ImageBrush(image) { Stretch = stretch } : null;
 
     /// <summary>Forget loaded images, e.g. after new files were dropped into the skin folder.</summary>
     public static void Reload() => Cache.Clear();

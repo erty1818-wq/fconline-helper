@@ -228,6 +228,38 @@ public sealed class FcHelperService(
         return db.FindUser(ouid);
     }
 
+    /// <summary>
+    /// A user's last <paramref name="count"/> 감독모드 matches (matchtype 52): record, goals, every card's per-game numbers and
+    /// the formations with their record. New matches are fetched once and cached like official ones.
+    /// </summary>
+    /// <returns>Null when no user has that nickname.</returns>
+    public async Task<ManagerReport?> ManagerAnalysisAsync(string nickname, int count = 100, IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        progress?.Report("구단주 확인 중…");
+        var user = await ResolveUserAsync(nickname.Trim(), ct);
+        if (user is null) return null;
+        try { await EnsureMetadataAsync(ct); } catch (HttpRequestException) { } // names only
+        var ids = await api.GetUserMatchIdsAsync(user.Ouid, ManagerAnalysis.ManagerMatch, 0, Math.Clamp(count, 1, 100), ct);
+        var missing = db.FilterMissing(ids);
+        var toFetch = ids.Where(missing.Contains).ToList();
+        for (var i = 0; i < toFetch.Count; i++)
+        {
+            progress?.Report($"감독모드 경기 불러오는 중 {i + 1}/{toFetch.Count}");
+            try
+            {
+                db.SaveMatch(await api.GetMatchDetailJsonAsync(toFetch[i], ct));
+            }
+            catch (Exception e) when (IsTransient(e, ct))
+            {
+                break; // out of quota or offline: analyse what we have
+            }
+        }
+        var matches = db.GetMatches(ids);
+        var spIds = matches.SelectMany(m => m.SideOf(user.Ouid)?.Player ?? []).Select(p => p.SpId).Distinct();
+        var names = db.GetPlayerNames(spIds);
+        return await Task.Run(() => ManagerAnalysis.Build(user.Nickname, user.Ouid, matches, names), ct);
+    }
+
     /// <summary>Pulls my latest matches into the cache so head-to-head records and matchup alerts work.</summary>
     /// <returns>How many new matches were stored.</returns>
     public async Task<int> SyncMyMatchesAsync(int limit = 100, CancellationToken ct = default)

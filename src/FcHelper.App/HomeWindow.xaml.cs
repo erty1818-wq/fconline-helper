@@ -23,6 +23,11 @@ public partial class HomeWindow : Window
         InitializeComponent();
         SearchIcon.Content = EntryIcon("home-search", "");
         SquadIcon.Content = EntryIcon("home-squad", "");
+        ManagerIcon.Content = EntryIcon("home-manager", "");
+        // Replaceable artwork (docs/SKIN_ASSETS.md): card backgrounds and the window background.
+        if (Skin.Brush("home-card") is { } card)
+            foreach (var entry in new Control[] { SearchEntry, SquadEntry, ManagerEntry }) entry.Background = card;
+        if (Skin.Brush("background", Stretch.UniformToFill) is { } background) Background = background;
         Refresh();
         Activated += (_, _) => Refresh();
         if (app.Squads?.Market is { } market)
@@ -63,6 +68,8 @@ public partial class HomeWindow : Window
     private void OnSearch(object sender, RoutedEventArgs e) => _app.ShowSearch();
 
     private void OnSquad(object sender, RoutedEventArgs e) => _app.ShowStudio();
+
+    private void OnManager(object sender, RoutedEventArgs e) => _app.ShowManager();
 
     private void OnSettings(object sender, RoutedEventArgs e)
     {

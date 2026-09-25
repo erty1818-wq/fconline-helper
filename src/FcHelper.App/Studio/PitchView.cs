@@ -12,7 +12,7 @@ namespace FcHelper.App.Studio;
 /// </summary>
 public sealed class PitchView : Viewbox
 {
-    private const double W = 600, H = 800;
+    private const double W = 640, H = 760;
     private readonly Canvas _canvas = new() { Width = W, Height = H };
     private IReadOnlyList<SquadSlot> _slots = [];
     /// <summary>Empty slots of a hand-made squad: index and position.</summary>
@@ -98,14 +98,14 @@ public sealed class PitchView : Viewbox
             {
                 Children =
                 {
-                    new TextBlock { Text = "+", FontSize = 22, FontWeight = FontWeights.Bold, Foreground = (Brush)res["Accent"], HorizontalAlignment = HorizontalAlignment.Center },
-                    new TextBlock { Text = position, FontSize = 12, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center },
-                    new TextBlock { Text = "선수 추가", FontSize = 10, Foreground = (Brush)res["Muted"], HorizontalAlignment = HorizontalAlignment.Center },
+                    new TextBlock { Text = "+", FontSize = 28, FontWeight = FontWeights.Bold, Foreground = (Brush)res["Accent"], HorizontalAlignment = HorizontalAlignment.Center },
+                    new TextBlock { Text = position, FontSize = 15, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center },
+                    new TextBlock { Text = "선수 추가", FontSize = 12, Foreground = (Brush)res["Muted"], HorizontalAlignment = HorizontalAlignment.Center },
                 },
             },
-            Background = (Brush)res["Panel"], BorderBrush = selected ? (Brush)res["Accent"] : (Brush)res["Line"],
-            BorderThickness = new Thickness(selected ? 2 : 1), CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 4, 6, 5),
-            Width = 112, Cursor = Cursors.Hand, ToolTip = $"{position}: 눌러서 선수 고르기",
+            Background = Skin.Brush("card-empty") ?? (Brush)res["Panel"], BorderBrush = selected ? (Brush)res["Accent"] : (Brush)res["Line"],
+            BorderThickness = new Thickness(selected ? 2 : 1), CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 5, 6, 6),
+            Width = 136, Cursor = Cursors.Hand, ToolTip = $"{position}: 눌러서 선수 고르기",
         };
         border.MouseLeftButtonUp += (_, _) =>
         {
@@ -122,24 +122,24 @@ public sealed class PitchView : Viewbox
         var accent = (Brush)res["Accent"];
         var ovr = new TextBlock
         {
-            Text = Math.Round(s.Ovr + s.TeamColorBonus).ToString(), FontSize = 20, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Segoe UI"),
+            Text = Math.Round(s.Ovr + s.TeamColorBonus).ToString(), FontSize = 24, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Segoe UI"),
             Foreground = s.TeamColorBonus > 0 ? accent : (Brush)res["Text"], HorizontalAlignment = HorizontalAlignment.Center,
         };
-        var name = new TextBlock { Text = s.Card.Name, FontSize = 12, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 104, HorizontalAlignment = HorizontalAlignment.Center };
+        var name = new TextBlock { Text = s.Card.Name, FontSize = 15, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 126, HorizontalAlignment = HorizontalAlignment.Center };
         var meta = new TextBlock
         {
-            Text = $"{s.Position} · {s.Card.Season} · +{s.Grade}", FontSize = 10, Foreground = (Brush)res["Muted"], HorizontalAlignment = HorizontalAlignment.Center,
+            Text = $"{s.Position} · {s.Card.Season} · +{s.Grade}", FontSize = 12, Foreground = (Brush)res["Muted"], HorizontalAlignment = HorizontalAlignment.Center,
         };
         var price = new TextBlock
         {
-            Text = s.Owned ? "보유" : Bp.Format(s.Price), FontSize = 10, Foreground = s.Owned ? accent : (Brush)res["Muted"], HorizontalAlignment = HorizontalAlignment.Center,
+            Text = s.Owned ? "보유" : Bp.Format(s.Price), FontSize = 12, Foreground = s.Owned ? accent : (Brush)res["Text"], HorizontalAlignment = HorizontalAlignment.Center,
         };
         var panel = new StackPanel { Children = { ovr, name, meta, price } };
         var outline = s.Index == Selected ? accent : Highlighted.Contains(s.Index) ? (Brush)res["Warn"] : (Brush)res["Line"];
         var border = new Border
         {
-            Child = panel, Background = (Brush)res["Raised"], BorderBrush = outline, BorderThickness = new Thickness(s.Index == Selected || Highlighted.Contains(s.Index) ? 2 : 1),
-            CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 4, 6, 5), Width = 112, Cursor = Cursors.Hand,
+            Child = panel, Background = Skin.Brush("card-frame") ?? (Brush)res["Raised"], BorderBrush = outline, BorderThickness = new Thickness(s.Index == Selected || Highlighted.Contains(s.Index) ? 2 : 1),
+            CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 5, 6, 6), Width = 136, Cursor = Cursors.Hand,
             ToolTip = $"{s.Card.Name} {s.Card.Season} +{s.Grade}\nOVR {s.Ovr}{(s.TeamColorBonus > 0 ? $" (+팀컬러 {s.TeamColorBonus:0.#})" : "")} · 환산 {s.EffectiveOvr:0.0} [추정]\n급여 {s.Pay}"
                 + (s.RankerUsers > 0 ? $" · 랭커 {s.RankerUsers}명" : "") + (s.Locked ? "\n고정됨" : ""),
         };

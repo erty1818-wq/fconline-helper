@@ -12,7 +12,7 @@ public partial class OpponentPage : UserControl
     public OpponentPage()
     {
         InitializeComponent();
-        GradeBox.ItemsSource = Enumerable.Range(1, 13).Select(g => $"+{g}").ToList();
+        GradeBox.ItemsSource = Grades.Tradable.Select(g => $"+{g}").ToList();
         GradeBox.SelectedIndex = 7;
     }
 

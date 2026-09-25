@@ -65,6 +65,13 @@ public sealed record TeamColor(int Id, string Name, TeamColorCategory Category, 
         return best;
     }
 
+    /// <summary>
+    /// 강화 colours count cards by grade, not by name: 백금빛 물결 +11 이상, 금빛 +8, 은빛 +5, 동빛 +3 (5명 / 8명 단계).
+    /// Null for other colours and for 초심자 가호 (a beginners' colour).
+    /// </summary>
+    public int? EnhanceMinGrade => Category != TeamColorCategory.Enhance ? null
+        : Name.Contains("백금빛") ? 11 : Name.Contains("금빛") ? 8 : Name.Contains("은빛") ? 5 : Name.Contains("동빛") ? 3 : null;
+
     public static string CategoryLabel(TeamColorCategory c) => c switch
     {
         TeamColorCategory.Affiliation => "소속",
@@ -73,8 +80,28 @@ public sealed record TeamColor(int Id, string Name, TeamColorCategory Category, 
     };
 }
 
-/// <summary>A team colour a squad is built on, with the cards that count for it.</summary>
-public sealed record TeamColorTarget(TeamColor Color, IReadOnlySet<long> Members);
+/// <summary>A team colour a squad is built on, with the cards that count for it (by grade for 강화 colours).</summary>
+public sealed record TeamColorTarget(TeamColor Color, IReadOnlySet<long> Members)
+{
+    public bool Counts(long spId, int grade) => Color.EnhanceMinGrade is { } min ? grade >= min : Members.Contains(spId);
+
+    /// <summary>
+    /// The colours' OVR gain for one card, as the game applies them: every colour's bonus adds up, except that of the
+    /// 강화 colours only the best one counts (one colour per kind).
+    /// </summary>
+    public static double Gain(IReadOnlyList<TeamColorTarget> targets, IReadOnlyList<int> counts, Func<int, bool> applies, string position)
+    {
+        double total = 0, enhance = 0;
+        for (var i = 0; i < targets.Count; i++)
+        {
+            if (targets[i].Color.LevelFor(counts[i]) is not { } level || !applies(i)) continue;
+            var gain = level.OvrGain(position);
+            if (targets[i].Color.Category == TeamColorCategory.Enhance) enhance = Math.Max(enhance, gain);
+            else total += gain;
+        }
+        return total + enhance;
+    }
+}
 
 /// <summary>A team colour as it ends up in a squad: how many members play and the level they reach.</summary>
 public sealed record AppliedTeamColor(TeamColor Color, int Members, TeamColorLevel? Level);
@@ -297,7 +324,8 @@ public sealed class TeamColorCache(MarketStore store, DataCenterTeamColorClient 
             var levels = await client.LevelsAsync(id, ct);
             if (levels.Count > 0) color = color with { Levels = levels };
             store.SaveTeamColors([color], Now);
-            store.SaveTeamColorMembers(id, await client.MembersAsync(id, ct));
+            // 강화 colours go by grade: their "members" would be every card, so they are not fetched.
+            if (color.Category != TeamColorCategory.Enhance) store.SaveTeamColorMembers(id, await client.MembersAsync(id, ct));
             store.SetValue(key, "1", Now);
         }
         color = store.LoadTeamColors().First(t => t.Id == id);

@@ -41,7 +41,7 @@ public partial class SquadPage : UserControl
             _grades.Add(chip);
             GradeChips.Children.Add(chip);
         }
-        foreach (var g in new[] { 5, 8, 10, 11, 13 })
+        foreach (var g in new[] { 5, 8, 9, 10, 11 })
         {
             var b = new Button { Content = $"+{g}", Tag = g, Style = (Style)FindResource("Ghost"), Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(4, 0, 0, 0) };
             b.Click += async (_, _) => await SetAllGradesAsync((int)b.Tag);
@@ -173,6 +173,41 @@ public partial class SquadPage : UserControl
 
     private void OnBudgetChip(object sender, RoutedEventArgs e) => BudgetBox.Text = (string)((Button)sender).Content;
 
+    // ── pitch size ─────────────────────────────────────────────────────────
+
+    private void OnToggleConditions(object sender, RoutedEventArgs e) => ShowConditions(ConditionsToggle.IsChecked == true);
+
+    private void ShowConditions(bool show)
+    {
+        ConditionsToggle.IsChecked = show;
+        Conditions.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        ConditionsToggle.Content = show ? "조건 접기" : "조건 펴기";
+    }
+
+    private void OnZoomChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => ApplyZoom();
+
+    private void OnPitchAreaChanged(object sender, SizeChangedEventArgs e) => ApplyZoom();
+
+    /// <summary>Ctrl + wheel zooms the pitch around the view; a plain wheel scrolls.</summary>
+    private void OnPitchWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0) return;
+        ZoomSlider.Value = Math.Clamp(ZoomSlider.Value + (e.Delta > 0 ? 0.15 : -0.15), ZoomSlider.Minimum, ZoomSlider.Maximum);
+        e.Handled = true;
+    }
+
+    /// <summary>The pitch takes the whole area at 100% and grows with the zoom (the cards and names grow with it).</summary>
+    private void ApplyZoom()
+    {
+        if (Pitch is null || PitchScroll is null || ZoomSlider is null) return;
+        var zoom = ZoomSlider.Value;
+        var w = Math.Max(200, PitchScroll.ActualWidth - 4);
+        var h = Math.Max(200, PitchScroll.ActualHeight - 4);
+        Pitch.Width = w * zoom;
+        Pitch.Height = h * zoom;
+        if (ZoomText is not null) ZoomText.Text = $"{zoom * 100:0}%";
+    }
+
     // ── AI ─────────────────────────────────────────────────────────────────
 
     private async Task<SquadRequest?> RequestAsync(SquadService squads, IReadOnlyDictionary<int, LockedCard> locked)
@@ -230,6 +265,7 @@ public partial class SquadPage : UserControl
                 string.Join("\n", p.TeamColors.Select(StudioKit.TeamColorLine)),
                 ReferenceEquals(p, cheapest) ? "가장 쌈" : ReferenceEquals(p, strongest) ? "가장 강함" : "")).ToList();
             Modes.SelectedIndex = plans.Count > 1 ? 1 : 0;
+            ShowConditions(false); // more room for the pitch; one click brings the conditions back
             if (_allocation is { } a) Status.Text = $"랭커 {a.Squads}팀의 포지션별 가격·급여 분배를 따랐습니다 (10억 미만 {a.Skipped}팀 제외).";
         });
     }
@@ -335,8 +371,9 @@ public partial class SquadPage : UserControl
         _ = StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget);
         var price = filled.Where(s => !s.Owned).Sum(s => s.Price);
         Totals.Text = filled.Count == 0 ? "빈 스쿼드"
-            : $"{filled.Count}/{_positions.Length}명 · 시세 {Bp.Format(price)}{(budget < long.MaxValue ? $" / 예산 {Bp.Format(budget)}" : "")} · 급여 {pay}{(cap < int.MaxValue ? $"/{cap}" : "")}"
-              + $" · 평균 OVR {filled.Average(s => s.Ovr + s.TeamColorBonus):0.0} · 환산 {filled.Average(s => s.EffectiveOvr):0.0} [추정]";
+            : $"{filled.Count}/{_positions.Length}명 · 시세 {Bp.Format(price)}{(budget < long.MaxValue ? $" / 예산 {Bp.Format(budget)}" : "")} · 급여 {pay}{(cap < int.MaxValue ? $"/{cap} ({pay * 100 / cap}%)" : "")}"
+              + $" · 평균 OVR {filled.Average(s => s.Ovr + s.TeamColorBonus):0.0} (최고 {filled.Max(s => s.Ovr + s.TeamColorBonus):0} · 최저 {filled.Min(s => s.Ovr + s.TeamColorBonus):0})"
+              + $" · 환산 {filled.Average(s => s.EffectiveOvr):0.0} [추정]";
         Totals.Foreground = (System.Windows.Media.Brush)FindResource(pay > cap || price > budget ? "Warn" : "Text");
         TeamColorsLine.Text = string.Join("   ", _workingColors.Select(StudioKit.TeamColorLine));
         var fixedCount = filled.Count(s => s.Locked || s.Owned);
@@ -368,7 +405,9 @@ public partial class SquadPage : UserControl
             Detail.Children.Add(new TextBlock { Text = c.Name, Style = (Style)FindResource("H1") });
             Detail.Children.Add(new TextBlock { Text = $"{c.Season} · {s.Position} · 약발 {c.WeakFoot} · 급여 {s.Pay}", Style = (Style)FindResource("Hint") });
             // Grade of this card: one click, the price and OVR follow.
-            var gradeBox = new ComboBox { ItemsSource = Enumerable.Range(1, 13).Select(g => $"+{g}").ToList(), SelectedIndex = s.Grade - 1, Width = 80, HorizontalAlignment = HorizontalAlignment.Left };
+            // +12/+13 only for cards the user owns: nobody sells them.
+            var gradeBox = new ComboBox { ItemsSource = Enumerable.Range(1, s.Owned ? 13 : Grades.MaxTradable).Select(g => $"+{g}").ToList(), Width = 80, HorizontalAlignment = HorizontalAlignment.Left };
+            gradeBox.SelectedIndex = Math.Min(s.Grade, gradeBox.Items.Count) - 1;
             gradeBox.SelectionChanged += async (_, _) => await SetSlotAsync(index, maker.WithGrade(s, gradeBox.SelectedIndex + 1));
             Detail.Children.Add(new TextBlock { Text = "강화", Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
             Detail.Children.Add(gradeBox);

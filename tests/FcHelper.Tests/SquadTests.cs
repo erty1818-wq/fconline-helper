@@ -261,6 +261,33 @@ public class SquadBuilderTests
     }
 
     [Fact]
+    public void Enhance_colour_counts_cards_by_grade_and_only_the_best_one_applies()
+    {
+        var platinum = new TeamColor(10004, "백금빛 물결", TeamColorCategory.Enhance, 8, [new(1, 5, 4, ["전체 능력치 +4"]), new(2, 8, 5, ["전체 능력치 +5"])]);
+        var gold = new TeamColor(10001, "금빛 물결", TeamColorCategory.Enhance, 8, [new(1, 5, 3, ["전체 능력치 +3"]), new(2, 8, 4, ["전체 능력치 +4"])]);
+        Assert.Equal(11, platinum.EnhanceMinGrade);
+        var targets = new[] { new TeamColorTarget(platinum, new HashSet<long>()), new TeamColorTarget(gold, new HashSet<long>()) };
+        Assert.True(targets[0].Counts(1, 11));
+        Assert.False(targets[0].Counts(1, 10));
+
+        // Eight +11 cards: 백금빛 8명 (+5) and 금빛 8명 (+4) both reached; only +5 applies, to every starter.
+        Assert.Equal(5, TeamColorTarget.Gain(targets, [8, 11], _ => true, "ST"));
+
+        // The builder: +11 costs twice +8 here, but +5 for all eleven is worth eight +11 cards.
+        var cards = Market();
+        foreach (var i in Enumerable.Range(0, cards.Count))
+            cards[i] = cards[i] with { Prices = new Dictionary<int, long>(cards[i].Prices) { [11] = cards[i].PriceAt(8) * 2 } };
+        var plan = Builder(cards).Build(new SquadRequest
+        {
+            Formation = Formations.Find("4-2-2-2")!, Budget = 600_000_000, Grades = [8, 11], TeamColors = targets,
+        })[0];
+        Assert.True(plan.Slots.Count(s => s.Grade == 11) >= 8);
+        Assert.Single(plan.TeamColors);
+        Assert.Equal("백금빛 물결", plan.TeamColors[0].Color.Name);
+        Assert.All(plan.Slots, s => Assert.Equal(5, s.TeamColorBonus));
+    }
+
+    [Fact]
     public void Excluded_cards_are_not_used_at_that_grade()
     {
         var cards = Market();

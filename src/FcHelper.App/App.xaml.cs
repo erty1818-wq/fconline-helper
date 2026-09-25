@@ -34,6 +34,7 @@ public partial class App : Application
     private static readonly Uri SeasonListUrl = new("https://open.api.nexon.com/static/fconline/meta/seasonid.json");
     private SearchWindow? _search;
     private HomeWindow? _home;
+    private ManagerWindow? _manager;
     private VoiceBriefing? _voice;
     private RateLimiter? _limiter;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
@@ -89,7 +90,8 @@ public partial class App : Application
             new TeamColorCache(marketStore, new DataCenterTeamColorClient(_http, dataCenter, lists)), _rankerStats,
             salaryCap: new SalaryCapCache(marketStore, new SalaryCapSource(_http, dataCenter)),
             rankerSquads: new RankerSquadClient(_http, dataCenter, () => _rankerStats as FcOnlineApi),
-            liquidity: new LiquidityCache(marketStore, new PriceHistoryClient(_http, dataCenter)));
+            liquidity: new LiquidityCache(marketStore, new PriceHistoryClient(_http, dataCenter)),
+            managerRankers: new RankerSquadClient(_http, dataCenter, () => _rankerStats as FcOnlineApi, "manager", 52));
         _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
         _ = KeepMarketFreshAsync(_exit.Token);
         // The home screen asks for the key on first run; the squad helper works without one.
@@ -157,6 +159,19 @@ public partial class App : Application
         }
         if (_home.WindowState == WindowState.Minimized) _home.WindowState = WindowState.Normal;
         _home.Activate();
+    }
+
+    /// <summary>The 감독모드 window: team colour pick rates of manager-mode rankers and a coach's manager-mode analysis.</summary>
+    public void ShowManager()
+    {
+        if (_manager is null)
+        {
+            _manager = new ManagerWindow(this);
+            _manager.Closed += (_, _) => _manager = null;
+            _manager.Show();
+        }
+        if (_manager.WindowState == WindowState.Minimized) _manager.WindowState = WindowState.Normal;
+        _manager.Activate();
     }
 
     /// <summary>Saves the API key and my nickname from the home screen (null key = forget it) and reconnects.</summary>
@@ -389,6 +404,7 @@ public partial class App : Application
         menu.Items.Add("홈", null, (_, _) => ShowHome());
         menu.Items.Add("구단주 검색  (Ctrl+Alt+S)", null, (_, _) => ShowSearch());
         menu.Items.Add("스쿼드 도우미", null, (_, _) => ShowStudio("squad"));
+        menu.Items.Add("감독모드", null, (_, _) => ShowManager());
         menu.Items.Add("가성비 찾기", null, (_, _) => ShowStudio("value"));
         menu.Items.Add("내 경기 동기화", null, (_, _) => SyncMine());
         menu.Items.Add("설정", null, (_, _) => ShowSettings());

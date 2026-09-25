@@ -7,7 +7,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "allocation"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "allocation", "mteam"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -22,7 +22,8 @@ internal static class SquadCommands
             new TeamColorCache(store, new DataCenterTeamColorClient(http, dataCenter, lists)), api,
             salaryCap: new SalaryCapCache(store, new SalaryCapSource(http, dataCenter)),
             rankerSquads: new RankerSquadClient(http, dataCenter, () => api),
-            liquidity: new LiquidityCache(store, new PriceHistoryClient(http, dataCenter)));
+            liquidity: new LiquidityCache(store, new PriceHistoryClient(http, dataCenter)),
+            managerRankers: new RankerSquadClient(http, dataCenter, () => api, "manager", 52));
         if (store.LatestFinished() is null)
         {
             Console.Error.WriteLine("시세 데이터가 없습니다. 앱을 켜 두면 자동으로 받습니다.");
@@ -36,6 +37,22 @@ internal static class SquadCommands
             {
                 case "squad": return await Squad(squads, option, rankFrom, rankTo);
                 case "value": return await Value(squads, option);
+                case "mteam":
+                    var mprogress = new Progress<string>(m => Console.Error.Write($"\r{m}          "));
+                    if (option("tc") is { } tcName)
+                    {
+                        var team = await squads.ManagerTeamPlayersAsync(tcName, mprogress);
+                        Console.Error.WriteLine();
+                        Console.WriteLine($"감독모드 {tcName} · 랭커 스쿼드 {team.Squads}팀 기준");
+                        foreach (var (role, list) in team.ByRole.OrderBy(kv => kv.Key))
+                            Console.WriteLine($"  [{RankerAllocation.RoleName(role)}] " + string.Join(", ", list.Select(p => $"{p.Name} {p.Season} +{p.Grade} {p.Users}명({p.Share:P0})")));
+                        return 0;
+                    }
+                    var rates = await squads.ManagerPickRatesAsync(mprogress);
+                    Console.Error.WriteLine();
+                    foreach (var (r, i) in rates.Take(Int(option("top"), 20)).Select((r, i) => (r, i)))
+                        Console.WriteLine($"  #{i + 1,-2} {r.TeamColor,-14} 랭커 {r.Rankers,4}명 ({r.Share:P1}) · 평균 {Bp.Format(r.AverageValue),8} · 최고 {r.Richest.Nickname}({Bp.Format(r.Richest.TeamValue)}) · 최저 {r.Poorest.Nickname}({Bp.Format(r.Poorest.TeamValue)})");
+                    return 0;
                 case "allocation":
                     var alloc = await squads.RankerAllocationAsync(progress: new Progress<string>(m => Console.Error.Write($"\r{m}          ")));
                     Console.Error.WriteLine();
@@ -43,12 +60,13 @@ internal static class SquadCommands
                     Console.WriteLine($"랭커 {alloc.Squads}팀 (10억 미만·카드 불명 {alloc.Skipped}팀 제외) · 스쿼드 시세 중간값 {Bp.Format(alloc.MedianValue)} · 급여 중간값 {alloc.MedianPay:0}");
                     Console.WriteLine("  역할          칸수  가격 비중 평균 (10~90%)      급여 평균 (10~90%)  OVR 평균");
                     foreach (var r in alloc.Roles.Values.OrderByDescending(r => r.PriceShare))
-                        Console.WriteLine($"  {RankerAllocation.RoleName(r.Role),-8} {r.Slots,5}  {r.PriceShare,6:P1} ({r.PriceShareLow:P1}~{r.PriceShareHigh:P1})   {r.Pay,5:0.0} ({r.PayLow}~{r.PayHigh})   {r.Ovr:0.0}");
+                        Console.WriteLine($"  {RankerAllocation.RoleName(r.Role),-8} {r.Slots,5}  {r.PriceShare,6:P1} ({r.PriceShareLow:P1}~{r.PriceShareHigh:P1})   {r.Pay,5:0.0} ({r.PayLow}~{r.PayHigh})   {r.Ovr:0.0}   평균 +{alloc.RoleGrade.GetValueOrDefault(r.Role):0.0}");
+                    Console.WriteLine("  +11 카드 수별 팀 수: " + string.Join("  ", alloc.PlusElevenCounts.OrderByDescending(kv => kv.Key).Select(kv => $"{kv.Key}명 {kv.Value}팀")));
                     return 0;
                 case "factors": return await Factors(squads, option);
                 case "traits":
                     await squads.RankerTeamColorMembersAsync();
-                    var tgrade = Math.Clamp(Int(option("grade"), 8), 1, 13);
+                    var tgrade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
                     foreach (var minOvr in new int?[] { null, option("minovr") is { } mo ? Int(mo, 135) : 135 })
                     {
                         Console.WriteLine($"\n■ 신특 평균 값어치 · +{tgrade} · {(minOvr is { } m ? $"OVR {m}+ 카드만" : "전체 카드")} [추정]");
@@ -146,7 +164,7 @@ internal static class SquadCommands
     private static async Task<int> Value(SquadService squads, Func<string, string?> option)
     {
         var group = MarketGroups.Get(GroupKey(option));
-        var grade = Math.Clamp(Int(option("grade"), 8), 1, 13);
+        var grade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
         var filter = await Filter(squads, option, group.Key == "GK" ? 140 : 135);
         if (squads.Market.ModelFor(new ValueQuery { Group = group.Key, Grade = grade, Filter = filter }) is not { } model) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
         var picks = squads.Market.FindValue(new ValueQuery { Group = group.Key, Grade = grade, Filter = filter });
@@ -165,7 +183,7 @@ internal static class SquadCommands
     private static async Task<int> Factors(SquadService squads, Func<string, string?> option)
     {
         var group = MarketGroups.Get(GroupKey(option));
-        var grade = Math.Clamp(Int(option("grade"), 8), 1, 13);
+        var grade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
         // Membership of the rankers' 20 team colours is priced too (members fetched once a week).
         if (option("tc") is not ("no" or "0")) await squads.RankerTeamColorMembersAsync();
         // --minovr 135: only the playable market (OVR at the grade), where the video's rules are about.

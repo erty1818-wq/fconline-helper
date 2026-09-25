@@ -15,7 +15,7 @@ public partial class GradePage : UserControl
     public GradePage()
     {
         InitializeComponent();
-        var grades = new[] { "-" }.Concat(Enumerable.Range(1, 13).Select(g => $"+{g}")).ToList();
+        var grades = new[] { "-" }.Concat(Grades.Tradable.Select(g => $"+{g}")).ToList();
         FromBox.ItemsSource = grades;
         ToBox.ItemsSource = grades;
         FromBox.SelectedIndex = 0;
@@ -29,7 +29,7 @@ public partial class GradePage : UserControl
         Pick(card);
         PositionBox.SelectedItem = Formations.Normalize(position);
         FromBox.SelectedIndex = grade;
-        ToBox.SelectedIndex = Math.Min(13, grade + 3);
+        ToBox.SelectedIndex = Math.Min(Grades.MaxTradable, grade + 3);
         OnShow(this, new RoutedEventArgs());
     }
 
