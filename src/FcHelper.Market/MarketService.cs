@@ -18,6 +18,18 @@ public sealed class MarketService(
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<(long, string, int), PriceModel?> _models = [];
     private readonly Dictionary<(long, string), IReadOnlyList<MarketCard>> _cards = [];
+    private IReadOnlySet<long>? _rankerMembers;
+
+    /// <summary>Cards of the team colours rankers use most; the price models then price that membership (refit on change).</summary>
+    public void SetRankerTeamColorMembers(IReadOnlySet<long> members)
+    {
+        lock (_models)
+        {
+            if (_rankerMembers is not null && _rankerMembers.SetEquals(members)) return;
+            _rankerMembers = members.Count > 0 ? members : null;
+            _models.Clear();
+        }
+    }
     private HarvestProgress? _running;
     private string? _lastError;
 
@@ -38,7 +50,12 @@ public sealed class MarketService(
     public bool IsRefreshing => _running is not null;
 
     /// <summary>When the data next needs a price refresh; null when there is no data yet (refresh now).</summary>
-    public DateTime? NextDue => store.Unfinished() is not null ? null : store.LatestFinished()?.FinishedAt + PriceTtl;
+    public DateTime? NextDue => store.Unfinished() is not null || SchemaChanged ? null : store.LatestFinished()?.FinishedAt + PriceTtl;
+
+    private const string SchemaKey = "market.schema";
+
+    /// <summary>The collected stats or tags changed since the last full refresh: the next refresh collects everything once.</summary>
+    public bool SchemaChanged => store.LatestFinished() is not null && store.GetValue(SchemaKey)?.Value != MarketGroups.SchemaVersion;
 
     /// <returns>True when a refresh ran to the end.</returns>
     public async Task<bool> RefreshIfDueAsync(bool force = false, CancellationToken ct = default)
@@ -50,10 +67,11 @@ public sealed class MarketService(
             var latest = store.LatestFinished();
             var unfinished = store.Unfinished();
             var stale = latest?.FinishedAt is not { } done || Now - done >= PriceTtl;
-            if (unfinished is null && !stale && newSeasons.Count == 0 && !force) return false;
+            var schemaChanged = SchemaChanged;
+            if (unfinished is null && !stale && !schemaChanged && newSeasons.Count == 0 && !force) return false;
 
             var kind = unfinished is not null ? Enum.Parse<RefreshKind>(unfinished.Kind)
-                : latest is null ? RefreshKind.Full : RefreshKind.Prices;
+                : latest is null || schemaChanged ? RefreshKind.Full : RefreshKind.Prices;
             var snapshot = unfinished?.Id ?? store.StartSnapshot(kind.ToString(), Now);
             _lastError = null;
             Report(new HarvestProgress(0, 1, "starting"));
@@ -61,6 +79,7 @@ public sealed class MarketService(
             var progress = new Immediate(Report);
             await new MarketHarvester(source, store).RunAsync(snapshot, kind, latest?.Id, newSeasons.Select(s => s.Id).ToList(), progress, ct);
             store.FinishSnapshot(snapshot, Now);
+            if (kind == RefreshKind.Full) store.SetValue(SchemaKey, MarketGroups.SchemaVersion, Now);
             store.RecordPriceHistory(snapshot, Now);
             store.AddSeasons(newSeasons, Now);
             lock (_models) { _models.Clear(); _cards.Clear(); }
@@ -124,7 +143,7 @@ public sealed class MarketService(
         lock (_models)
         {
             if (!_models.TryGetValue((snap.Id, group, grade), out var model))
-                _models[(snap.Id, group, grade)] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group));
+                _models[(snap.Id, group, grade)] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group), _rankerMembers);
             return model;
         }
     }

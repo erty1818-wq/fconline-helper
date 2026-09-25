@@ -20,7 +20,11 @@ public sealed record FormationMatchup(string Formation, string Opponent, int Win
     public double WinRate => Games == 0 ? 0 : (Wins + 0.5 * Draws) / Games;
 }
 
-public sealed record TeamColorUsage(string Name, int Users, double Share);
+/// <param name="Id">Team colour id (0 when read from the old top-10 box, which has names only).</param>
+public sealed record TeamColorUsage(string Name, int Users, double Share)
+{
+    public int Id { get; init; }
+}
 
 /// <summary>One day of the daily chart for a ranker range (e.g. 1-10000), as fetched.</summary>
 public sealed record RankerChartData(string ChartDate, int RankFrom, int RankTo, IReadOnlyList<RankerPick> Picks,
@@ -63,7 +67,9 @@ public sealed partial class DataCenterChartClient(HttpClient http, RateLimiter l
         var matchups = new List<FormationMatchup>();
         foreach (var f in formations)
             matchups.AddRange(ChartParser.Matchups(f.Formation, await GetAsync($"/Datacenter/FormationVsInfo?{Q($"strType=usage&strFormation={f.Formation}")}", ct)));
-        var colors = ChartParser.TeamColors(await GetAsync($"/Datacenter/BestTeamColorInfo?{Q("strType=usage")}", ct));
+        // The chart page itself lists the 30 team colours rankers used most, with ids; the usage box only the top 10.
+        var colors = ChartParser.TeamColorList(page);
+        if (colors.Count == 0) colors = ChartParser.TeamColors(await GetAsync($"/Datacenter/BestTeamColorInfo?{Q("strType=usage")}", ct));
         return new RankerChartData(date, rankFrom, rankTo, picks, formations, matchups, colors);
     }
 
@@ -120,6 +126,13 @@ public static partial class ChartParser
             .Select(m => new TeamColorUsage(m.Groups[1].Value.Trim(), I(m.Groups[2].Value.Replace(",", "")), D(m.Groups[3].Value) / 100))
             .ToList();
 
+    /// <summary>The team colour strip of the daily chart page: name, "409명 (6.9%)" and the id in its link.</summary>
+    public static IReadOnlyList<TeamColorUsage> TeamColorList(string html) =>
+        TeamColorItemRegex().Matches(html)
+            .Select(m => new TeamColorUsage(WebUtility.HtmlDecode(m.Groups[1].Value.Trim()), I(m.Groups[2].Value.Replace(",", "")), D(m.Groups[3].Value) / 100)
+                { Id = I(m.Groups[4].Value) })
+            .GroupBy(t => t.Id).Select(g => g.First()).ToList();
+
     private static string Text(string html) =>
         WebUtility.HtmlDecode(SpaceRegex().Replace(TagRegex().Replace(ScriptRegex().Replace(html, " "), " "), " "));
 
@@ -134,6 +147,8 @@ public static partial class ChartParser
     [GeneratedRegex(@"(\d(?:-\d){2,4})\s+([\d,]+)명\s*\(([\d.]+)%\)")] private static partial Regex FormationRegex();
     [GeneratedRegex(@"(\d(?:-\d){2,4})\s+[\d,]+명\s*\([\d.]+%\)\s*([\d.]+)%\s*(\d+)승\s*(\d+)무\s*(\d+)패\s*[\d.]+%\s*(\d+)승\s*(\d+)무\s*(\d+)패")] private static partial Regex MatchupRegex();
     [GeneratedRegex(@"([^\d%()]+?)\s+([\d,]+)명\s*\(([\d.]+)%\)")] private static partial Regex TeamColorRegex();
+    [GeneratedRegex("""<div class="txt">([^<]+)</div>\s*<div class="per">([\d,]+)명\s*\(([\d.]+)%\)</div>\s*<a[^>]*GetTeamColorVsInfo\('(\d+)'\)""")]
+    private static partial Regex TeamColorItemRegex();
     [GeneratedRegex("<script.*?</script>", RegexOptions.Singleline)] private static partial Regex ScriptRegex();
     [GeneratedRegex("<[^>]+>")] private static partial Regex TagRegex();
     [GeneratedRegex(@"\s+")] private static partial Regex SpaceRegex();

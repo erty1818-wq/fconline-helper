@@ -2,6 +2,19 @@ namespace FcHelper.Market;
 
 public sealed record PriceEffect(string Name, double Percent, double Low, double High, double T, int? Cards);
 
+public enum FactorKind { Stat, Height, Trait, Skill, Body, Foot, Salary, TeamColor }
+
+/// <summary>
+/// What one thing is worth on the market at a position and grade, everything else equal: in % of the price, in OVR
+/// points (the price of that many extra OVR) and in BP on a typical card of the group. [추정: 시장 회귀]
+/// </summary>
+public sealed record PriceFactor(string Key, string Name, FactorKind Kind, double Percent, double Low, double High, double OvrEquivalent,
+    long BpAtMedian, int? Cards, bool IsCore, bool IsInflating)
+{
+    /// <summary>The 95% range excludes zero: the market clearly prices it.</summary>
+    public bool Clear => Low > 0 || High < 0;
+}
+
 /// <summary>
 /// Hedonic price model for one position group at one enhancement grade:
 ///   ln(price) ~ OVR + OVR² + weak foot + salary + (stat − OVR) per stat + tags + season
@@ -11,10 +24,28 @@ public sealed record PriceEffect(string Name, double Percent, double Low, double
 public sealed class PriceModel
 {
     private const int MinTagCards = 8, MinSeasonCards = 5;
-    private const string AbsoluteStat = "height";
+    /// <summary>Stats measured on their own scale, not against the OVR.</summary>
+    private static readonly string[] AbsoluteStats = ["height", "weight"];
+
+    /// <summary>
+    /// Height windows from the video: centre-backs are best at 183-192 cm (taller or shorter feels slower), keepers at
+    /// 187-189 cm (worse the further away). Used only where height was collected.
+    /// </summary>
+    private static readonly Dictionary<string, (string Name, Func<int, double> Value)[]> HeightFeatures = new()
+    {
+        ["CB"] = [("키 183~192cm", h => h is >= 183 and <= 192 ? 1 : 0)],
+        ["GK"] = [("키 187~189cm에서 1cm 멀어짐", h => Math.Max(0, Math.Abs(h - 188) - 1))],
+    };
 
     private readonly string[] _stats;
+    private readonly (string Name, Func<int, double> Value)[] _height;
     private readonly string[] _tags;
+    private readonly long _medianPrice;
+    private readonly MarketGroup _group;
+    private readonly IReadOnlySet<long>? _rankerMembers;
+
+    /// <summary>Pseudo-tag: the card counts for one of the team colours rankers use most (priced like a tag).</summary>
+    public const string RankerColorTag = "tc:ranker";
     private readonly string[] _seasons;
     private readonly string _baseSeason;
     private readonly double _ovrMean;
@@ -29,23 +60,29 @@ public sealed class PriceModel
     public int Cards { get; }
     public double R2 { get; }
 
-    private PriceModel(string group, int grade, IReadOnlyList<MarketCard> data)
+    private PriceModel(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlySet<long>? rankerMembers)
     {
+        _rankerMembers = rankerMembers;
         Group = group;
         Grade = grade;
         Cards = data.Count;
-        var g = MarketGroups.Get(group);
+        var g = _group = MarketGroups.Get(group);
         _stats = g.AllStats.Where(s => data.Count(c => c.Stats.ContainsKey(s)) >= 0.9 * data.Count).ToArray();
+        _height = _stats.Contains("height") && HeightFeatures.TryGetValue(group, out var hf) ? hf : [];
+        var prices = data.Select(c => c.PriceAt(grade)).Order().ToList();
+        _medianPrice = prices[prices.Count / 2];
         var seasonCounts = data.GroupBy(c => c.Season).ToDictionary(x => x.Key, x => x.Count());
         _baseSeason = seasonCounts.MaxBy(kv => kv.Value).Key;
         _seasons = seasonCounts.Where(kv => kv.Value >= MinSeasonCards && kv.Key != _baseSeason).Select(kv => kv.Key).Order().ToArray();
         var tagCounts = data.SelectMany(c => c.Tags).GroupBy(t => t).ToDictionary(x => x.Key, x => x.Count());
+        if (rankerMembers is not null) tagCounts[RankerColorTag] = data.Count(c => rankerMembers.Contains(c.SpId));
         _tags = tagCounts.Where(kv => kv.Value >= MinTagCards).OrderByDescending(kv => kv.Value).Select(kv => kv.Key).ToArray();
         _ovrMean = data.Average(c => c.Ovr1);
         _statMeans = _stats.ToDictionary(s => s, s => data.Where(c => c.Stats.ContainsKey(s)).Average(c => (double)c.Stats[s]));
 
         _names = ["const", "OVR +1", "OVR²", "양발 (약발 5)", "약발 4", "급여 +1",
-            .. _stats.Select(s => $"{MarketGroups.StatNames.GetValueOrDefault(s, s)} +1" + (s == AbsoluteStat ? "" : " (같은 OVR)")),
+            .. _stats.Select(s => $"{MarketGroups.StatNames.GetValueOrDefault(s, s)} +1" + (AbsoluteStats.Contains(s) ? "" : " (같은 OVR)")),
+            .. _height.Select(h => h.Name),
             .. _tags.Select(MarketGroups.TagLabel), .. _seasons.Select(s => $"season:{s}"), "season:기타"];
         _counts = tagCounts.ToDictionary(kv => MarketGroups.TagLabel(kv.Key), kv => kv.Value);
         _counts["양발 (약발 5)"] = data.Count(c => c.WeakFoot >= 5);
@@ -55,11 +92,16 @@ public sealed class PriceModel
     }
 
     /// <returns>Null when there are too few traded cards to fit.</returns>
-    public static PriceModel? Fit(string group, int grade, IEnumerable<MarketCard> cards)
+    /// <remarks>Name-priced cards (<see cref="MarketGroups.PriceOutliers"/>) are left out of the fit; they are still priced by it.</remarks>
+    /// <param name="rankerMembers">Cards of the team colours rankers use most: their premium is priced, so a card outside
+    /// them is not taken for a bargain just because nobody's squad needs it.</param>
+    public static PriceModel? Fit(string group, int grade, IEnumerable<MarketCard> cards, IReadOnlySet<long>? rankerMembers = null)
     {
-        var data = cards.Where(c => c.Group == group && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice).ToList();
-        return data.Count < 60 ? null : new PriceModel(group, grade, data);
+        var data = cards.Where(c => c.Group == group && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        return data.Count < 60 ? null : new PriceModel(group, grade, data, rankerMembers);
     }
+
+    private bool Has(MarketCard c, string tag) => tag == RankerColorTag ? _rankerMembers?.Contains(c.SpId) == true : c.Tags.Contains(tag);
 
     public double Predict(MarketCard c) => Math.Exp(Dot(_beta, Features(c)));
 
@@ -72,7 +114,7 @@ public sealed class PriceModel
     {
         var x = Features(c);
         const int firstPremium = 3; // after const, OVR, OVR²; salary (index 5) is a cost, not a quality
-        var end = 6 + _stats.Length + _tags.Length;
+        var end = 6 + _stats.Length + _height.Length + _tags.Length;
         double premium = 0;
         for (var i = firstPremium; i < end; i++)
             if (i != 5) premium += _beta[i] * x[i];
@@ -87,13 +129,50 @@ public sealed class PriceModel
                 _se[t.i] > 0 ? _beta[t.i] / _se[t.i] : 0, _counts.TryGetValue(t.n, out var n) ? n : null))
             .ToList();
 
+    /// <summary>
+    /// Every factor the model prices, in %, OVR points and BP on the group's median card. Stats are "+1 with the same
+    /// OVR" (so a stat that only inflates the OVR shows as negative), traits and body types against cards without them.
+    /// </summary>
+    public IReadOnlyList<PriceFactor> Factors()
+    {
+        var slope = _beta[1];
+        var core = _group.CoreStats.Select(s => s.Stat).ToHashSet();
+        var result = new List<PriceFactor>();
+        void Add(int i, string key, FactorKind kind, bool isCore, bool inflating = false)
+        {
+            var name = _names[i];
+            result.Add(new PriceFactor(key, name, kind, Pct(_beta[i]), Pct(_beta[i] - 1.96 * _se[i]), Pct(_beta[i] + 1.96 * _se[i]),
+                slope > 0.01 ? _beta[i] / slope : 0, (long)(_medianPrice * (Math.Exp(_beta[i]) - 1)),
+                _counts.TryGetValue(name, out var n) ? n : null, isCore, inflating));
+        }
+        Add(3, "foot:5", FactorKind.Foot, true);
+        Add(4, "foot:4", FactorKind.Foot, false);
+        Add(5, "pay", FactorKind.Salary, false);
+        for (var i = 0; i < _stats.Length; i++)
+            Add(6 + i, _stats[i], AbsoluteStats.Contains(_stats[i]) ? FactorKind.Height : FactorKind.Stat, core.Contains(_stats[i]), _group.InflatingStats.Contains(_stats[i]));
+        for (var i = 0; i < _height.Length; i++) Add(6 + _stats.Length + i, $"height:{i}", FactorKind.Height, true);
+        for (var i = 0; i < _tags.Length; i++)
+        {
+            var tag = _tags[i];
+            var kind = tag.StartsWith("trait:") ? FactorKind.Trait : tag.StartsWith("skill:") ? FactorKind.Skill
+                : tag == RankerColorTag ? FactorKind.TeamColor : FactorKind.Body;
+            Add(6 + _stats.Length + _height.Length + i, tag, kind, kind == FactorKind.Trait && _group.KeyTraits.Contains(tag[6..]));
+        }
+        return result;
+    }
+
+    /// <summary>Typical (median) price of a traded card of the group at the model's grade.</summary>
+    public long MedianPrice => _medianPrice;
+
     private double[] Features(MarketCard c)
     {
         var d = c.Ovr1 - _ovrMean;
         var x = new List<double>(_names.Length) { 1, d, d * d, c.WeakFoot >= 5 ? 1 : 0, c.WeakFoot == 4 ? 1 : 0, c.Pay };
         foreach (var s in _stats)
-            x.Add(c.Stats.TryGetValue(s, out var v) ? v - (s == AbsoluteStat ? _statMeans[s] : c.Ovr1) : 0);
-        foreach (var t in _tags) x.Add(c.Tags.Contains(t) ? 1 : 0);
+            x.Add(c.Stats.TryGetValue(s, out var v) ? v - (AbsoluteStats.Contains(s) ? _statMeans[s] : c.Ovr1) : 0);
+        foreach (var (_, value) in _height)
+            x.Add(c.Stats.TryGetValue("height", out var h) ? value(h) : 0);
+        foreach (var t in _tags) x.Add(Has(c, t) ? 1 : 0);
         foreach (var s in _seasons) x.Add(c.Season == s ? 1 : 0);
         x.Add(c.Season != _baseSeason && !_seasons.Contains(c.Season) ? 1 : 0);
         return [.. x];
@@ -165,17 +244,71 @@ public sealed class PriceModel
     }
 }
 
+/// <summary>
+/// Detailed card search shared by the value finder and the hidden ranker picks. Everything is optional; OVR is at the
+/// grade being looked at and at the position (or the group's best position).
+/// </summary>
+public sealed record CardFilter
+{
+    public long MinPrice { get; init; }
+    public long MaxPrice { get; init; } = long.MaxValue;
+    /// <summary>
+    /// Cards below this OVR are not playable at the top: e.g. 135 + 적응도 5 + 팀컬러·강화 팀컬러 8 = 148.
+    /// </summary>
+    public int? MinOvr { get; init; }
+    public int? MaxOvr { get; init; }
+    public int MinWeakFoot { get; init; }
+    /// <summary>Traits the card must all have ("라인 브레이커").</summary>
+    public IReadOnlyList<string> Traits { get; init; } = [];
+    public int SkillMove { get; init; }
+    /// <summary>"thin" (마름), "normal" (보통) or "heavy" (건장); null = any. Only for groups whose body type is collected.</summary>
+    public string? Body { get; init; }
+    public int? MinHeight { get; init; }
+    public int? MaxHeight { get; init; }
+    public int? MaxPay { get; init; }
+    /// <summary>Stat floors, e.g. 속력 ≥ 130 (stat key → value at +1).</summary>
+    public IReadOnlyDictionary<string, int> MinStats { get; init; } = new Dictionary<string, int>();
+    /// <summary>Only cards whose core stats are at least this far above (−: below) their OVR, see <see cref="MarketGroup.CoreGap"/>.</summary>
+    public double? MinCoreGap { get; init; }
+    public string? Name { get; init; }
+    /// <summary>Only these cards, e.g. members of the team colours rankers use; null = any.</summary>
+    public IReadOnlySet<long>? Members { get; init; }
+    /// <summary>Leaves out 호날두 / 호나우두 / 굴리트, whose price is the name.</summary>
+    public bool ExcludePriceOutliers { get; init; }
+    /// <summary>Cards almost nobody rated are rarely traded; their low price says little.</summary>
+    public int MinRatings { get; init; } = 10;
+
+    public bool Matches(MarketCard c, int grade, string? position = null)
+    {
+        var price = c.PriceAt(grade);
+        if (!c.IsTraded || price <= Grades.FloorPrice || price < MinPrice || price > MaxPrice) return false;
+        if (c.RatingCount < MinRatings || c.WeakFoot < MinWeakFoot) return false;
+        var ovr = position is null ? c.OvrAt(grade) : c.OvrAt(position, grade) ?? c.OvrAt(grade);
+        if (ovr < MinOvr || ovr > MaxOvr) return false;
+        if (Traits.Any(t => !c.Tags.Contains($"trait:{t}"))) return false;
+        if (SkillMove > 0 && !MarketGroups.SkillTags.Any(s => s >= SkillMove && c.Tags.Contains($"skill:{s}"))) return false;
+        if (Body is { } body && BodyOf(c) != body) return false;
+        if (MinHeight is not null || MaxHeight is not null)
+        {
+            if (!c.Stats.TryGetValue("height", out var h) || h < MinHeight || h > MaxHeight) return false;
+        }
+        if (c.Pay > MaxPay) return false;
+        foreach (var (stat, min) in MinStats)
+            if (!c.Stats.TryGetValue(stat, out var v) || v < min) return false;
+        if (MinCoreGap is { } gap && (MarketGroups.Get(c.Group).CoreGap(c) is not { } g || g < gap)) return false;
+        if (Name is { Length: > 0 } name && !c.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) return false;
+        if (Members is not null && !Members.Contains(c.SpId)) return false;
+        return !ExcludePriceOutliers || !MarketGroups.IsPriceOutlier(c);
+    }
+
+    public static string BodyOf(MarketCard c) => c.Tags.Contains("body:thin") ? "thin" : c.Tags.Contains("body:heavy") ? "heavy" : "normal";
+}
+
 public sealed record ValueQuery
 {
     public required string Group { get; init; }
     public int Grade { get; init; } = 8;
-    public long MinPrice { get; init; }
-    public long MaxPrice { get; init; } = long.MaxValue;
-    public int MinWeakFoot { get; init; }
-    public string? Trait { get; init; }
-    public int SkillMove { get; init; }
-    /// <summary>Cards almost nobody rated are rarely traded; their low price says little.</summary>
-    public int MinRatings { get; init; } = 10;
+    public CardFilter Filter { get; init; } = new();
 }
 
 public sealed record ValuePick(MarketCard Card, int Grade, long Price, long Expected)
@@ -187,10 +320,7 @@ public sealed record ValuePick(MarketCard Card, int Grade, long Price, long Expe
 public static class ValueFinder
 {
     public static IReadOnlyList<ValuePick> Find(PriceModel model, IEnumerable<MarketCard> cards, ValueQuery q) =>
-        cards.Where(c => c.Group == q.Group && c.IsTraded && c.RatingCount >= q.MinRatings && c.WeakFoot >= q.MinWeakFoot)
-            .Where(c => c.PriceAt(q.Grade) is var p && p > Grades.FloorPrice && p >= q.MinPrice && p <= q.MaxPrice)
-            .Where(c => q.Trait is null || c.Tags.Contains($"trait:{q.Trait}"))
-            .Where(c => q.SkillMove == 0 || MarketGroups.SkillTags.Any(s => s >= q.SkillMove && c.Tags.Contains($"skill:{s}")))
+        cards.Where(c => c.Group == q.Group && q.Filter.Matches(c, q.Grade))
             .Select(c => new ValuePick(c, q.Grade, c.PriceAt(q.Grade), (long)model.Predict(c)))
             .OrderBy(p => p.Discount)
             .ToList();

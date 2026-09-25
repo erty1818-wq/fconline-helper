@@ -25,13 +25,6 @@ for (var i = 1; i < args.Length; i++)
 }
 string? Option(string name) => named.GetValueOrDefault(name);
 
-if (command == "value")
-{
-    // Market data needs no API key.
-    return Value(Option("pos") ?? "ST", int.TryParse(Option("grade"), out var vg) ? Math.Clamp(vg, 1, 13) : 8, Option("min"), Option("max"),
-        int.TryParse(Option("top"), out var vt) ? vt : 15, Option("db") ?? AppPaths.DatabasePath);
-}
-
 var apiKey = Option("key") ?? Environment.GetEnvironmentVariable("FCH_API_KEY");
 if (SquadCommands.Names.Contains(command))
 {
@@ -135,40 +128,6 @@ static async Task<int> Dump(FcOnlineApi api, string nickname, int count, string 
     return 0;
 }
 
-static int Value(string group, int grade, string? min, string? max, int top, string dbPath)
-{
-    if (MarketGroups.All.All(g => g.Key != group))
-    {
-        Console.Error.WriteLine($"포지션은 {string.Join(", ", MarketGroups.All.Select(g => g.Key))} 중 하나입니다.");
-        return 1;
-    }
-    long lo = 0, hi = long.MaxValue;
-    if (min is not null && !Bp.TryParse(min, out lo) || max is not null && !Bp.TryParse(max, out hi))
-    {
-        Console.Error.WriteLine("가격은 1억, 5000만, 1.5조처럼 입력하세요.");
-        return 1;
-    }
-    var market = new MarketService(new DataCenterListClient(new HttpClient(), new RateLimiter(0.5)), new MarketStore(dbPath),
-        _ => Task.FromResult("[]"));
-    var model = market.Model(group, grade);
-    if (model is null)
-    {
-        Console.Error.WriteLine("시세 데이터가 없습니다. 앱을 켜 두면 자동으로 받습니다.");
-        return 3;
-    }
-    var g = MarketGroups.Get(group);
-    var picks = market.FindValue(new ValueQuery { Group = group, Grade = grade, MinPrice = lo, MaxPrice = hi });
-    Console.WriteLine($"{g.Name} +{grade} · {Bp.Format(lo)} ~ {(hi == long.MaxValue ? "상한 없음" : Bp.Format(hi))} · {picks.Count}장 · R² {model.R2:0.00} (카드 {model.Cards}장)");
-    foreach (var p in picks.Take(top))
-    {
-        var c = p.Card;
-        Console.WriteLine($"  {c.Name,-10} {c.Season,-8} OVR {c.OvrAt(grade)} 약발{c.WeakFoot} 급여{c.Pay,2} · 시세 {Bp.Format(p.Price),7} · 예상 {Bp.Format(p.Expected),7} · {p.Discount * 100:+0;-0}%  "
-            + string.Join(" ", c.Tags.Order().Select(MarketGroups.TagLabel)));
-    }
-    Console.WriteLine("예상가 = 같은 스펙 카드들의 오늘 시세로 계산한 값 [추정]. 시세 출처: FC온라인 데이터센터.");
-    return 0;
-}
-
 static void PrintUsage() => Console.Error.WriteLine("""
     FC Online Helper CLI
 
@@ -178,8 +137,11 @@ static void PrintUsage() => Console.Error.WriteLine("""
           위험 선수의 능력치·시세는 FC온라인 데이터센터에서 조회합니다 (--market off로 끔).
       fch sync --me <내 닉네임>
           내 최근 경기 100건을 캐시에 저장합니다.
-      fch value [--pos W] [--grade 8] [--min 1억] [--max 30억] [--top 15]
-          같은 스펙 대비 싸게 거래되는 선수 (API 키 불필요, 앱이 받아 둔 시세 사용).
+      fch value [--pos W] [--grade 8] [--min 1억] [--max 30억] [--minovr 135] [--trait 트릭스터] [--tc-only yes] [--top 15]
+          같은 스펙 대비 싸게 거래되는 선수 (API 키 불필요, 앱이 받아 둔 시세 사용). 세부 조건: --maxovr --foot 5
+          --body thin|normal|heavy --height 183-192 --maxpay 28 --stat 속력=130,밸런스=120 --core 0 --name 이름
+      fch factors [--pos CB] [--grade 8]
+          포지션 가격 요인: 코어 능력치·신특·체형·키가 시세에 주는 영향 (%, OVR 환산, BP) [추정].
       fch squad [--formation 4-2-2-2] [--budget 100억] [--grades 5,8] [--cap 310] [--teamcolor 2002,40515]
           스쿼드 추천. 급여 한도는 공식 스쿼드메이커에서 읽은 값이 기본. 팀컬러는 소속,특성 번호.
       fch upgrade --me <닉네임> [--budget 10억] [--pcroom yes] [--topclass yes] [--coupon 10] [--coupon-max 5억]

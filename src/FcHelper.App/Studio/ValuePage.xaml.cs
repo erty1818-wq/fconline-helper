@@ -4,19 +4,15 @@ using FcHelper.Market;
 
 namespace FcHelper.App.Studio;
 
-/// <summary>Cards trading below the price model's expectation for their spec, inside a price range.</summary>
+/// <summary>Cards trading below the price model's expectation for their spec, with a detailed search, and what the market pays for each stat and trait.</summary>
 public partial class ValuePage : UserControl
 {
-    private const string AnyTrait = "상관없음";
-
     public ValuePage()
     {
         InitializeComponent();
         GroupBox.ItemsSource = MarketGroups.All;
         GradeBox.ItemsSource = Enumerable.Range(1, 13).Select(g => $"+{g}").ToList();
         GradeBox.SelectedIndex = 7;
-        FootBox.ItemsSource = new[] { "상관없음", "4 이상", "5 (양발)" };
-        FootBox.SelectedIndex = 0;
         GroupBox.SelectedIndex = 0;
     }
 
@@ -24,37 +20,59 @@ public partial class ValuePage : UserControl
 
     private void OnGroupChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (GroupBox.SelectedItem is not MarketGroup g) return;
-        TraitBox.ItemsSource = new[] { AnyTrait }.Concat(g.Traits).ToList();
-        TraitBox.SelectedIndex = 0;
+        if (GroupBox.SelectedItem is MarketGroup g) Filters.SetGroup(g);
+    }
+
+    private void OnView(object sender, RoutedEventArgs e)
+    {
+        var factors = ReferenceEquals(sender, FactorsView);
+        FactorsView.IsChecked = factors;
+        CardsView.IsChecked = !factors;
+        Results.Visibility = factors ? Visibility.Collapsed : Visibility.Visible;
+        Factors.Visibility = factors ? Visibility.Visible : Visibility.Collapsed;
+        if (factors) _ = ShowFactorsAsync();
+    }
+
+    private async Task ShowFactorsAsync()
+    {
+        if (StudioKit.Squads is not { } squads) return;
+        var market = squads.Market;
+        var grade = GradeBox.SelectedIndex + 1;
+        var group = Group;
+        Status.Text = "랭커 주요 팀컬러 멤버 확인 중… (처음에는 2분쯤 걸립니다)";
+        try { await squads.RankerTeamColorMembersAsync(); }
+        catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException or InvalidOperationException) { }
+        if (market.Model(group.Key, grade) is not { } model)
+        {
+            Status.Text = "이 포지션·강화 단계는 거래되는 카드가 너무 적습니다.";
+            Factors.ItemsSource = null;
+            return;
+        }
+        Factors.ItemsSource = FactorRow.For(model, group);
+        Status.Text = $"{group.Name} +{grade} · 카드 {model.Cards}장 · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}. "
+            + "능력치는 같은 OVR에서 +1일 때, 특성·체형은 없는 카드 대비. OVR 환산 = 그만큼 OVR이 높은 카드의 가격 [추정: 시장 회귀, 인과 아님].";
     }
 
     private async void OnSearch(object sender, RoutedEventArgs e)
     {
-        if (StudioKit.Squads?.Market is not { } market) return;
-        if (!StudioKit.TryPrice(MinBox, 0, out var min) || !StudioKit.TryPrice(MaxBox, long.MaxValue, out var max)) { Status.Text = "가격은 1억, 5000만처럼 입력하세요."; return; }
-        var query = new ValueQuery
-        {
-            Group = Group.Key, Grade = GradeBox.SelectedIndex + 1, MinPrice = min, MaxPrice = max,
-            MinWeakFoot = FootBox.SelectedIndex switch { 1 => 4, 2 => 5, _ => 0 },
-            Trait = TraitBox.SelectedItem is string t && t != AnyTrait ? t : null,
-            SkillMove = SkillBox.IsChecked == true ? 5 : 0,
-        };
+        if (StudioKit.Squads is not { } squads) return;
+        if (FactorsView.IsChecked == true) { await ShowFactorsAsync(); return; }
         var group = Group;
+        var grade = GradeBox.SelectedIndex + 1;
         await StudioKit.Run(SearchButton, Status, async () =>
         {
+            if (await Filters.BuildAsync(squads, 10, s => Status.Text = s) is not { } filter) return;
             Status.Text = "계산 중…";
-            var (picks, model) = await Task.Run(() => (market.FindValue(query), market.Model(query.Group, query.Grade)));
+            var query = new ValueQuery { Group = group.Key, Grade = grade, Filter = filter };
+            var (picks, model) = await Task.Run(() => (squads.Market.FindValue(query), squads.Market.Model(query.Group, query.Grade)));
             if (model is null)
             {
-                Status.Text = market.Status.Current is null ? "아직 시세 데이터가 없습니다." : "이 포지션·강화 단계는 거래되는 카드가 너무 적습니다.";
+                Status.Text = squads.Market.Status.Current is null ? "아직 시세 데이터가 없습니다." : "이 포지션·강화 단계는 거래되는 카드가 너무 적습니다.";
                 Results.ItemsSource = null;
                 return;
             }
-            Results.ItemsSource = picks.Take(300).Select(p => new ValueRow(p.Card.Name, p.Card.Season, p.Card.OvrAt(p.Grade), p.Card.WeakFoot, p.Card.Pay,
-                string.Join(" · ", group.Stats[0].Where(p.Card.Stats.ContainsKey).Select(s => $"{MarketGroups.StatNames.GetValueOrDefault(s, s)} {p.Card.Stats[s]}")),
-                Bp.Format(p.Price), Bp.Format(p.Expected), StudioKit.Pct(p.Discount), p.Discount, StudioKit.Tags(p.Card))).ToList();
-            Status.Text = $"{group.Name} +{query.Grade} · {picks.Count}장 · 예상가보다 싼 순서 (모델 설명력 R² {model.R2:0.00}, 카드 {model.Cards}장)";
+            Results.ItemsSource = picks.Take(300).Select(p => ValueRow.From(p, group)).ToList();
+            Status.Text = $"{group.Name} +{grade} · {picks.Count}장 · 예상가보다 싼 순서 · {Filters.Summary(filter)} (R² {model.R2:0.00}, 카드 {model.Cards}장)";
         });
     }
 }

@@ -72,14 +72,15 @@ public static class Advisors
     // ── hidden ranker picks ────────────────────────────────────────────────
 
     public static IReadOnlyList<HiddenPick> HiddenRankerPicks(IEnumerable<RankerPick> picks, IReadOnlyDictionary<long, MarketCard> cards,
-        Func<MarketCard, PriceModel?> modelOf, long minPrice = 0, long maxPrice = long.MaxValue, int minUsers = 10, string? position = null)
+        Func<MarketCard, PriceModel?> modelOf, CardFilter? filter = null, int minUsers = 10, string? position = null)
     {
+        filter ??= new CardFilter { MinRatings = 0 };
         var result = new List<HiddenPick>();
         foreach (var p in picks.Where(p => p.Users >= minUsers && (position is null || Formations.Normalize(p.Position) == Formations.Normalize(position))))
         {
             if (!cards.TryGetValue(p.SpId, out var card) || modelOf(card) is not { } model) continue;
+            if (!filter.Matches(card, p.Grade, Formations.Normalize(p.Position))) continue;
             var price = card.PriceAt(p.Grade);
-            if (price <= Grades.FloorPrice || price < minPrice || price > maxPrice) continue;
             // Compare at the grade rankers use: the model was fitted at one grade, so scale by the card's own grade curve.
             var expected = (long)(model.Predict(card) * price / Math.Max(card.PriceAt(model.Grade), 1));
             result.Add(new HiddenPick(card, p.Position, p.Grade, card.OvrAt(Formations.Normalize(p.Position), p.Grade) ?? card.OvrAt(p.Grade),

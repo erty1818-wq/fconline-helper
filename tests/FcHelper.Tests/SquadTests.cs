@@ -64,6 +64,28 @@ public class ChartAndTeamColorParserTests
     }
 
     [Fact]
+    public void Reads_the_thirty_team_colours_of_the_daily_chart_page()
+    {
+        const string html = """
+            <div class="swiper-slide teamcolor_list__item" title="전체 능력치 +4">
+                <div class="txt">레알 마드리드</div>
+                <div class="per">409명 (6.9%)</div>
+                <a href="javascript:;" class="show_link" onclick="DailyChart.GetTeamColorVsInfo('1018');"><span></span></a>
+            </div>
+            <div class="swiper-slide teamcolor_list__item" title="">
+                <div class="txt">잉글랜드</div>
+                <div class="per">1,145명 (2.5%)</div>
+                <a href="javascript:;" class="show_link" onclick="DailyChart.GetTeamColorVsInfo('2004');"><span></span></a>
+            </div>
+            """;
+        var colors = ChartParser.TeamColorList(html);
+        Assert.Equal(2, colors.Count);
+        Assert.Equal(("레알 마드리드", 409, 1018), (colors[0].Name, colors[0].Users, colors[0].Id));
+        Assert.Equal(1145, colors[1].Users);
+        Assert.Equal(0.025, colors[1].Share, 3);
+    }
+
+    [Fact]
     public void Team_colour_level_follows_the_member_count()
     {
         var tc = new TeamColor(1016, "FC 바르셀로나", TeamColorCategory.Affiliation, 11, [new(1, 3, 1, []), new(2, 6, 3, []), new(4, 11, 4, [])]);
@@ -225,11 +247,34 @@ public class SquadBuilderTests
 
         var plan = Builder(cards).Build(new SquadRequest
         {
-            Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(tc, members)],
+            Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(tc, members)], OnlyAffiliationMembers = false,
         })[0];
 
         Assert.Equal(3, plan.TeamColors[0].Members);
         Assert.All(plan.Slots, s => Assert.Equal(1, s.TeamColorBonus));
+
+        // By default a 소속 squad is members only: here only three slots have members, so it cannot be built.
+        Assert.Throws<InvalidOperationException>(() => Builder(cards).Build(new SquadRequest
+        {
+            Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(tc, members)],
+        }));
+    }
+
+    [Fact]
+    public void Affiliation_squad_uses_only_member_cards()
+    {
+        var cards = Market();
+        // Members: the cheap cards everywhere; the stronger ones are not in the colour.
+        var members = cards.Where(c => c.Ovr1 == 120).Select(c => c.SpId).ToHashSet();
+        var tc = new TeamColor(1016, "FC 바르셀로나", TeamColorCategory.Affiliation, 11, [new(1, 3, 1, []), new(4, 11, 4, [])]);
+
+        var plan = Builder(cards).Build(new SquadRequest
+        {
+            Formation = Formations.Find("4-2-2-2")!, Budget = 4_000_000_000, TeamColors = [new TeamColorTarget(tc, members)],
+        })[0];
+
+        Assert.All(plan.Slots, s => Assert.Contains(s.Card.SpId, members));
+        Assert.Equal(4, plan.TeamColors[0].Level!.Level);
     }
 
     [Fact]

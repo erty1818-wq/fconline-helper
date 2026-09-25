@@ -35,7 +35,7 @@
                         <WrapPanel x:Name="GradeChips" />
                     </StackPanel>
                     <StackPanel Margin="0,0,14,6">
-                        <TextBlock Text="소속 팀컬러 (선발 전원 보너스)" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="소속 팀컬러 (11명 모두 해당 선수로, 랭커 인기 20)" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="TeamColorBox" MinWidth="170" DisplayMemberPath="Label" SelectionChanged="OnTeamColorChanged" />
                     </StackPanel>
                     <StackPanel Margin="0,0,14,6">

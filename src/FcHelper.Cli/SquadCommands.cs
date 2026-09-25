@@ -7,7 +7,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -33,8 +33,10 @@ internal static class SquadCommands
             switch (command)
             {
                 case "squad": return await Squad(squads, option, rankFrom, rankTo);
+                case "value": return await Value(squads, option);
+                case "factors": return await Factors(squads, option);
                 case "picks":
-                    foreach (var h in (await squads.HiddenRankerPicksAsync(option("pos"), Price(option("min"), 0), Price(option("max"), long.MaxValue),
+                    foreach (var h in (await squads.HiddenRankerPicksAsync(option("pos"), await Filter(squads, option, 0),
                                  Int(option("users"), 10), rankFrom, rankTo)).Take(Int(option("top"), 15)))
                         Console.WriteLine($"{h.Position,-4} {h.Card.Name,-10} {h.Card.Season,-8} +{h.Grade,-2} OVR {h.Ovr} · 랭커 {h.Users}명({h.Share:P1}) · 시세 {Bp.Format(h.Price),7} · 예상 {Bp.Format(h.Expected),7} · {h.Discount:+0%;-0%}");
                     Console.WriteLine("랭커 사용 = 데일리 차트(전날 공식경기). 예상가 = 같은 스펙 카드의 오늘 시세 [추정].");
@@ -110,6 +112,56 @@ internal static class SquadCommands
         $"{FcHelper.Market.TeamColor.CategoryLabel(t.Color.Category)} {t.Color.Name} " + (t.Level is { } l
             ? $"{l.Level}단계({t.Members}명, {string.Join("/", l.Effects)}{(t.Color.AppliesToSquad ? ", 전원" : ", 해당 카드만")})"
             : $"{t.Members}명(단계 미달)");
+
+    private static string GroupKey(Func<string, string?> option)
+    {
+        var key = (option("pos") ?? "ST").ToUpperInvariant();
+        if (MarketGroups.All.Any(g => g.Key == key)) return key;
+        return Formations.GroupOf(Formations.Normalize(key));
+    }
+
+    private static async Task<int> Value(SquadService squads, Func<string, string?> option)
+    {
+        var group = MarketGroups.Get(GroupKey(option));
+        var grade = Math.Clamp(Int(option("grade"), 8), 1, 13);
+        if (squads.Market.Model(group.Key, grade) is not { } model) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
+        var filter = await Filter(squads, option, group.Key == "GK" ? 140 : 135);
+        var picks = squads.Market.FindValue(new ValueQuery { Group = group.Key, Grade = grade, Filter = filter });
+        Console.WriteLine($"{group.Name} +{grade} · {picks.Count}장 · OVR {filter.MinOvr}+{(filter.Members is null ? "" : " · 랭커 팀컬러 20")} · R² {model.R2:0.00} (카드 {model.Cards}장)");
+        foreach (var p in picks.Take(Int(option("top"), 15)))
+        {
+            var c = p.Card;
+            var core = group.CoreGap(c) is { } g ? $"코어 {g:+0.0;-0.0}" : "";
+            Console.WriteLine($"  {c.Name,-10} {c.Season,-8} OVR {c.OvrAt(grade)} {core} 약발{c.WeakFoot} 급여{c.Pay,2}{(c.Stats.TryGetValue("height", out var h) ? $" {h}cm" : "")}"
+                + $" · 시세 {Bp.Format(p.Price),7} · 예상 {Bp.Format(p.Expected),7} · {p.Discount * 100:+0;-0}%  " + string.Join(" ", c.Tags.Order().Select(MarketGroups.TagLabel)));
+        }
+        Console.WriteLine("예상가 = 같은 스펙 카드들의 오늘 시세로 계산한 값 [추정]. 코어 = 포지션 핵심 능력치 가중 평균 − OVR.");
+        return 0;
+    }
+
+    private static async Task<int> Factors(SquadService squads, Func<string, string?> option)
+    {
+        var group = MarketGroups.Get(GroupKey(option));
+        var grade = Math.Clamp(Int(option("grade"), 8), 1, 13);
+        // Membership of the rankers' 20 team colours is priced too (members fetched once a week).
+        if (option("tc") is not ("no" or "0")) await squads.RankerTeamColorMembersAsync();
+        if (squads.Market.Model(group.Key, grade) is not { } model) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
+        Console.WriteLine($"{group.Name} +{grade} · 카드 {model.Cards}장 (호날두·호나우두·굴리트 제외) · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}");
+        var factors = model.Factors();
+        void Print(string title, IEnumerable<PriceFactor> list)
+        {
+            Console.WriteLine($"\n[{title}]");
+            foreach (var f in list)
+                Console.WriteLine($"  {f.Name,-22} {f.Percent,6:+0.0;-0.0}%  ({f.Low:+0;-0}~{f.High:+0;-0}%)  OVR {f.OvrEquivalent,5:+0.0;-0.0}  "
+                    + $"{(f.BpAtMedian >= 0 ? "+" : "-")}{Bp.Format(Math.Abs(f.BpAtMedian)),7}{(f.Cards is { } n ? $"  {n}장" : "")}{(f.Clear ? "" : "  (불확실)")}{(f.IsInflating ? "  뻥스탯" : "")}");
+        }
+        Print("핵심 신특", factors.Where(f => f.Kind == FactorKind.Trait && f.IsCore));
+        Print("코어 능력치 (같은 OVR에서 +1)", factors.Where(f => f.Kind == FactorKind.Stat && f.IsCore || f.Kind == FactorKind.Height).OrderByDescending(f => f.Percent));
+        Print("그 밖의 능력치", factors.Where(f => f.Kind == FactorKind.Stat && !f.IsCore).OrderByDescending(f => f.Percent));
+        Print("그 밖의 특성·개인기·체형·약발·팀컬러", factors.Where(f => f.Kind is FactorKind.Trait or FactorKind.Skill or FactorKind.Body or FactorKind.Foot or FactorKind.TeamColor && !(f.Kind == FactorKind.Trait && f.IsCore)).OrderByDescending(f => f.Percent));
+        Console.WriteLine("\n%·OVR·BP는 다른 조건이 같을 때의 시세 차이 [추정: 시장 회귀, 인과 아님]. 범위가 0을 포함하면 불확실.");
+        return 0;
+    }
 
     private static int Grade(SquadService squads, Func<string, string?> option)
     {
@@ -213,5 +265,38 @@ internal static class SquadCommands
 
     private static int Int(string? s, int fallback) => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
     private static long Price(string? s, long fallback) => s is not null && Bp.TryParse(s, out var v) ? v : fallback;
+    /// <summary>
+    /// Detailed search options shared by picks and value: --min/--max price, --minovr/--maxovr, --foot, --trait a,b,
+    /// --body thin|normal|heavy, --height 183-192, --maxpay, --stat 속력=130,밸런스=120, --name, --tc-only yes (only
+    /// cards of the 20 team colours rankers use most).
+    /// </summary>
+    internal static async Task<CardFilter> Filter(SquadService? squads, Func<string, string?> option, int defaultMinOvr)
+    {
+        var height = (option("height") ?? "").Split('-', StringSplitOptions.RemoveEmptyEntries);
+        var stats = new Dictionary<string, int>();
+        foreach (var part in (option("stat") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split('=');
+            var key = MarketGroups.StatNames.FirstOrDefault(s => s.Value == kv[0].Trim() || s.Key == kv[0].Trim()).Key;
+            if (key is not null && kv.Length == 2) stats[key] = Int(kv[1], 0);
+        }
+        return new CardFilter
+        {
+            MinPrice = Price(option("min"), 0), MaxPrice = Price(option("max"), long.MaxValue),
+            MinOvr = option("minovr") is { } lo ? Int(lo, 0) : defaultMinOvr > 0 ? defaultMinOvr : null,
+            MaxOvr = option("maxovr") is { } hi ? Int(hi, 999) : null,
+            MinWeakFoot = Int(option("foot"), 0),
+            Traits = (option("trait") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            Body = option("body"),
+            MinHeight = height.Length > 0 ? Int(height[0], 0) : null,
+            MaxHeight = height.Length > 1 ? Int(height[1], 999) : null,
+            MaxPay = option("maxpay") is { } p ? Int(p, 99) : null,
+            MinStats = stats,
+            MinCoreGap = option("core") is { } core && double.TryParse(core, NumberStyles.Float, CultureInfo.InvariantCulture, out var gap) ? gap : null,
+            Name = option("name"),
+            Members = squads is not null && Flag(option("tc-only")) ? await squads.RankerTeamColorMembersAsync() : null,
+        };
+    }
+
     private static bool Flag(string? s) => s is "yes" or "y" or "1" or "true" or "on";
 }

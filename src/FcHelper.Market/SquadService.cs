@@ -66,7 +66,9 @@ public sealed class SquadService(
         try
         {
             var cached = store.LatestChart(rankFrom, rankTo);
-            if (cached is { } c && (Now - c.FetchedAt < ChartTtl || !allowFetch)) return c.Chart;
+            // Charts saved before team colour ids were read list only the top 10: fetch again once.
+            var complete = cached is { } k && k.Chart.TeamColors.Any(t => t.Id > 0);
+            if (cached is { } c && (complete && Now - c.FetchedAt < ChartTtl || !allowFetch)) return c.Chart;
             if (!allowFetch) return null;
             try
             {
@@ -115,11 +117,11 @@ public sealed class SquadService(
 
     // ── analyses ───────────────────────────────────────────────────────────
 
-    public async Task<IReadOnlyList<HiddenPick>> HiddenRankerPicksAsync(string? position = null, long minPrice = 0, long maxPrice = long.MaxValue,
+    public async Task<IReadOnlyList<HiddenPick>> HiddenRankerPicksAsync(string? position = null, CardFilter? filter = null,
         int minUsers = 10, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default)
     {
         var chart = await ChartAsync(rankFrom, rankTo, ct: ct);
-        return chart is null ? [] : Advisors.HiddenRankerPicks(chart.Picks, EnsurePool().BySpId, c => ModelOf(c), minPrice, maxPrice, minUsers, position);
+        return chart is null ? [] : Advisors.HiddenRankerPicks(chart.Picks, EnsurePool().BySpId, c => ModelOf(c), filter, minUsers, position);
     }
 
     public GradeAdvice? Grade(long spId, string position, int? from = null, int? to = null) =>
@@ -230,14 +232,31 @@ public sealed class SquadService(
     public Task<(TeamColor Color, IReadOnlySet<long> Members)?> TeamColorAsync(int id, CancellationToken ct = default) => teamColors.GetAsync(id, ct);
 
     /// <summary>Team colours rankers use most (daily chart), matched to catalogue entries by name.</summary>
-    public async Task<IReadOnlyList<(TeamColor Color, TeamColorUsage Usage)>> PopularTeamColorsAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<(TeamColor Color, TeamColorUsage Usage)>> PopularTeamColorsAsync(int top = RankerTeamColors, CancellationToken ct = default)
     {
         var chart = await ChartAsync(ct: ct);
         var catalog = await TeamColorsAsync(ct);
         if (chart is null) return [];
+        var affiliation = catalog.Where(t => t.Category == TeamColorCategory.Affiliation).ToList();
         return chart.TeamColors
-            .Select(u => (Color: catalog.Where(t => t.Kind is TeamColorKind.Club or TeamColorKind.Nation).FirstOrDefault(t => t.Name == u.Name), Usage: u))
-            .Where(t => t.Color is not null).Select(t => (t.Color!, t.Usage)).ToList();
+            .Select(u => (Color: affiliation.FirstOrDefault(t => u.Id > 0 ? t.Id == u.Id : t.Name == u.Name), Usage: u))
+            .Where(t => t.Color is not null).Select(t => (t.Color!, t.Usage)).Take(top).ToList();
+    }
+
+    /// <summary>How many of the team colours rankers use most count as "주요 랭커 팀컬러".</summary>
+    public const int RankerTeamColors = 20;
+
+    /// <summary>
+    /// Cards that count for at least one of the 20 team colours rankers use most: a card outside all of them rarely
+    /// fits a top squad. The members of each colour are fetched once and kept for a week (about 60 requests the first time).
+    /// </summary>
+    public async Task<IReadOnlySet<long>> RankerTeamColorMembersAsync(int top = RankerTeamColors, CancellationToken ct = default)
+    {
+        var members = new HashSet<long>();
+        foreach (var (color, _) in await PopularTeamColorsAsync(top, ct))
+            if (await TeamColorAsync(color.Id, ct) is { } tc) members.UnionWith(tc.Members);
+        if (top == RankerTeamColors) market.SetRankerTeamColorMembers(members);
+        return members;
     }
 
     // ── rankers' match stats ───────────────────────────────────────────────

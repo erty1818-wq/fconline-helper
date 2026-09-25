@@ -31,6 +31,11 @@ public sealed record SquadRequest
     /// once its level is met, a 특성 bonus only to its member cards.
     /// </summary>
     public IReadOnlyList<TeamColorTarget> TeamColors { get; init; } = [];
+    /// <summary>
+    /// With a 소속 colour, every card must count for it (a Barcelona squad is eleven Barcelona-colour cards). Locked
+    /// slots are kept as the user set them.
+    /// </summary>
+    public bool OnlyAffiliationMembers { get; init; } = true;
     /// <summary>Only cards top rankers field at that position.</summary>
     public bool RankerPicksOnly { get; init; }
     public int Plans { get; init; } = 3;
@@ -123,6 +128,7 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
         foreach (var card in cards)
         {
             if (!card.IsTraded || r.ExcludedPlayers.Contains(card.PlayerId) || card.Pay > r.SalaryCap) continue;
+            if (r.OnlyAffiliationMembers && r.TeamColors.Any(t => t.Color.Category == TeamColorCategory.Affiliation && !t.Members.Contains(card.SpId))) continue;
             if (card.OvrAt(position, 1) is null) continue;
             if (r.RankerPicksOnly && rankers?.Users(position, card.SpId) is not > 0) continue;
             foreach (var g in r.Grades)

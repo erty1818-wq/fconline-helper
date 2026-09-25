@@ -4,7 +4,7 @@ namespace FcHelper.Market;
 
 public enum RefreshKind
 {
-    /// <summary>Everything: both stat passes and all tags. First run only (about 530 requests).</summary>
+    /// <summary>Everything: every stat pass and all tags. First run, and once when the collected stats change (about 1,300 requests).</summary>
     Full,
     /// <summary>Prices and the first stat pass; the rest is carried over (about 260 requests).</summary>
     Prices,
@@ -41,9 +41,9 @@ public sealed class MarketHarvester(IMarketListSource source, MarketStore store)
     private List<Step> Plan(long snapshot, RefreshKind kind, long? previous, IReadOnlyCollection<int> newSeasons)
     {
         var steps = new List<Step>();
-        var passes = kind == RefreshKind.Full ? 2 : 1;
         foreach (var g in MarketGroups.All)
         {
+            var passes = kind == RefreshKind.Full ? g.Stats.Length : 1;
             for (var pass = 0; pass < passes; pass++)
             {
                 var stats = g.Stats[pass];
@@ -62,14 +62,17 @@ public sealed class MarketHarvester(IMarketListSource source, MarketStore store)
         {
             steps.Add(new("carry", _ => { store.CarryOver(prev, snapshot); return Task.CompletedTask; }));
         }
-        // New seasons: fetch their cards' second stat pass and tags right away rather than waiting for a full refresh.
+        // New seasons: fetch their cards' other stat passes and tags right away rather than waiting for a full refresh.
         if (kind == RefreshKind.Prices && newSeasons.Count > 0)
         {
             var filter = "," + string.Join(",", newSeasons.Order().Select(s => s.ToString(CultureInfo.InvariantCulture))) + ",";
             foreach (var g in MarketGroups.All)
             {
-                var stats = g.Stats[1];
-                steps.Add(new($"season|{filter}|{g.Key}|list", ct => ListRange(snapshot, g, new ListQuery(g.Positions, MarketGroups.OvrMin, MarketGroups.OvrMax, stats) { Seasons = filter }, ct)));
+                for (var pass = 1; pass < g.Stats.Length; pass++)
+                {
+                    var stats = g.Stats[pass];
+                    steps.Add(new($"season|{filter}|{g.Key}|list{pass}", ct => ListRange(snapshot, g, new ListQuery(g.Positions, MarketGroups.OvrMin, MarketGroups.OvrMax, stats) { Seasons = filter }, ct)));
+                }
                 steps.AddRange(TagSteps(snapshot, g, filter));
             }
         }

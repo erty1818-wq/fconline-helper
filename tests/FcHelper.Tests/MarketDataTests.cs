@@ -92,18 +92,59 @@ public class PriceModelTests
     }
 
     [Fact]
+    public void Name_priced_cards_are_left_out_of_the_fit_and_traits_are_valued()
+    {
+        var cards = Market();
+        // 호날두-style cards: ordinary spec, 20x the price. They must not teach the model anything.
+        cards.AddRange(Enumerable.Range(0, 30).Select(i => cards[i] with { SpId = 900_000_000 + i, Name = "크리스티아누 호날두",
+            Prices = new Dictionary<int, long> { [1] = 1000, [8] = cards[i].PriceAt(8) * 20 } }));
+        var model = PriceModel.Fit("W", 8, cards)!;
+
+        Assert.Equal(400, model.Cards);
+        var trickster = model.Factors().Single(f => f.Key == "trait:트릭스터");
+        Assert.True(trickster.IsCore && trickster.Clear && trickster.Kind == FactorKind.Trait);
+        Assert.InRange(trickster.Percent, 90, 110);
+        Assert.InRange(trickster.OvrEquivalent, 1.8, 2.3); // ×2 ≈ two OVR at +40% per OVR
+        Assert.True(trickster.BpAtMedian > 0);
+    }
+
+    [Fact]
+    public void Card_filter_applies_every_condition()
+    {
+        var card = new MarketCard
+        {
+            Group = "CB", SpId = 1, Name = "김민재", Season = "S", Pay = 25, Ovr1 = 120, WeakFoot = 4, RatingCount = 50,
+            Prices = new Dictionary<int, long> { [1] = 1000, [8] = 50_000_000 }, Positions = new Dictionary<string, int> { ["CB"] = 120 },
+            Stats = new Dictionary<string, int> { ["sprintspeed"] = 125, ["height"] = 190, ["marking"] = 124, ["standingtackle"] = 123, ["balance"] = 118 },
+            Tags = new HashSet<string> { "trait:파이터" },
+        };
+        Assert.True(new CardFilter { MinOvr = 135 }.Matches(card, 8)); // 120 − 3 + 18 = 135
+        Assert.False(new CardFilter { MinOvr = 136 }.Matches(card, 8));
+        Assert.False(new CardFilter { MaxOvr = 130 }.Matches(card, 8));
+        Assert.True(new CardFilter { Body = "normal", Traits = ["파이터"], MinHeight = 183, MaxHeight = 192 }.Matches(card, 8));
+        Assert.False(new CardFilter { Body = "thin" }.Matches(card, 8));
+        Assert.False(new CardFilter { MinHeight = 193 }.Matches(card, 8));
+        Assert.True(new CardFilter { MinStats = new Dictionary<string, int> { ["sprintspeed"] = 125 } }.Matches(card, 8));
+        Assert.False(new CardFilter { MinStats = new Dictionary<string, int> { ["agility"] = 100 } }.Matches(card, 8)); // not collected
+        Assert.False(new CardFilter { Members = new HashSet<long> { 2 } }.Matches(card, 8));
+        Assert.False(new CardFilter { MaxPay = 24 }.Matches(card, 8));
+        Assert.False(new CardFilter { ExcludePriceOutliers = true }.Matches(card with { Name = "호나우두" }, 8));
+        Assert.True(MarketGroups.Get("CB").CoreGap(card) > 0);
+    }
+
+    [Fact]
     public void Value_finder_keeps_the_price_range_and_filters()
     {
         var cards = Market();
         cards.Add(cards[0] with { SpId = 1, Name = "bargain", Prices = new Dictionary<int, long> { [1] = 1000, [8] = cards[0].PriceAt(8) / 3 } });
         var model = PriceModel.Fit("W", 8, cards)!;
 
-        var picks = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8, MinPrice = 20_000_000, MaxPrice = 200_000_000 });
+        var picks = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8, Filter = new CardFilter { MinPrice = 20_000_000, MaxPrice = 200_000_000 } });
 
         Assert.Equal("bargain", picks[0].Card.Name);
         Assert.InRange(picks[0].Discount, -0.72, -0.62);
         Assert.All(picks, p => Assert.InRange(p.Price, 20_000_000, 200_000_000));
-        Assert.All(ValueFinder.Find(model, cards, new ValueQuery { Group = "W", MinWeakFoot = 5, Trait = "트릭스터" }),
+        Assert.All(ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Filter = new CardFilter { MinWeakFoot = 5, Traits = ["트릭스터"] } }),
             p => Assert.True(p.Card.WeakFoot == 5 && p.Card.Tags.Contains("trait:트릭스터")));
     }
 }
@@ -226,6 +267,25 @@ public class MarketRefreshTests : IDisposable
             Assert.NotNull(store.LatestFinished());
             Assert.Equal(clean.Queries.Count, _source.Queries.Count);
         }
+    }
+
+    [Fact]
+    public async Task New_stats_to_collect_trigger_one_full_refresh()
+    {
+        var store = Store();
+        var svc = Service(store);
+        await svc.RefreshIfDueAsync();
+        var fullCalls = _source.Calls;
+
+        // As after an update that collects more stats: the data is fresh, but the schema differs.
+        store.SetValue("market.schema", "old", _time.GetUtcNow().UtcDateTime);
+        _time.Advance(TimeSpan.FromHours(1));
+        Assert.Null(svc.NextDue);
+        _source.Calls = 0;
+        Assert.True(await svc.RefreshIfDueAsync());
+        Assert.Equal(fullCalls, _source.Calls);
+        Assert.Contains(store.LoadCards(store.LatestFinished()!.Id, "CB"), c => c.Stats.ContainsKey("height") && c.Stats.ContainsKey("balance"));
+        Assert.False(await svc.RefreshIfDueAsync());
     }
 
     [Fact]

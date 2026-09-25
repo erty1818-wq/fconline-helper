@@ -1,6 +1,7 @@
 <UserControl x:Class="FcHelper.App.Studio.PicksPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:studio="clr-namespace:FcHelper.App.Studio">
     <DockPanel>
         <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
             <StackPanel>
@@ -12,11 +13,10 @@
                     </StackPanel>
                 </DockPanel>
                 <WrapPanel>
-                    <StackPanel Margin="0,0,14,0"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="PositionBox" /></StackPanel>
-                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MinBox" Width="100" /></StackPanel>
-                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최대 가격" Style="{StaticResource FieldLabel}" /><TextBox x:Name="MaxBox" Width="100" /></StackPanel>
-                    <StackPanel Margin="0,0,14,0"><TextBlock Text="최소 사용 랭커 수" Style="{StaticResource FieldLabel}" /><TextBox x:Name="UsersBox" Width="80" Text="10" /></StackPanel>
+                    <StackPanel Margin="0,0,14,6"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="PositionBox" SelectionChanged="OnPositionChanged" /></StackPanel>
+                    <StackPanel Margin="0,0,14,6"><TextBlock Text="최소 사용 랭커 수" Style="{StaticResource FieldLabel}" /><TextBox x:Name="UsersBox" Width="80" Text="10" /></StackPanel>
                 </WrapPanel>
+                <studio:FilterPanel x:Name="Filters" />
             </StackPanel>
         </Border>
         <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
@@ -30,11 +30,14 @@
                 <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="80" />
                 <DataGridTextColumn Header="강화" Binding="{Binding Grade}" Width="50" />
                 <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="50" />
+                <DataGridTextColumn Header="코어" Binding="{Binding Core}" Width="50" ElementStyle="{StaticResource Num}" />
+                <DataGridTextColumn Header="키" Binding="{Binding Height}" Width="45" />
                 <DataGridTextColumn Header="랭커" Binding="{Binding Users}" Width="60" ElementStyle="{StaticResource Num}" />
                 <DataGridTextColumn Header="사용률" Binding="{Binding Share}" Width="60" ElementStyle="{StaticResource Num}" />
                 <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="90" ElementStyle="{StaticResource Num}" />
                 <DataGridTextColumn Header="예상가 [추정]" Binding="{Binding Expected}" Width="100" ElementStyle="{StaticResource Num}" />
                 <DataGridTextColumn Header="차이" Binding="{Binding Diff}" Width="70" ElementStyle="{StaticResource Good}" />
+                <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="190" />
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>
