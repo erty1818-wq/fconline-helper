@@ -149,7 +149,7 @@ public sealed partial class DataCenterTeamColorClient(HttpClient http, RateLimit
     {
         var found = new List<long>();
         var stack = new Stack<(int Lo, int Hi)>();
-        stack.Push((MarketGroups.OvrMin, MarketGroups.OvrMax + 15));
+        stack.Push((MarketGroups.GkOvrMin, MarketGroups.OvrMax + 15)); // from 85: old-season keepers count too
         while (stack.Count > 0)
         {
             var (lo, hi) = stack.Pop();

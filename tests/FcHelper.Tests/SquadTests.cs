@@ -418,6 +418,50 @@ public class SquadBuilderTests
         Assert.True(plan.Slots.Count(s => members.Contains(s.Card.SpId)) >= 5);
         Assert.NotNull(plan.TeamColors.Single(t => t.Color.Id == 40190).Level);
     }
+    [Fact]
+    public void A_card_plays_its_own_position_unless_rankers_use_it_elsewhere()
+    {
+        var cards = Market();
+        // A centre back that also lists CDM, far stronger there than the CDM cards: it still is not a CDM.
+        var cb = Card("CB", 128, 30_000_000);
+        cb = cb with { Positions = new Dictionary<string, int> { ["CB"] = 128, ["CDM"] = 128 } };
+        cards.Add(cb);
+        var plan = Builder(cards).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 })[0];
+        Assert.DoesNotContain(plan.Slots, s => s.Card.SpId == cb.SpId && s.Position == "CDM");
+
+        // Rankers field it at CDM: then it may go there.
+        var usage = new RankerUsage([new RankerPick("CDM", cb.SpId, cb.Name, 8, 143, 25, 80, 0.4)]);
+        var withRankers = new SquadBuilder(cards, _ => null, usage).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 })[0];
+        Assert.Contains(withRankers.Slots, s => s.Card.SpId == cb.SpId);
+    }
+
+    [Fact]
+    public void An_old_season_keeper_rankers_use_passes_the_ovr_floor()
+    {
+        var cards = Market();
+        cards.AddRange([Card("GK", 125, 30_000_000), Card("GK", 124, 30_000_000)]);
+        // OVR 97 at +1 (112 at +8), far under the keeper floor of 140, but rankers play it.
+        var oldKeeper = Card("GK", 97, 5_000_000);
+        cards.Add(oldKeeper);
+        var weak = Card("GK", 110, 1_000_000); // 125 at +8, nobody plays it
+        cards.Add(weak);
+        var usage = new RankerUsage([new RankerPick("GK", oldKeeper.SpId, oldKeeper.Name, 8, 112, 24, 300, 0.6)]);
+        var request = new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 };
+        var offered = new SquadBuilder(cards, _ => null, usage).CandidatesAt(request, 0).Select(c => c.Card.SpId).ToHashSet();
+        Assert.Contains(oldKeeper.SpId, offered);
+        Assert.DoesNotContain(weak.SpId, offered);
+    }
+
+    [Fact]
+    public void The_main_position_is_the_first_one_listed()
+    {
+        var card = Card("RW", 120, 1) with { Positions = new Dictionary<string, int> { ["RW"] = 120, ["CAM"] = 120, ["RM"] = 121 } };
+        Assert.Equal("RW", card.MainPosition);
+        Assert.True(card.PlaysAsMain("LW"));
+        Assert.False(card.PlaysAsMain("CAM"));
+        Assert.Equal(85, MarketGroups.OvrMinOf("GK"));
+        Assert.Equal(105, MarketGroups.OvrMinOf("ST"));
+    }
 }
 
 public class LiquidityTests

@@ -33,7 +33,8 @@
     <Resource Include="Assets\ApiGuide\*.png" />
     <!-- The default artwork (docs/SKIN_ASSETS.md) ships inside the exe, so every PC and every update gets it; a PNG in
          the skin folder still replaces it. -->
-    <Resource Include="skin\*.png" />
+    <!-- Icons are vectors (Icons.xaml) by default: the old one-colour icon PNGs are not built in. -->
+    <Resource Include="skin\*.png" Exclude="skin\nav-*.png;skin\home-search.png;skin\home-squad.png;skin\home-manager.png" />
   </ItemGroup>
 
   <ItemGroup>

@@ -34,6 +34,8 @@ public partial class SquadPage : UserControl
     /// <summary>The user started a hand-made squad: the pitch shows its empty slots.</summary>
     private bool _manual;
     private bool _optionsReady;
+    /// <summary>The spots the last AI request was made on, in slot order.</summary>
+    private Spot[]? _requestSpots;
     private const string AdaptKey = "squad.adaptability";
     private const string TrainingKey = "squad.training";
 
@@ -554,6 +556,8 @@ public partial class SquadPage : UserControl
                 Status.Text = "랭커 분배는 API 키가 있어야 받을 수 있습니다. 분배 없이 짭니다.";
             }
         }
+        // The AI fills the slots in this order: its plans are drawn on these same spots (see OnModeSelected).
+        _requestSpots = _spots.ToArray();
         return new SquadRequest
         {
             Formation = Formations.Custom(
@@ -606,12 +610,15 @@ public partial class SquadPage : UserControl
         if (_working.Any(s => s is not null)) Remember();
         _working = card.Plan.Slots.OrderBy(s => s.Index).Select(s => (SquadSlot?)s).ToArray();
         _workingColors = card.Plan.TeamColors;
-        if (Formations.PresetSpots.ContainsKey(card.Plan.Formation.Name))
-        {
-            _spots = Formations.LayoutOf(card.Plan.Formation.Name).ToArray();
-            FormationBox.SelectedItem = card.Plan.Formation.Name;
-            FormationName.Text = card.Plan.Formation.Name;
-        }
+        // Slot i of the plan is slot i of the request: keep the spots the request was made on. Laying the preset of the
+        // same name over it would swap cards whose order differs after a drag (a RM drawn on the CAM spot).
+        if (_requestSpots is { } asked && asked.Length == card.Plan.Slots.Count) _spots = asked.ToArray();
+        else if (Formations.PresetSpots.ContainsKey(card.Plan.Formation.Name)) _spots = Formations.LayoutOf(card.Plan.Formation.Name).ToArray();
+        var detected = Formations.Detect(_spots);
+        _restoring = true; // choosing the preset in the box must not remap the eleven again
+        if (Formations.PresetSpots.ContainsKey(detected)) FormationBox.SelectedItem = detected;
+        _restoring = false;
+        FormationName.Text = Formations.PresetSpots.ContainsKey(detected) ? detected : $"사용자 지정 {detected}";
         _positions = _spots.Select(Formations.PositionAt).ToArray();
         _selected = null;
         ApplyFinals();
@@ -1017,7 +1024,8 @@ public partial class SquadPage : UserControl
         var diffText = current is null ? "" : $" · {(candidate.Price - current.Price >= 0 ? "+" : "−")}{Bp.Format(Math.Abs(candidate.Price - current.Price))}";
         subPanel.Children.Add(new TextBlock
         {
-            Text = $"OVR {candidate.Ovr} · 환산 {candidate.EffectiveOvr:0.0} · {Bp.Format(candidate.Price)} · 급여 {c.Pay}{diffText}",
+            Text = $"OVR {candidate.Ovr} · 환산 {candidate.EffectiveOvr:0.0} · {Bp.Format(candidate.Price)} · 급여 {c.Pay}{diffText}"
+                + (c.PlaysAsMain(candidate.Position) ? "" : $" · 주 포지션 {c.MainPosition}"),
             Style = (Style)FindResource("Hint"),
             VerticalAlignment = VerticalAlignment.Center,
         });

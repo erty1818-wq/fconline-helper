@@ -143,6 +143,14 @@ public static class MarketGroups
     /// <summary>OVR 105-130 at +1 covers squad-level cards; below that the market is mostly floor prices.</summary>
     public const int OvrMin = 105, OvrMax = 130;
 
+    /// <summary>
+    /// Keepers from older seasons (TB, HOT, COC, NHD, TT, OTW, LIVE: OVR 80-97 at +1) are still fielded at high grades
+    /// (COC 알리송 +13 trades at 67억), so the GK group is collected from 85; outfield cards below 105 are not played.
+    /// </summary>
+    public const int GkOvrMin = 85;
+
+    public static int OvrMinOf(string group) => group == "GK" ? GkOvrMin : OvrMin;
+
     public static readonly (int Min, int Max)[] SalaryBands = [(4, 14), (15, 18), (19, 21), (22, 24), (25, 27), (28, 99)];
 
     /// <summary>Body-type filters as the site sends them (마름 / 건장); the rest are 보통.</summary>
@@ -193,6 +201,12 @@ public sealed record MarketCard
     public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
     /// <summary>OVR at +1 for each position the card lists; the card can be fielded only there.</summary>
     public IReadOnlyDictionary<string, int> Positions { get; init; } = new Dictionary<string, int>();
+
+    /// <summary>The card's own position: the data center lists it first (케인 ST, 올리세 RW, 키미히 CDM, 데이비스 LB).</summary>
+    public string MainPosition => Positions.Count > 0 ? Positions.Keys.First() : "";
+
+    /// <summary>Whether a slot is the card's own role (LB for a LB card also covers RB; a RW card is not a CAM).</summary>
+    public bool PlaysAsMain(string position) => MainPosition.Length > 0 && RankerAllocation.RoleOf(MainPosition) == RankerAllocation.RoleOf(position);
 
     public int SeasonId => (int)(SpId / 1_000_000);
     /// <summary>The same footballer across seasons: a squad cannot field two of them.</summary>

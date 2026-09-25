@@ -47,7 +47,7 @@ public sealed class MarketHarvester(IMarketListSource source, MarketStore store)
             for (var pass = 0; pass < passes; pass++)
             {
                 var stats = g.Stats[pass];
-                for (var ovr = MarketGroups.OvrMin; ovr <= MarketGroups.OvrMax; ovr++)
+                for (var ovr = MarketGroups.OvrMinOf(g.Key); ovr <= MarketGroups.OvrMax; ovr++)
                 {
                     var o = ovr;
                     steps.Add(new($"list|{g.Key}|{pass}|{o}", ct => ListByOvr(snapshot, g, stats, o, ct)));
@@ -71,7 +71,7 @@ public sealed class MarketHarvester(IMarketListSource source, MarketStore store)
                 for (var pass = 1; pass < g.Stats.Length; pass++)
                 {
                     var stats = g.Stats[pass];
-                    steps.Add(new($"season|{filter}|{g.Key}|list{pass}", ct => ListRange(snapshot, g, new ListQuery(g.Positions, MarketGroups.OvrMin, MarketGroups.OvrMax, stats) { Seasons = filter }, ct)));
+                    steps.Add(new($"season|{filter}|{g.Key}|list{pass}", ct => ListRange(snapshot, g, new ListQuery(g.Positions, MarketGroups.OvrMinOf(g.Key), MarketGroups.OvrMax, stats) { Seasons = filter }, ct)));
                 }
                 steps.AddRange(TagSteps(snapshot, g, filter));
             }
@@ -82,7 +82,7 @@ public sealed class MarketHarvester(IMarketListSource source, MarketStore store)
     private IEnumerable<Step> TagSteps(long snapshot, MarketGroup g, string seasons)
     {
         var prefix = seasons.Length == 0 ? "tag" : $"season|{seasons}|tag";
-        var baseQuery = new ListQuery(g.Positions, MarketGroups.OvrMin, MarketGroups.OvrMax, g.Stats[0]) { Seasons = seasons };
+        var baseQuery = new ListQuery(g.Positions, MarketGroups.OvrMinOf(g.Key), MarketGroups.OvrMax, g.Stats[0]) { Seasons = seasons };
         foreach (var t in g.Traits)
             yield return new($"{prefix}|{g.Key}|trait:{t}", ct => Tag(snapshot, g, $"trait:{t}", baseQuery with { Trait = t }, ct));
         foreach (var s in MarketGroups.SkillTags)

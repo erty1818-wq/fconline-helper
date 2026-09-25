@@ -79,6 +79,9 @@ public sealed class SquadMaker(SquadService squads, RankerUsage? rankers = null)
     {
         var pool = Search(index, position, grade, usedPlayers: usedPlayers, top: 400, members: members)
             .Where(s => s.Price > Grades.FloorPrice && s.Price <= maxPrice && s.Card.IsTraded && s.Card.PlayerId != current?.Card.PlayerId).ToList();
+        // Suggestions play where they really play: their own position, or here if rankers field them here.
+        var placed = pool.Where(s => s.Card.PlaysAsMain(position) || s.RankerUsers > 0).ToList();
+        if (placed.Select(s => s.Card.PlayerId).Distinct().Count() >= perKind) pool = placed;
         var result = new List<SlotSuggestion>();
         if (current is not null)
         {

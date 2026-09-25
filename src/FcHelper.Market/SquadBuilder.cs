@@ -178,6 +178,10 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
         return mode == SquadMode.Balanced ? 1 / (ovrWorth * 2) : 1 / ovrWorth;
     }
 
+    /// <summary>The cards (and grades) the builder weighs for one slot, before the search: to see why a card is or is not offered.</summary>
+    public IReadOnlyList<(MarketCard Card, int Grade)> CandidatesAt(SquadRequest request, int slot) =>
+        CandidatesFor(slot, request.Formation.Slots[slot], request).Select(c => (c.Card, c.Grade)).ToList();
+
     private List<Candidate> CandidatesFor(int index, string position, SquadRequest r, int floorDrop = 0)
     {
         if (r.Locked.TryGetValue(index, out var locked))
@@ -188,12 +192,21 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
             return [Make(card, position, locked.Grade, r, locked: true, owned: locked.Owned)];
         }
         var list = Pool(index, position, r);
-        // Cards too weak to be played at this level (e.g. an old cheap season of the right footballer) are left out
-        // while the slot keeps enough others: OVR 135 at the grade, 140 for keepers (the user's playable floor).
-        var floor = (Formations.Normalize(position) == "GK" ? PlayableGkOvr : PlayableOvr) - floorDrop;
-        var playable = list.Where(c => c.Ovr >= floor).ToList();
         var slotsOfPosition = r.Formation.Slots.Count(p => Formations.Normalize(p) == Formations.Normalize(position));
-        if (playable.Select(c => c.Card.PlayerId).Distinct().Count() >= Math.Max(2, slotsOfPosition + 1)) list = playable;
+        var enough = Math.Max(2, slotsOfPosition + 1);
+        bool Enough(IEnumerable<Candidate> c) => c.Select(x => x.Card.PlayerId).Distinct().Count() >= enough;
+        // Rankers field this card here (yesterday's chart, or the chosen 소속 colour's rankers' elevens).
+        bool RankersPlayHere(Candidate c) => rankers?.Users(position, c.Card.SpId) > 0 || r.ColorUsage?.Users(position, c.Card.SpId) > 0;
+        // A card goes where it really plays: its own position (the one the data center lists first) or where rankers
+        // use it — a CB is not put at CDM just because it lists CDM.
+        var placed = list.Where(c => c.Card.PlaysAsMain(position) || RankersPlayHere(c)).ToList();
+        if (Enough(placed)) list = placed;
+        // Cards too weak to be played at this level (e.g. an old cheap season of the right footballer) are left out
+        // while the slot keeps enough others: OVR 135 at the grade, 140 for keepers (the user's playable floor). Cards
+        // rankers really field there stay (old-season keepers such as COC or HOT at high grades).
+        var floor = (Formations.Normalize(position) == "GK" ? PlayableGkOvr : PlayableOvr) - floorDrop;
+        var playable = list.Where(c => c.Ovr >= floor || RankersPlayHere(c)).ToList();
+        if (Enough(playable)) list = playable;
         if (r.RankerPicksOnly) list = RankerUsed(list, position, r);
         if (r.Allocation?.For(position) is { } share)
         {
