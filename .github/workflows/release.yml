@@ -1,0 +1,47 @@
+name: Release
+
+# Pushing a tag like v0.6.1 builds FcHelper.exe on GitHub and publishes it as a release. The app's updater reads the
+# newest release (docs: src/FcHelper.App/Updater.cs), so friends get the new version without anyone uploading by hand.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the notes list the commits since the previous tag
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test tests/FcHelper.Tests -c Release
+
+      - name: Publish Windows app
+        shell: bash
+        run: >
+          dotnet publish src/FcHelper.App -c Release -r win-x64 -o publish/app
+          -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${GITHUB_REF_NAME#v}
+
+      - name: Release notes
+        shell: bash
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          range=${prev:+$prev..}$GITHUB_REF_NAME
+          git log --no-merges --pretty='- %s' "$range" | head -40 > notes.md
+          echo "" >> notes.md
+          echo "받는 법: 아래 FcHelper.exe 하나를 받아 실행하면 됩니다 (설치 없음). 이미 쓰는 중이면 앱이 새 버전을 알려 줍니다." >> notes.md
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" publish/app/FcHelper.exe --title "$GITHUB_REF_NAME" --notes-file notes.md
