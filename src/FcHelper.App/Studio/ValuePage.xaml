@@ -17,9 +17,9 @@
                     <StackPanel Margin="0,0,14,6"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GroupBox" DisplayMemberPath="Name" SelectionChanged="OnGroupChanged" MinWidth="130" /></StackPanel>
                     <StackPanel Margin="0,0,14,6"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" MinWidth="70" /></StackPanel>
                     <StackPanel Margin="0,0,14,6" VerticalAlignment="Bottom" Orientation="Horizontal">
-                        <ToggleButton x:Name="CardsView" Style="{StaticResource Chip}" Content="가성비 카드" IsChecked="True" Click="OnView" />
-                        <ToggleButton x:Name="FactorsView" Style="{StaticResource Chip}" Content="가격 요인 (이 포지션)" Click="OnView" />
-                        <ToggleButton x:Name="TraitsView" Style="{StaticResource Chip}" Content="신특 평균 값어치" Click="OnView" />
+                        <ToggleButton x:Name="CardsView" Style="{StaticResource Chip}" Content="가성비 카드" IsChecked="True" Click="OnView" Checked="OnView" />
+                        <ToggleButton x:Name="FactorsView" Style="{StaticResource Chip}" Content="가격 요인 (이 포지션)" Click="OnView" Checked="OnView" />
+                        <ToggleButton x:Name="TraitsView" Style="{StaticResource Chip}" Content="신특 평균 값어치" Click="OnView" Checked="OnView" />
                     </StackPanel>
                 </WrapPanel>
                 <studio:FilterPanel x:Name="Filters" />
@@ -45,8 +45,8 @@
             </DataGrid>
             <DataGrid x:Name="Factors" Visibility="Collapsed">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="요인" Binding="{Binding Name}" Width="190" />
-                    <DataGridTextColumn Header="구분" Binding="{Binding Kind}" Width="90" />
+                    <DataGridTextColumn Header="요인" Binding="{Binding Name}" Width="170" />
+                    <DataGridTextColumn Header="구분" Binding="{Binding Kind}" Width="175" />
                     <DataGridTextColumn Header="가격 영향" Binding="{Binding Percent}" Width="80" ElementStyle="{StaticResource Num}" SortMemberPath="PercentValue" />
                     <DataGridTextColumn Header="95% 범위" Binding="{Binding Range}" Width="110" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="OVR 환산" Binding="{Binding Ovr}" Width="75" ElementStyle="{StaticResource Num}" SortMemberPath="OvrValue" />

@@ -23,14 +23,21 @@ public partial class ValuePage : UserControl
         if (GroupBox.SelectedItem is MarketGroup g) Filters.SetGroup(g);
     }
 
+    private object? _view;
+
+    /// <summary>The three view chips act as one choice (click or keyboard/automation toggle); switching loads the view once.</summary>
     private void OnView(object sender, RoutedEventArgs e)
     {
+        if (!IsInitialized || CardsView is null || FactorsView is null || TraitsView is null) return;
+        var again = ReferenceEquals(_view, sender);
+        _view = sender;
         CardsView.IsChecked = ReferenceEquals(sender, CardsView);
         FactorsView.IsChecked = ReferenceEquals(sender, FactorsView);
         TraitsView.IsChecked = ReferenceEquals(sender, TraitsView);
         var table = CardsView.IsChecked != true;
         Results.Visibility = table ? Visibility.Collapsed : Visibility.Visible;
         Factors.Visibility = table ? Visibility.Visible : Visibility.Collapsed;
+        if (again) return; // a click also raises Checked: load once
         if (FactorsView.IsChecked == true) _ = ShowFactorsAsync();
         if (TraitsView.IsChecked == true) _ = ShowTraitsAsync();
     }
