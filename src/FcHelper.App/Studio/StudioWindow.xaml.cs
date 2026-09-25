@@ -24,6 +24,7 @@ public partial class StudioWindow : Window
         _pages =
         [
             new("squad", "스쿼드 짜기", () => new SquadPage()),
+            new("players", "선수 검색", () => new PlayerSearchPage()),
             new("picks", "숨은 랭커픽", () => new PicksPage()),
             new("value", "가성비 찾기", () => new ValuePage()),
             new("grade", "강화 효율", () => new GradePage()),

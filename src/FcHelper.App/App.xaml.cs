@@ -108,7 +108,8 @@ public partial class App : Application
             liquidity: new LiquidityCache(marketStore, new PriceHistoryClient(_http, dataCenter)),
             managerRankers: new RankerSquadClient(_http, dataCenter, () => _rankerStats as FcOnlineApi, "manager", 52),
             abilities: new AbilityCache(marketStore, new AbilityClient(_http, dataCenter)),
-            faces: new FaceClient(_http, dataCenter));
+            faces: new FaceClient(_http, dataCenter),
+            playerSearch: new PlayerSearchClient(_http, dataCenter));
         _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
         _ = KeepMarketFreshAsync(_exit.Token);
         _updater = new Updater(_http);

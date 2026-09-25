@@ -13,7 +13,8 @@ namespace FcHelper.Market;
 public sealed class SquadService(
     MarketService market, MarketStore store, IRankerChartSource charts, TeamColorCache teamColors,
     IRankerStatsSource? rankerStats = null, TimeProvider? time = null, SalaryCapCache? salaryCap = null, IRankerSquadSource? rankerSquads = null,
-    LiquidityCache? liquidity = null, RankerSquadClient? managerRankers = null, AbilityCache? abilities = null, FaceClient? faces = null)
+    LiquidityCache? liquidity = null, RankerSquadClient? managerRankers = null, AbilityCache? abilities = null, FaceClient? faces = null,
+    PlayerSearchClient? playerSearch = null)
 {
     public const int OfficialMatch = 50;
     public static readonly TimeSpan ChartTtl = TimeSpan.FromHours(12);
@@ -363,6 +364,50 @@ public sealed class SquadService(
         var options = FaceClient.Parse(json);
         if (options.Count > 0) store.SetValue(key, json, Now);
         return options;
+    }
+
+    // ── 선수 검색 ───────────────────────────────────────────────────────────
+
+    /// <summary>What the data center's player search offers (seasons, leagues, clubs, nations, traits …), kept a week.</summary>
+    public async Task<SearchOptions?> SearchOptionsAsync(CancellationToken ct = default)
+    {
+        const string key = "search.options";
+        if (store.GetValue(key) is { } v && Now - v.UpdatedAt < TimeSpan.FromDays(7))
+        {
+            try { if (JsonSerializer.Deserialize<SearchOptions>(v.Value) is { Seasons.Count: > 0 } kept) return kept; }
+            catch (JsonException) { /* fetch again */ }
+        }
+        if (playerSearch is null) return null;
+        var options = await playerSearch.OptionsAsync(ct);
+        if (options.Seasons.Count > 0) store.SetValue(key, JsonSerializer.Serialize(options), Now);
+        return options;
+    }
+
+    /// <summary>
+    /// Runs a player search on the data center. Names written as initials ("ㅁㅅ") are first turned into the matching
+    /// names of the market data (the data center takes whole letters only); several names go comma-separated.
+    /// </summary>
+    public async Task<(IReadOnlyList<ListRow> Rows, bool Truncated, string? Note)> PlayerSearchAsync(PlayerSearchQuery query, IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (playerSearch is null) return ([], false, "검색을 쓸 수 없습니다.");
+        string? note = null;
+        var parts = query.Names.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Any(Initials.IsInitials))
+        {
+            var names = new List<string>();
+            foreach (var part in parts)
+            {
+                if (!Initials.IsInitials(part)) { names.Add(part); continue; }
+                var found = Pool().Select(c => c.Name).Distinct().Where(n => Initials.Matches(n, part)).Take(30).ToList();
+                if (found.Count == 0) note = $"'{part}' 초성에 맞는 이름이 시세 데이터에 없습니다.";
+                names.AddRange(found);
+            }
+            if (names.Count == 0) return ([], false, note);
+            query = query with { Names = string.Join(",", names.Distinct()) };
+        }
+        var (rows, truncated) = await playerSearch.SearchAsync(query, progress: progress, ct: ct);
+        return (rows, truncated, note);
     }
 
     /// <summary>Known liquidity without a request, for marking search results.</summary>

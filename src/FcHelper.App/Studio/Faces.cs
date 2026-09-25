@@ -129,7 +129,11 @@ public static class Faces
             var file = source;
             if (source.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
-                var name = source[(source.IndexOf("/common/", StringComparison.Ordinal) + 8)..].Replace('/', '_');
+                // Player pictures keep their old cache names; other pictures (season icons …) go by their path.
+                var common = source.IndexOf("/common/", StringComparison.Ordinal);
+                var assets = source.IndexOf("externalAssets/", StringComparison.OrdinalIgnoreCase);
+                var name = (common >= 0 ? source[(common + 8)..] : assets >= 0 ? source[(assets + 15)..]
+                    : Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(source))) + ".png").Replace('/', '_');
                 file = Path.Combine(Folder("cdn"), name);
                 var missing = file + ".missing";
                 if (File.Exists(missing) && DateTime.UtcNow - File.GetLastWriteTimeUtc(missing) < TimeSpan.FromDays(7)) file = "";

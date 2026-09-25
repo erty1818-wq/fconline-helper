@@ -54,6 +54,7 @@ public static class AppIcons
                 "mysquad" => "Icon.Nav.MySquad",
                 "opponent" => "Icon.Nav.Opponent",
                 "teamcolor" => "Icon.Nav.TeamColor",
+                "players" => "Icon.Home.Search",
                 _ => "Icon.Nav." + char.ToUpperInvariant(suffix[0]) + suffix[1..],
             };
         }
