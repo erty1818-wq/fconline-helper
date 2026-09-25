@@ -36,6 +36,10 @@ public sealed class AppSettings
     public bool ShowMarket { get; set; } = true;
     /// <summary>Refresh value-finder prices daily and new seasons at once, in the background, never during a game.</summary>
     public bool MarketAutoRefresh { get; set; } = true;
+    /// <summary>The API key guide opens by itself once, on the first run without a key; later from its button.</summary>
+    public bool ApiGuideShown { get; set; }
+    /// <summary>Download new versions in the background and switch to them on the next start (the notice still shows).</summary>
+    public bool AutoUpdate { get; set; } = true;
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly byte[] Entropy = "FcHelper.ApiKey.v1"u8.ToArray();

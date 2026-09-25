@@ -41,6 +41,7 @@
 
         <CheckBox x:Name="MarketBox" Content="위험 선수의 능력치·시세 표시 (FC온라인 데이터센터에서 조회)" Margin="0,12,0,4" />
         <CheckBox x:Name="MarketRefreshBox" Content="가성비 찾기 시세 자동 갱신 (하루 1번 · 새 시즌은 바로 · 게임 중에는 미룸)" />
+        <CheckBox x:Name="AutoUpdateBox" Content="자동 업데이트 (새 버전을 미리 받아 두고 다음에 켤 때 적용 · 알림은 항상 표시)" />
         <CheckBox x:Name="VoiceBox" Content="검색 결과를 음성으로 읽어주기 (한국어 음성 필요)" />
         <CheckBox x:Name="TopmostBox" Content="검색 창을 항상 위에 표시" />
         <CheckBox x:Name="StartupBox" Content="Windows 시작 시 트레이로 실행" />

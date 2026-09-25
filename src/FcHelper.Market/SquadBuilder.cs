@@ -49,12 +49,48 @@ public sealed record SquadRequest
     /// instead of wherever an OVR point is cheapest. A position with fewer such footballers than slots falls back to all cards.
     /// </summary>
     public RankerAllocation? Allocation { get; init; }
-    /// <summary>Only cards top rankers field at that position.</summary>
+    /// <summary>Only cards top rankers field at that position (rankers of the chosen 소속 colour when <see cref="ColorUsage"/> is known).</summary>
     public bool RankerPicksOnly { get; init; }
+    /// <summary>
+    /// The cards rankers of the chosen 소속 colour field, per role. The builder prefers them (a card nobody of that
+    /// colour plays, like a cheap old season, only fills a role no used card can), and keeps to them with <see cref="RankerPicksOnly"/>.
+    /// </summary>
+    public ColorCardUsage? ColorUsage { get; init; }
     public int Plans { get; init; } = 3;
 }
 
 public sealed record LockedCard(long SpId, int Grade, bool Owned);
+
+/// <summary>Which cards the sampled rankers of one 소속 colour field in each role, and how many of them do.</summary>
+public sealed class ColorCardUsage
+{
+    private readonly Dictionary<(string Role, long SpId), int> _users = [];
+    private readonly Dictionary<long, int> _anyRole = [];
+
+    public ColorCardUsage(string teamColor, IReadOnlyList<RankerSquad> squads)
+    {
+        TeamColor = teamColor;
+        Squads = squads.Count;
+        foreach (var s in squads)
+        {
+            foreach (var p in s.Starters.DistinctBy(p => (RankerAllocation.RoleOf(p.Position), p.SpId)))
+            {
+                var key = (RankerAllocation.RoleOf(p.Position), p.SpId);
+                _users[key] = _users.GetValueOrDefault(key) + 1;
+            }
+            foreach (var id in s.Starters.Select(p => p.SpId).Distinct()) _anyRole[id] = _anyRole.GetValueOrDefault(id) + 1;
+        }
+    }
+
+    public string TeamColor { get; }
+    public int Squads { get; }
+
+    /// <summary>Rankers of the colour who field the card in this position's role.</summary>
+    public int Users(string position, long spId) => _users.GetValueOrDefault((RankerAllocation.RoleOf(position), spId));
+
+    /// <summary>Rankers of the colour who field the card anywhere in their eleven.</summary>
+    public int UsersAnywhere(long spId) => _anyRole.GetValueOrDefault(spId);
+}
 
 /// <param name="TeamColorBonus">OVR the active team colours add at this slot (whole for "전체 능력치", fractional for single stats [추정]).</param>
 public sealed record SquadSlot(int Index, string Position, MarketCard Card, int Grade, int Ovr, double Premium, double TeamColorBonus,
@@ -101,7 +137,15 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
     public IReadOnlyList<SquadPlan> Build(SquadRequest request)
     {
         var slots = request.Formation.Slots;
-        var candidates = slots.Select((pos, i) => CandidatesFor(i, pos, request)).ToList();
+        // The playable floor drops 5 at a time only while the cheapest-salary eleven would not fit the cap (a Bayern
+        // eleven of 135+ cards at +8 needs 321 salary): the squad then takes a few lower cards, not the weakest ones.
+        List<List<Candidate>> candidates = [];
+        foreach (var drop in new[] { 0, 5, 10, 15, 99 })
+        {
+            candidates = slots.Select((pos, i) => CandidatesFor(i, pos, request, drop)).ToList();
+            if (candidates.Any(c => c.Count == 0)) continue;
+            if (candidates.Sum(c => c.Min(x => x.Card.Pay)) <= request.SalaryCap && candidates.Sum(c => c.Min(x => x.Cost)) <= request.Budget) break;
+        }
         var empty = candidates.Select((c, i) => (c, i)).Where(t => t.c.Count == 0).Select(t => slots[t.i]).ToList();
         if (empty.Count > 0)
         {
@@ -134,7 +178,7 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
         return mode == SquadMode.Balanced ? 1 / (ovrWorth * 2) : 1 / ovrWorth;
     }
 
-    private List<Candidate> CandidatesFor(int index, string position, SquadRequest r)
+    private List<Candidate> CandidatesFor(int index, string position, SquadRequest r, int floorDrop = 0)
     {
         if (r.Locked.TryGetValue(index, out var locked))
         {
@@ -143,20 +187,14 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
             if (card is null) return [];
             return [Make(card, position, locked.Grade, r, locked: true, owned: locked.Owned)];
         }
-        var list = new List<Candidate>();
-        foreach (var card in cards)
-        {
-            if (!card.IsTraded || r.ExcludedPlayers.Contains(card.PlayerId) || card.Pay > r.SalaryCap) continue;
-            if (r.OnlyAffiliationMembers && r.TeamColors.Any(t => t.Color.Category == TeamColorCategory.Affiliation && !t.Members.Contains(card.SpId))) continue;
-            if (card.OvrAt(position, 1) is null) continue;
-            if (r.RankerPicksOnly && rankers?.Users(position, card.SpId) is not > 0) continue;
-            foreach (var g in r.Grades.Where(g => g <= Grades.MaxTradable))
-            {
-                var price = card.PriceAt(g);
-                if (price <= Grades.FloorPrice || price > r.Budget || r.ExcludedCards.Contains((card.SpId, g))) continue;
-                list.Add(Make(card, position, g, r, locked: false, owned: false));
-            }
-        }
+        var list = Pool(index, position, r);
+        // Cards too weak to be played at this level (e.g. an old cheap season of the right footballer) are left out
+        // while the slot keeps enough others: OVR 135 at the grade, 140 for keepers (the user's playable floor).
+        var floor = (Formations.Normalize(position) == "GK" ? PlayableGkOvr : PlayableOvr) - floorDrop;
+        var playable = list.Where(c => c.Ovr >= floor).ToList();
+        var slotsOfPosition = r.Formation.Slots.Count(p => Formations.Normalize(p) == Formations.Normalize(position));
+        if (playable.Select(c => c.Card.PlayerId).Distinct().Count() >= Math.Max(2, slotsOfPosition + 1)) list = playable;
+        if (r.RankerPicksOnly) list = RankerUsed(list, position, r);
         if (r.Allocation?.For(position) is { } share)
         {
             var finite = r.Budget < long.MaxValue;
@@ -167,10 +205,76 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
             var slotsHere = r.Formation.Slots.Count(p => Formations.Normalize(p) == Formations.Normalize(position));
             if (banded.Select(c => c.Card.PlayerId).Distinct().Count() >= slotsHere) list = banded;
         }
-        // The strongest, plus the cheapest per strength band so low budgets still find squads.
-        var strongest = list.OrderByDescending(c => c.Ovr + c.Premium + (c.Members != 0 ? 2 : 0)).Take(CandidatesPerSlot);
+        // The strongest, plus the cheapest per strength band so low budgets still find squads, plus the best 특성
+        // members so the colour's level can be reached even when its cards are not among the strongest.
+        var strongest = list.OrderByDescending(c => c.Ovr + c.Premium + (c.Members != 0 ? 2 : 0) + ColorPull(r, position, c.Card.SpId)).Take(CandidatesPerSlot);
         var cheap = list.GroupBy(c => c.Ovr / 2).SelectMany(g => g.OrderBy(c => c.Price).Take(2));
-        return strongest.Concat(cheap).Distinct().ToList();
+        var feature = FeatureMask(r);
+        var members = feature == 0 ? [] : list.Where(c => (c.Members & feature) != 0).OrderByDescending(c => c.Ovr + c.Premium).Take(20);
+        return strongest.Concat(cheap).Concat(members).Distinct().ToList();
+    }
+
+    /// <summary>
+    /// OVR points worth of "rankers of this colour really play it": up to about 4 for the most used cards, nothing for
+    /// cards none of them fields (so a cheap old season of the right footballer loses to the card rankers use).
+    /// </summary>
+    internal static double ColorPull(SquadRequest r, string position, long spId) =>
+        r.ColorUsage is not { Squads: > 0 } u ? 0 : 4 * Math.Min(1, (u.Users(position, spId) + 0.5 * u.UsersAnywhere(spId)) / Math.Max(3, u.Squads * 0.25));
+
+    /// <summary>Bits of the request's 특성 colours (their bonus reaches only members, so the squad must hold enough of them).</summary>
+    private static int FeatureMask(SquadRequest r)
+    {
+        var mask = 0;
+        for (var i = 0; i < r.TeamColors.Count; i++)
+            if (r.TeamColors[i].Color.Category == TeamColorCategory.Feature) mask |= 1 << i;
+        return mask;
+    }
+
+    /// <summary>Distinct footballers a slot keeps at least, so eleven different players under the salary cap stay possible.</summary>
+    private const int MinPool = 6;
+
+    /// <summary>The lowest OVR at the bought grade a squad card is taken at (135 + 적응도 5 + team colours ≈ 148 in game).</summary>
+    public const int PlayableOvr = 135, PlayableGkOvr = 140;
+
+    /// <summary>
+    /// 랭커가 쓰는 카드만: the cards rankers field in this role (rankers of the chosen 소속 colour when known, else the
+    /// daily chart). When that leaves too few footballers, it widens step by step — the colour's rankers' cards in other
+    /// roles, then the daily chart's — and only then to every card; the ranker preference still ranks them.
+    /// </summary>
+    private List<Candidate> RankerUsed(List<Candidate> all, string position, SquadRequest r)
+    {
+        var steps = new List<Func<Candidate, bool>>();
+        if (r.ColorUsage is { } u)
+        {
+            steps.Add(c => u.Users(position, c.Card.SpId) > 0);
+            steps.Add(c => u.UsersAnywhere(c.Card.SpId) > 0);
+        }
+        if (rankers is not null) steps.Add(c => rankers.Users(position, c.Card.SpId) > 0);
+        var kept = new List<Candidate>();
+        foreach (var step in steps)
+        {
+            kept = [.. kept.Union(all.Where(step))];
+            if (kept.Select(c => c.Card.PlayerId).Distinct().Count() >= MinPool) return kept;
+        }
+        return all;
+    }
+
+    private List<Candidate> Pool(int index, string position, SquadRequest r)
+    {
+        var list = new List<Candidate>();
+        foreach (var card in cards)
+        {
+            if (!card.IsTraded || r.ExcludedPlayers.Contains(card.PlayerId) || card.Pay > r.SalaryCap) continue;
+            if (r.OnlyAffiliationMembers && r.TeamColors.Any(t => t.Color.Category == TeamColorCategory.Affiliation && !t.Members.Contains(card.SpId))) continue;
+            if (card.OvrAt(position, 1) is null) continue;
+            foreach (var g in r.Grades.Where(g => g <= Grades.MaxTradable))
+            {
+                var price = card.PriceAt(g);
+                if (price <= Grades.FloorPrice || price > r.Budget || r.ExcludedCards.Contains((card.SpId, g))) continue;
+                list.Add(Make(card, position, g, r, locked: false, owned: false));
+            }
+        }
+        return list;
     }
 
     private Candidate Make(MarketCard card, string position, int grade, SquadRequest r, bool locked, bool owned)
@@ -225,7 +329,8 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
         if (minCostAfter[0] > r.Budget) throw new InvalidOperationException($"예산이 부족합니다. 가장 싼 조합도 {Bp.Format(minCostAfter[0])}입니다.");
         if (minPayAfter[0] > r.SalaryCap) throw new InvalidOperationException($"급여 한도가 부족합니다. 가장 낮은 조합도 급여 {minPayAfter[0]}입니다.");
 
-        double Value(Candidate c) => c.Ovr + c.Premium + rankerWeight * Math.Log2(1 + c.RankerUsers) - lambda * c.Cost;
+        double Value(Candidate c, int slot) =>
+            c.Ovr + c.Premium + rankerWeight * Math.Log2(1 + c.RankerUsers) + ColorPull(r, r.Formation.Slots[slot], c.Card.SpId) - lambda * c.Cost;
         var bonus = new TeamColorBonus(r);
         var beam = new List<State> { new() { Picks = new Candidate[n], Players = [], Score = 0, Members = new int[r.TeamColors.Count] } };
         for (var k = 0; k < n; k++)
@@ -245,23 +350,46 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
                     next.Add(new State
                     {
                         Picks = picks, Players = [.. s.Players, c.Card.PlayerId], Cost = cost, Pay = pay,
-                        Score = s.Score + Value(c), Members = Add(s.Members, c.Members),
+                        Score = s.Score + Value(c, slot), Members = Add(s.Members, c.Members),
                     });
                 }
             }
             if (next.Count == 0) throw new InvalidOperationException("예산과 급여 한도 안에서 스쿼드를 완성하지 못했습니다.");
-            beam = next.OrderByDescending(s => s.Score + bonus.Total(s.Picks, s.Members)).ThenBy(s => s.Cost).Take(BeamWidth).ToList();
+            beam = next.OrderByDescending(s => s.Score + bonus.Total(s.Picks, s.Members) + FeatureProgress(s.Members)).ThenBy(s => s.Cost).Take(BeamWidth).ToList();
         }
 
+        // Squads that reach every 특성 colour's first level come first; the rest only when none does (too few members).
         var plans = new List<SquadPlan>();
-        foreach (var s in beam.OrderByDescending(s => s.Score + bonus.Total(s.Picks, s.Members)))
+        foreach (var s in beam.OrderByDescending(s => FeatureReached(s.Members)).ThenByDescending(s => s.Score + bonus.Total(s.Picks, s.Members)))
         {
             if (plans.Any(p => Differs(p, s.Picks) < 2)) continue;
             plans.Add(ToPlan(r, s, bonus));
             if (plans.Count >= r.Plans) break;
         }
         return plans;
+
+        // Pulls partial squads towards the 특성 colours' first level (members count, up to what the level needs): the
+        // bonus itself only shows once the level is reached, too late for a beam that prunes early.
+        double FeatureProgress(int[] members)
+        {
+            double total = 0;
+            for (var t = 0; t < members.Length; t++)
+                if (r.TeamColors[t].Color.Category == TeamColorCategory.Feature && FirstLevel(t) is { } need) total += FeaturePull * Math.Min(members[t], need);
+            return total;
+        }
+
+        bool FeatureReached(int[] members)
+        {
+            for (var t = 0; t < members.Length; t++)
+                if (r.TeamColors[t].Color.Category == TeamColorCategory.Feature && FirstLevel(t) is { } need && members[t] < need) return false;
+            return true;
+        }
+
+        int? FirstLevel(int t) => r.TeamColors[t].Color.Levels.Count == 0 ? null : r.TeamColors[t].Color.Levels.Min(l => l.Members);
     }
+
+    /// <summary>OVR points a 특성 member is worth to the search until the colour's first level is met.</summary>
+    private const double FeaturePull = 8;
 
     private static int[] Add(int[] counts, int mask)
     {

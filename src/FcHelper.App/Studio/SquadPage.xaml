@@ -108,17 +108,21 @@
                                    ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                     </StackPanel>
                 </Border>
+                <!-- A small note above the pitch, not over it (the empty slots already show where to click); ✕ or any slot click closes it. -->
+                <Border x:Name="EmptyState" DockPanel.Dock="Top" HorizontalAlignment="Center" Background="{StaticResource Panel}" Opacity="0.96"
+                        BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="14,8,8,8" Margin="0,0,0,6" MaxWidth="560">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="✕" Click="OnCloseHint" Padding="7,2" Margin="10,0,0,0"
+                                VerticalAlignment="Top" ToolTip="안내 닫기" />
+                        <StackPanel>
+                            <TextBlock Text="빈 자리(+)를 눌러 선수를 넣거나, 위의 [AI 추천 스쿼드]를 누르세요" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource Hint}" Margin="0,3,0,0" TextWrapping="Wrap"
+                                       Text="AI는 최강 · 균형 · 가성비 · 랭커픽 4가지 안을 비교합니다. 카드를 끌어서 포지션을 바꿀 수도 있습니다." />
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
                 <Grid x:Name="PitchHost">
                     <studio:PitchView x:Name="Pitch" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    <Border x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Background="{StaticResource Panel}"
-                            BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="24,18" MaxWidth="420">
-                        <StackPanel>
-                            <Image Source="{app:Skin empty}" MaxHeight="120" Margin="0,0,0,8" />
-                            <TextBlock Text="[AI 추천 스쿼드] 또는 [빈 스쿼드로 직접 짜기]" FontSize="15" HorizontalAlignment="Center" />
-                            <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0" TextWrapping="Wrap"
-                                       Text="AI는 최강 · 균형 · 가성비 · 랭커픽 4가지 안을 비교합니다. 고른 안은 선수마다 바꾸거나 강화를 고칠 수 있습니다." />
-                        </StackPanel>
-                    </Border>
 
                     <!-- Focus mode overlay -->
                     <!-- Left floating panel -->

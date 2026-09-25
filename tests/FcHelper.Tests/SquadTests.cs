@@ -362,6 +362,62 @@ public class SquadBuilderTests
         if (plan.TeamColors[0].Members == 3)
             Assert.All(upgrades.SelectMany(u => u.Moves), m => Assert.True(!members.Contains(m.Out.Card.SpId) || members.Contains(m.In.SpId)));
     }
+
+    [Fact]
+    public void A_cheap_card_too_weak_to_play_stays_out_while_there_are_others()
+    {
+        var cards = Market();
+        // An old season of a striker: at +8 only OVR 125, almost free — the squad takes it only if nothing else fits.
+        var junk = Card("ST", 110, 10_000);
+        cards.Add(junk);
+        var plan = Builder(cards).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000_000, Mode = SquadMode.Value })[0];
+        Assert.DoesNotContain(plan.Slots, s => s.Card.SpId == junk.SpId);
+    }
+
+    [Fact]
+    public void Ranker_only_widens_a_position_rankers_do_not_show()
+    {
+        var cards = Market();
+        // The chart knows only one GK: every other slot would be empty with 랭커가 쓰는 카드만.
+        var gk = cards.First(c => c.Group == "GK");
+        var usage = new RankerUsage([new RankerPick("GK", gk.SpId, gk.Name, 8, 140, 25, 50, 0.5)]);
+        var plans = new SquadBuilder(cards, _ => null, usage).Build(new SquadRequest
+        {
+            Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000, RankerPicksOnly = true,
+        });
+        Assert.Equal(11, plans[0].Slots.Count); // too few ranker cards per slot: widened to all of them, not "no card"
+    }
+
+    [Fact]
+    public void The_cards_rankers_of_the_colour_play_win_over_equal_ones()
+    {
+        var cards = Market();
+        var strikers = cards.Where(c => c.Group == "ST" && c.Ovr1 == 123).ToList();
+        var twin = Card("ST", 123, 30_000_000);
+        cards.Add(twin);
+        var squads = Enumerable.Range(1, 6).Select(i => new RankerSquad(i, $"r{i}", 0, [new RankerSquadPlayer(twin.SpId, 8, "ST")])).ToList();
+        var plan = Builder(cards).Build(new SquadRequest
+        {
+            Formation = Formations.Find("4-2-2-2")!, Budget = 700_000_000, Mode = SquadMode.Balanced,
+            ColorUsage = new ColorCardUsage("테스트", squads),
+        })[0];
+        Assert.Contains(plan.Slots, s => s.Card.SpId == twin.SpId);
+    }
+
+    [Fact]
+    public void A_feature_colour_reaches_its_first_level()
+    {
+        var cards = Market();
+        // Five members, each 2 OVR below the best card of its slot: the colour is met, not skipped.
+        var members = cards.Where(c => c.Ovr1 == 123 && c.Group is "CB" or "CDM" or "ST").Take(5).Select(c => c.SpId).ToHashSet();
+        var feature = new TeamColor(40190, "테스트 트레블", TeamColorCategory.Feature, 5, [new(1, 5, 0, ["골 결정력 +2"])]);
+        var plan = Builder(cards).Build(new SquadRequest
+        {
+            Formation = Formations.Find("4-2-2-2")!, Budget = 5_000_000_000, TeamColors = [new TeamColorTarget(feature, members)],
+        })[0];
+        Assert.True(plan.Slots.Count(s => members.Contains(s.Card.SpId)) >= 5);
+        Assert.NotNull(plan.TeamColors.Single(t => t.Color.Id == 40190).Level);
+    }
 }
 
 public class LiquidityTests

@@ -1,0 +1,88 @@
+<Window x:Class="FcHelper.App.ApiGuideWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="NEXON Open API 키 발급 안내" Width="760" Height="820" MinWidth="560" MinHeight="500"
+        WindowStartupLocation="CenterOwner" Background="{StaticResource Bg}" Foreground="{StaticResource Text}">
+    <Window.Resources>
+        <!-- Lines built from Runs: the app-wide TextBlock style hides TextBlocks whose Text is empty, which Runs leave empty. -->
+        <Style x:Key="Rich" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+    <DockPanel Margin="22,18">
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <Button DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="키를 받았어요 → 붙여 넣기" Click="OnDone" IsDefault="True" />
+            <TextBlock x:Name="Copied" Style="{StaticResource Hint}" Foreground="{StaticResource Accent}" VerticalAlignment="Center" />
+        </DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <TextBlock Text="API 키 발급 (처음 한 번, 약 3분)" Style="{StaticResource H1}" />
+            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="구단주 검색·전적 분석은 넥슨이 무료로 주는 내 API 키로 공식 데이터를 읽습니다. 키는 이 PC에만 암호화해 저장합니다. 스쿼드 도우미는 키 없이도 됩니다." />
+        </StackPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- 1 -->
+                <Border Style="{StaticResource CardPanel}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="1. FC온라인 공식 홈페이지 → 자료실 → Nexon Open API" Style="{StaticResource H2}" />
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,8">
+                            <Hyperlink NavigateUri="https://fconline.nexon.com/" RequestNavigate="OnOpenLink" Foreground="{StaticResource Info}">fconline.nexon.com</Hyperlink>
+                            <Run Text=" 위쪽 메뉴 [자료실]에 마우스를 올리고 [Nexon Open API]를 누릅니다. (바로 가기: " />
+                            <Hyperlink NavigateUri="https://openapi.nexon.com/ko/" RequestNavigate="OnOpenLink" Foreground="{StaticResource Info}">openapi.nexon.com</Hyperlink>
+                            <Run Text=")" />
+                        </TextBlock>
+                        <Image Source="/Assets/ApiGuide/step1.png" Stretch="Uniform" MaxHeight="260" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </Border>
+                <!-- 2 -->
+                <Border Style="{StaticResource CardPanel}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="2. 마이페이지 → 애플리케이션 등록 → 이용약관 동의" Style="{StaticResource H2}" />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,2,0,8"
+                                   Text="넥슨 계정으로 로그인한 뒤 [마이 페이지] → [애플리케이션 등록]을 누르고, 이용약관을 맨 아래까지 스크롤해서 약관에 동의합니다." />
+                        <Image Source="/Assets/ApiGuide/step2.png" Stretch="Uniform" MaxHeight="220" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </Border>
+                <!-- 3 -->
+                <Border Style="{StaticResource CardPanel}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="3. 신청서 입력" Style="{StaticResource H2}" />
+                        <TextBlock Style="{StaticResource Rich}" Margin="0,4,0,0">
+                            <Run Text="• 어떤 게임으로 애플리케이션을 만드실 건가요? → " /><Run Text="EA SPORTS FC 온라인" FontWeight="SemiBold" Foreground="{StaticResource Accent}" />
+                        </TextBlock>
+                        <TextBlock Style="{StaticResource Rich}" Margin="0,4,0,0">
+                            <Run Text="• 아직 개발 단계인가요? 아니면 서비스 출시 단계인가요? → " /><Run Text="서비스 단계" FontWeight="SemiBold" Foreground="{StaticResource Accent}" />
+                        </TextBlock>
+                        <TextBlock Style="{StaticResource Rich}" Margin="0,4,0,8">
+                            <Run Text="• 대표 언어 " /><Run Text="한국어(ko)" FontWeight="SemiBold" Foreground="{StaticResource Accent}" /><Run Text=", 서비스명과 서비스 설명은 아래 [복사]를 눌러 붙여 넣으세요." />
+                        </TextBlock>
+                        <Image Source="/Assets/ApiGuide/step3.png" Stretch="Uniform" MaxHeight="320" HorizontalAlignment="Left" Margin="0,0,0,10" />
+
+                        <TextBlock Text="서비스명" Style="{StaticResource FieldLabel}" />
+                        <DockPanel Margin="0,0,0,8">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="복사" Padding="12,4" Margin="6,0,0,0" Click="OnCopy" Tag="{Binding Text, ElementName=ServiceName}" />
+                            <TextBox x:Name="ServiceName" IsReadOnly="True" Text="FC Helper 전적·스쿼드 도우미" />
+                        </DockPanel>
+                        <TextBlock Text="서비스 설명 (30자 이상)" Style="{StaticResource FieldLabel}" />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="복사" Padding="12,4" Margin="6,0,0,0" VerticalAlignment="Top" Click="OnCopy"
+                                    Tag="{Binding Text, ElementName=ServiceDescription}" />
+                            <TextBox x:Name="ServiceDescription" IsReadOnly="True" TextWrapping="Wrap" MinHeight="60"
+                                     Text="FC 온라인 공식경기 상대의 최근 전적을 분석하고, 시세와 랭커 데이터로 AI 스쿼드 메이커 추천과 감독모드 팀컬러·선수 분석을 제공하는 개인용 PC 도우미입니다." />
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+                <!-- 4 -->
+                <Border Style="{StaticResource CardPanel}">
+                    <StackPanel>
+                        <TextBlock Text="4. 등록 완료 → API 키 복사 → 이 프로그램에 붙여 넣기" Style="{StaticResource H2}" />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                   Text="[애플리케이션 목록]에서 방금 만든 애플리케이션의 API Key를 복사해, 이 창을 닫고 첫 화면의 [NEXON Open API 키] 칸에 붙여 넣은 뒤 [시작하기]를 누르면 끝입니다. 키는 다른 사람에게 보여 주지 마세요." />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

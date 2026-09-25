@@ -22,6 +22,7 @@ public partial class SettingsWindow : Window
         SaveCapturesBox.IsChecked = settings.SaveCaptures;
         MarketBox.IsChecked = settings.ShowMarket;
         MarketRefreshBox.IsChecked = settings.MarketAutoRefresh;
+        AutoUpdateBox.IsChecked = settings.AutoUpdate;
     }
 
     private void OnSaveClick(object sender, RoutedEventArgs e)
@@ -48,6 +49,7 @@ public partial class SettingsWindow : Window
         _settings.SaveCaptures = SaveCapturesBox.IsChecked == true;
         _settings.ShowMarket = MarketBox.IsChecked == true;
         _settings.MarketAutoRefresh = MarketRefreshBox.IsChecked == true;
+        _settings.AutoUpdate = AutoUpdateBox.IsChecked == true;
         _settings.Save();
         DialogResult = true;
     }

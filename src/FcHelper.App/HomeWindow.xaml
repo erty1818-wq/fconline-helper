@@ -55,10 +55,13 @@
                            Text="로그인이 아닙니다. 내 NEXON Open API 키로 공식 데이터를 읽고, 내 닉네임은 재대결 전적과 내 스쿼드 분석에 씁니다. 키는 Windows 계정 암호화로 이 PC에만 저장되고 다른 곳으로 보내지 않습니다." />
                 <TextBlock Text="NEXON Open API 키" Style="{StaticResource FieldLabel}" />
                 <PasswordBox x:Name="KeyBox" />
-                <TextBlock Style="{StaticResource Hint}" Margin="0,3,0,8">
-                    <Hyperlink NavigateUri="https://openapi.nexon.com/ko/" RequestNavigate="OnOpenLink" Foreground="{StaticResource Info}">openapi.nexon.com</Hyperlink>
-                    <Run Text="→ 로그인 → 애플리케이션 등록(FC온라인) → 발급된 키를 붙여 넣기" />
-                </TextBlock>
+                <DockPanel Margin="0,4,0,8">
+                    <Button DockPanel.Dock="Left" Style="{StaticResource Ghost}" Content="📖 키 발급 방법 보기 (사진 안내)" Click="OnApiGuide" Padding="10,4" Margin="0,0,10,0" />
+                    <TextBlock Style="{StaticResource Hint}" VerticalAlignment="Center" TextWrapping="Wrap">
+                        <Hyperlink NavigateUri="https://openapi.nexon.com/ko/" RequestNavigate="OnOpenLink" Foreground="{StaticResource Info}">openapi.nexon.com</Hyperlink>
+                        <Run Text="에서 무료로 발급 (약 3분)" />
+                    </TextBlock>
+                </DockPanel>
                 <TextBlock Text="내 닉네임" Style="{StaticResource FieldLabel}" />
                 <TextBox x:Name="NicknameBox" />
                 <DockPanel Margin="0,12,0,0">

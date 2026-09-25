@@ -55,6 +55,12 @@ public partial class App : Application
         base.OnStartup(e);
 
         _singleInstance = new Mutex(true, @"Local\FcHelper.SingleInstance", out var isFirst);
+        // Started by an update: the old process is closing, wait for it instead of refusing to start.
+        if (!isFirst && e.Args.Contains("--after-update"))
+        {
+            try { isFirst = _singleInstance.WaitOne(TimeSpan.FromSeconds(20)); }
+            catch (AbandonedMutexException) { isFirst = true; }
+        }
         if (!isFirst)
         {
             MessageBox.Show("FC Online Helper가 이미 실행 중입니다. 트레이 아이콘을 확인하세요.", "FC Online Helper");
@@ -77,6 +83,12 @@ public partial class App : Application
 
         AppFont.Apply();
         Settings = AppSettings.Load();
+        // A version downloaded in the background last time is switched to before anything else starts.
+        if (Updater.Cleanup() && Settings.AutoUpdate && Updater.ApplyAndRestart())
+        {
+            Shutdown();
+            return;
+        }
         _db = new FcDatabase(AppPaths.DatabasePath);
         CreateTray();
         _hotkey = new GlobalHotkey(GlobalHotkey.ModControl | GlobalHotkey.ModAlt, VkS, ShowSearch);
@@ -99,6 +111,10 @@ public partial class App : Application
             faces: new FaceClient(_http, dataCenter));
         _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
         _ = KeepMarketFreshAsync(_exit.Token);
+        _updater = new Updater(_http);
+        _updater.Found += info => Dispatcher.BeginInvoke(() => OnUpdateFound(info));
+        _ = CheckUpdatesAsync(_exit.Token);
+        if (e.Args.Contains("--after-update")) Notify($"v{Updater.Current}(으)로 업데이트했습니다.");
         // The home screen asks for the key on first run; the squad helper works without one.
         if (e.Args.Contains("--studio")) ShowStudio();
         else if (!e.Args.Contains("--tray") || Service is null) ShowHome();
@@ -401,6 +417,68 @@ public partial class App : Application
         }
     }
 
+    // ── updates ────────────────────────────────────────────────────────────
+
+    private Updater? _updater;
+    private UpdateToast? _updateToast;
+    private Forms.ToolStripMenuItem? _updateItem;
+
+    /// <summary>One look at the release page a minute after start and then every six hours (a single request each).</summary>
+    private async Task CheckUpdatesAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(1), ct);
+            while (!ct.IsCancellationRequested && _updater is { } updater)
+            {
+                await updater.CheckAsync(ct);
+                await Task.Delay(TimeSpan.FromHours(6), ct);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // exiting
+        }
+    }
+
+    /// <summary>
+    /// A newer version: a notice by the clock, the tray menu entry, and the update window above whatever page is open.
+    /// With 자동 업데이트 it is downloaded first, so the click only restarts.
+    /// </summary>
+    private async void OnUpdateFound(UpdateInfo info)
+    {
+        if (_updater is null) return;
+        var downloaded = false;
+        if (Settings.AutoUpdate)
+        {
+            try { downloaded = await _updater.DownloadAsync(info); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException) { downloaded = false; }
+        }
+        _tray?.ShowBalloonTip(10000, $"FC Online Helper 새 버전 {info.Tag}",
+            downloaded ? "받아 두었습니다. 알림 창의 [지금 다시 시작]을 누르거나 다음에 켤 때 적용됩니다." : "트레이 메뉴나 알림 창에서 [지금 업데이트]를 누르세요.", Forms.ToolTipIcon.Info);
+        if (_updateItem is not null)
+        {
+            _updateItem.Text = $"⬆ 새 버전 {info.Tag}으로 업데이트";
+            _updateItem.Font = new System.Drawing.Font(_updateItem.Font, System.Drawing.FontStyle.Bold);
+        }
+        ShowUpdateToast(info, downloaded);
+    }
+
+    private void ShowUpdateToast(UpdateInfo info, bool downloaded)
+    {
+        _updateToast?.Close();
+        _updateToast = new UpdateToast(_updater!, info, downloaded);
+        _updateToast.Closed += (_, _) => _updateToast = null;
+        _updateToast.Show();
+    }
+
+    private async void OnUpdateMenu()
+    {
+        if (_updater is null) return;
+        if (_updater.Available is { } known) { ShowUpdateToast(known, false); return; }
+        if (await _updater.CheckAsync() is null) Notify($"지금 버전 v{Updater.Current}이 최신입니다.");
+    }
+
     // ── tray ───────────────────────────────────────────────────────────────
 
     private void CreateTray()
@@ -413,6 +491,8 @@ public partial class App : Application
         menu.Items.Add("가성비 찾기", null, (_, _) => ShowStudio("value"));
         menu.Items.Add("내 경기 동기화", null, (_, _) => SyncMine());
         menu.Items.Add("설정", null, (_, _) => ShowSettings());
+        _updateItem = new Forms.ToolStripMenuItem($"업데이트 확인 (v{Updater.Current})", null, (_, _) => OnUpdateMenu());
+        menu.Items.Add(_updateItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => Shutdown());
 

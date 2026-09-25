@@ -44,14 +44,18 @@ public sealed partial class RankerSquadClient(HttpClient http, RateLimiter dataC
         return rows.Take(count).ToList();
     }
 
-    public async Task<IReadOnlyList<RankerSquad>> FetchAsync(int count, IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task<IReadOnlyList<RankerSquad>> FetchAsync(int count, IProgress<string>? progress = null, CancellationToken ct = default) =>
+        await FetchAsync(await RankingAsync(count, progress, ct), progress, ct);
+
+    /// <summary>The latest official eleven of each of these rankers (three API calls each).</summary>
+    public async Task<IReadOnlyList<RankerSquad>> FetchAsync(IReadOnlyList<RankRow> rows, IProgress<string>? progress = null, CancellationToken ct = default)
     {
         var client = api() ?? throw new InvalidOperationException("랭커 스쿼드는 NEXON Open API 키가 있어야 받을 수 있습니다.");
-        var rankers = (await RankingAsync(count, progress, ct)).Select(r => (r.Rank, r.Nickname, Value: r.TeamValue)).ToList();
+        var rankers = rows.Select(r => (r.Rank, r.Nickname, Value: r.TeamValue)).ToList();
         var squads = new List<RankerSquad>();
         foreach (var (rank, nickname, value) in rankers)
         {
-            progress?.Report($"랭커 스쿼드 {squads.Count + 1}/{Math.Min(count, rankers.Count)} · {rank}위");
+            progress?.Report($"랭커 스쿼드 {squads.Count + 1}/{rankers.Count} · {rank}위");
             try
             {
                 if (await client.GetOuidAsync(nickname, ct) is not { } ouid) continue;

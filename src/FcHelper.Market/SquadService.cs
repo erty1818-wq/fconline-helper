@@ -108,6 +108,59 @@ public sealed class SquadService(
         return fresh.Count > 0 ? fresh : squads ?? [];
     }
 
+    // ── 공식경기: one team colour's rankers ────────────────────────────────
+
+    public const int OfficialRankingCount = 1000, TeamColorSquadCount = 30;
+
+    /// <summary>The top of the official ranking (1,000 rankers, 50 data center pages, kept 12 hours) with each one's team colour.</summary>
+    public async Task<IReadOnlyList<RankRow>> OfficialRankingAsync(IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        if (rankerSquads is not RankerSquadClient client) return [];
+        const string key = "official.ranking";
+        if (store.GetValue(key) is { } c && Now - c.UpdatedAt < ManagerRankingTtl)
+            return JsonSerializer.Deserialize<List<RankRow>>(c.Value) ?? [];
+        var rows = await client.RankingAsync(OfficialRankingCount, progress, ct);
+        if (rows.Count > 0) store.SetValue(key, JsonSerializer.Serialize(rows), Now);
+        return rows;
+    }
+
+    /// <summary>
+    /// The latest official elevens of the best-ranked players running this 소속 colour (up to 30, three API calls each),
+    /// kept three days: which cards — season and grade — rankers of that colour really field. The daily chart only
+    /// lists the 16 most used cards per position overall, so it hardly shows e.g. a Bayern LM.
+    /// </summary>
+    public async Task<IReadOnlyList<RankerSquad>> TeamColorSquadsAsync(string teamColor, IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        var key = $"official.colorsquads.{teamColor}";
+        var cached = store.GetValue(key);
+        var squads = cached is null ? null : JsonSerializer.Deserialize<List<RankerSquad>>(cached.Value.Value);
+        if (squads is not null && Now - cached!.Value.UpdatedAt < RankerSquadTtl || rankerSquads is not RankerSquadClient client) return squads ?? [];
+        var rows = (await OfficialRankingAsync(progress, ct)).Where(r => r.TeamColor == teamColor).Take(TeamColorSquadCount).ToList();
+        if (rows.Count == 0) return squads ?? [];
+        progress?.Report($"{teamColor} 랭커 {rows.Count}명의 실제 스쿼드 받는 중 (처음 한 번, 3일 보관)");
+        var fresh = await client.FetchAsync(rows, progress, ct);
+        if (fresh.Count > 0) store.SetValue(key, JsonSerializer.Serialize(fresh), Now);
+        return fresh.Count > 0 ? fresh : squads ?? [];
+    }
+
+    /// <summary>
+    /// How often rankers of the request's 소속 colour field each card per role (at any grade), or null without one (or
+    /// without an API key). The squad builder prefers these cards, and with 랭커가 쓰는 카드만 keeps to them.
+    /// </summary>
+    public async Task<ColorCardUsage?> TeamColorUsageAsync(SquadRequest request, IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        if (request.TeamColors.FirstOrDefault(t => t.Color.Category == TeamColorCategory.Affiliation) is not { } target) return null;
+        try
+        {
+            var squads = await TeamColorSquadsAsync(target.Color.Name, progress, ct);
+            return squads.Count == 0 ? null : new ColorCardUsage(target.Color.Name, squads);
+        }
+        catch (Exception e) when (e is HttpRequestException or NexonApiException or InvalidOperationException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return null; // no key or no quota: build from the market alone
+        }
+    }
+
     // ── 감독모드 ────────────────────────────────────────────────────────────
 
     public static readonly TimeSpan ManagerRankingTtl = TimeSpan.FromHours(12);
@@ -223,6 +276,7 @@ public sealed class SquadService(
         var pool = Pool();
         if (request.AutoEnhance && request.TeamColors.All(t => t.Color.Category != TeamColorCategory.Enhance))
             request = request with { TeamColors = [.. request.TeamColors, .. await EnhanceTargetsAsync(ct)] };
+        if (request.ColorUsage is null && await TeamColorUsageAsync(request, progress, ct) is { } usage) request = request with { ColorUsage = usage };
         var plans = await Task.Run(() => new SquadBuilder(pool, c => ModelOf(c), rankers).Build(request), ct);
         for (var round = 0; round < 3 && liquidity is not null; round++)
         {

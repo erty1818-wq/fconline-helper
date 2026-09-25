@@ -30,6 +30,14 @@ public partial class HomeWindow : Window
         if (Skin.Brush("background", Stretch.UniformToFill) is { } background) Background = background;
         Refresh();
         Activated += (_, _) => Refresh();
+        // First run without a key (e.g. a friend's PC): the step-by-step guide opens once by itself.
+        Loaded += (_, _) =>
+        {
+            if (_app.Service is not null || _app.Settings.ApiGuideShown) return;
+            _app.Settings.ApiGuideShown = true;
+            _app.Settings.Save();
+            Dispatcher.BeginInvoke(ShowApiGuide, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        };
         if (app.Squads?.Market is { } market)
         {
             market.Changed += OnMarketChanged;
@@ -38,6 +46,14 @@ public partial class HomeWindow : Window
     }
 
     private void OnMarketChanged() => Dispatcher.BeginInvoke(Refresh);
+
+    private void OnApiGuide(object sender, RoutedEventArgs e) => ShowApiGuide();
+
+    private void ShowApiGuide()
+    {
+        new ApiGuideWindow { Owner = this }.ShowDialog();
+        KeyBox.Focus();
+    }
 
     /// <summary>Shows who is set up, and the first-run panel while there is no key.</summary>
     public void Refresh()

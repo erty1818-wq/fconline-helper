@@ -769,7 +769,7 @@ public partial class SquadPage : UserControl
     private void ShowWorking()
     {
         var any = _working.Any(s => s is not null);
-        EmptyState.Visibility = any || _manual ? Visibility.Collapsed : Visibility.Visible;
+        EmptyState.Visibility = any || _manual || _hintClosed ? Visibility.Collapsed : Visibility.Visible;
         Pitch.Show(_working, _positions, _spots);
         Pitch.Select(_selected);
         var filled = _working.Where(s => s is not null).Cast<SquadSlot>().ToList();
@@ -792,6 +792,14 @@ public partial class SquadPage : UserControl
         FocusTeamColors.Text = TeamColorsLine.Text;
     }
 
+    private bool _hintClosed;
+
+    private void OnCloseHint(object sender, RoutedEventArgs e)
+    {
+        _hintClosed = true;
+        EmptyState.Visibility = Visibility.Collapsed;
+    }
+
     private void ShowHint(string text)
     {
         Detail.Children.Clear();
@@ -800,11 +808,21 @@ public partial class SquadPage : UserControl
 
     // ── slot panel ─────────────────────────────────────────────────────────
 
+    /// <summary>Where the slot panel's helpers add their lines (a section of <see cref="Detail"/>), or Detail itself.</summary>
+    private Panel? _into;
+    private Panel Into => _into ?? Detail;
+
+    /// <summary>
+    /// The slot panel, top to bottom: the card (grade, in-game OVR, buttons), 선수 검색 (results at once, no waiting),
+    /// the [AI 추천픽] button (trade volume is checked only when it is pressed), then mini face, 집중훈련 and the details.
+    /// </summary>
     private async Task ShowSlotAsync(int index)
     {
         if (await MakerAsync() is not { } maker) return;
         _selected = index;
         Pitch.Select(index);
+        _hintClosed = true; // the user found the slots
+        EmptyState.Visibility = Visibility.Collapsed;
         if (_inFocusMode)
         {
             FocusDrawer.Visibility = Visibility.Visible;
@@ -813,29 +831,27 @@ public partial class SquadPage : UserControl
         var s = _working[index];
         var grade = s?.Grade ?? DefaultGrade;
         Detail.Children.Clear();
+        var head = new StackPanel();
+        var search = new StackPanel();
+        var ai = new StackPanel();
+        var faces = new StackPanel();
+        var more = new StackPanel();
+        foreach (var section in new[] { head, search, ai, faces, more }) Detail.Children.Add(section);
 
+        _into = head;
         if (s is not null)
         {
             var c = s.Card;
-            Detail.Children.Add(new TextBlock { Text = c.Name, Style = (Style)FindResource("H1") });
-            Detail.Children.Add(new TextBlock { Text = $"{c.Season} · {s.Position} · 약발 {c.WeakFoot} · 급여 {s.Pay}", Style = (Style)FindResource("Hint") });
+            head.Children.Add(new TextBlock { Text = c.Name, Style = (Style)FindResource("H1") });
+            head.Children.Add(new TextBlock { Text = $"{c.Season} · {s.Position} · 약발 {c.WeakFoot} · 급여 {s.Pay}", Style = (Style)FindResource("Hint") });
             // Grade of this card: one click, the price and OVR follow.
             // +12/+13 only for cards the user owns: nobody sells them.
             var gradeBox = new ComboBox { ItemsSource = Enumerable.Range(1, s.Owned ? 13 : Grades.MaxTradable).Select(g => $"+{g}").ToList(), Width = 80, HorizontalAlignment = HorizontalAlignment.Left };
             gradeBox.SelectedIndex = Math.Min(s.Grade, gradeBox.Items.Count) - 1;
             gradeBox.SelectionChanged += async (_, _) => await SetSlotAsync(index, maker.WithGrade(s, gradeBox.SelectedIndex + 1));
-            Detail.Children.Add(new TextBlock { Text = "강화", Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
-            Detail.Children.Add(gradeBox);
+            head.Children.Add(new TextBlock { Text = "강화", Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
+            head.Children.Add(gradeBox);
             ShowFinal(s);
-            ShowTraining(s);
-            Line("시세 · 같은 스펙 예상가 [추정]", s.Owned ? "보유 (0으로 계산)" : $"{Bp.Format(s.Price)} · {Bp.Format(s.Expected)} ({StudioKit.Pct(s.Discount)})");
-            if (s.RankerUsers > 0) Line("랭커 사용", $"{s.RankerUsers}명 ({s.RankerShare:P1}, 전날 공식경기)");
-            if (c.Tags.Count > 0) Line("특성·개인기·체형", StudioKit.Tags(c));
-            var g = MarketGroups.Get(c.Group);
-            var core = g.CoreStats.OrderByDescending(x => x.Weight).Where(x => c.Stats.ContainsKey(x.Stat)).Take(8)
-                .Select(x => $"{MarketGroups.StatNames.GetValueOrDefault(x.Stat, x.Stat)} {c.Stats[x.Stat]}");
-            Line($"코어 능력치 (+1){(g.CoreGap(c) is { } gap ? $" · 코어 {gap:+0.0;-0.0}" : "")}", string.Join("  ", core));
-
             var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
             actions.Children.Add(Action(s.Locked ? "고정 해제" : "🔒 고정 (AI가 안 바꿈)", async () => await SetSlotAsync(index, s with { Locked = !s.Locked })));
             actions.Children.Add(Action(s.Owned ? "보유 해제" : "보유 중 (가격 0)", async () => await SetSlotAsync(index, s with { Owned = !s.Owned })));
@@ -846,49 +862,19 @@ public partial class SquadPage : UserControl
                 (Window.GetWindow(this) as StudioWindow)?.Navigate("grade", p => ((GradePage)p).Load(c.SpId, s.Position, s.Grade));
                 return Task.CompletedTask;
             }));
-            Detail.Children.Add(actions);
-            _ = ShowFacesAsync(s);
-            _ = ShowRankerStatsAsync(s);
+            head.Children.Add(actions);
         }
         else
         {
-            Detail.Children.Add(new TextBlock { Text = $"{position} 자리", Style = (Style)FindResource("H1") });
-            Detail.Children.Add(new TextBlock { Text = $"비어 있습니다. 아래 추천이나 검색에서 고르세요 (+{grade}로 들어갑니다).", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
+            head.Children.Add(new TextBlock { Text = $"{position} 자리", Style = (Style)FindResource("H1") });
+            head.Children.Add(new TextBlock { Text = $"비어 있습니다. 검색해서 고르거나 [AI 추천픽]을 눌러 보세요 (+{grade}로 들어갑니다).", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
         }
-
-        // Alternatives for this slot: inside the chosen 소속 colour and the money left.
-        _ = StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget);
         var members = await AffiliationMembersAsync();
-        var spent = _working.Where((x, i) => x is not null && i != index && !x.Owned).Sum(x => x!.Price);
-        var maxPrice = budget < long.MaxValue ? Math.Max(0, budget - spent) : long.MaxValue;
-        var found = await Task.Run(() => maker.Suggest(index, position, grade, s, UsedPlayers(index), budget, _allocation, perKind: 5, members: members, maxPrice: maxPrice));
         if (_selected != index) return;
-        // Listings that hardly trade are left out (each card and grade is checked once, then kept three days).
-        var checking = new TextBlock { Text = "대체 선수 거래량 확인 중…", Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 14, 0, 0) };
-        Detail.Children.Add(checking);
-        IReadOnlySet<(long SpId, int Grade)> illiquid = StudioKit.Squads is { } sq
-            ? await sq.IlliquidAsync(found.Select(x => (x.Slot.Card.SpId, x.Slot.Grade)), new Progress<string>(m => checking.Text = m))
-            : new HashSet<(long, int)>();
-        if (_selected != index) return;
-        Detail.Children.Remove(checking);
-        var suggestions = found.Where(x => !illiquid.Contains((x.Slot.Card.SpId, x.Slot.Grade))).GroupBy(x => x.Reason).SelectMany(g => g.Take(3)).ToList();
-        Detail.Children.Add(new TextBlock { Text = s is null ? "추천 선수" : "대체 선수", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 0) });
-        Detail.Children.Add(new TextBlock
-        {
-            Text = (members is null ? "" : "소속 팀컬러 선수만 · ") + (maxPrice < long.MaxValue ? $"남은 예산 {Bp.Format(maxPrice)} 안에서" : "예산 제한 없음")
-                + (illiquid.Count > 0 ? $" · 거래가 거의 없는 {illiquid.Count}장 제외" : ""),
-            Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 0, 0, 4),
-        });
-        if (suggestions.Count == 0) Detail.Children.Add(new TextBlock { Text = "조건에 맞는 대체 카드가 없습니다.", Style = (Style)FindResource("Hint") });
-        foreach (var group in suggestions.GroupBy(x => x.Reason))
-        {
-            Detail.Children.Add(new TextBlock { Text = group.Key, Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 6, 0, 2) });
-            foreach (var x in group) Detail.Children.Add(CandidateButton(index, x.Slot, s));
-        }
 
-        // Search by name and season.
-        Detail.Children.Add(new TextBlock { Text = "선수 검색", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 4) });
-        var nameBox = new TextBox { Margin = new Thickness(0, 0, 0, 4), ToolTip = "선수 이름 (일부만 써도 됩니다)" };
+        // 선수 검색: by name and season, shown at once (the market data is already here, nothing to wait for).
+        search.Children.Add(new TextBlock { Text = "선수 검색", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 4) });
+        var nameBox = new TextBox { Margin = new Thickness(0, 0, 0, 4), ToolTip = "선수 이름 (일부만 써도 됩니다) · Enter로 검색" };
         var seasonBox = new ComboBox { ItemsSource = new[] { "모든 시즌" }.Concat(maker.Seasons()).ToList(), SelectedIndex = 0, Margin = new Thickness(0, 0, 4, 0), MinWidth = 110 };
         var sortBox = new ComboBox { ItemsSource = new[] { "OVR 높은 순", "가격 낮은 순", "스펙 대비 싼 순", "랭커 많이 쓰는 순" }, SelectedIndex = 0, MinWidth = 120 };
         var results = new StackPanel();
@@ -899,7 +885,7 @@ public partial class SquadPage : UserControl
             var season = seasonBox.SelectedIndex > 0 ? (string)seasonBox.SelectedItem : null;
             var sort = (CandidateSort)sortBox.SelectedIndex;
             var only = onlyMembers.IsChecked == true ? members : null;
-            var found = await Task.Run(() => maker.Search(index, position, grade, name, season, sort, UsedPlayers(index), 40, only));
+            var found = await Task.Run(() => maker.Search(index, position, grade, name, season, sort, UsedPlayers(index), 30, only));
             results.Children.Clear();
             if (found.Count == 0) results.Children.Add(new TextBlock { Text = "찾은 카드가 없습니다.", Style = (Style)FindResource("Hint") });
             foreach (var f in found) results.Children.Add(CandidateButton(index, f, s));
@@ -907,12 +893,79 @@ public partial class SquadPage : UserControl
         nameBox.KeyDown += async (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) await RunSearch(); };
         seasonBox.SelectionChanged += async (_, _) => await RunSearch();
         sortBox.SelectionChanged += async (_, _) => await RunSearch();
+        onlyMembers.Click += async (_, _) => await RunSearch();
         var searchButton = new Button { Content = "검색", Style = (Style)FindResource("Ghost"), Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(4, 0, 0, 0) };
         searchButton.Click += async (_, _) => await RunSearch();
-        Detail.Children.Add(nameBox);
-        Detail.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { seasonBox, sortBox, searchButton } });
-        Detail.Children.Add(onlyMembers);
-        Detail.Children.Add(results);
+        search.Children.Add(nameBox);
+        search.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { seasonBox, sortBox, searchButton } });
+        search.Children.Add(onlyMembers);
+        search.Children.Add(results);
+        _ = RunSearch();
+
+        // AI 추천픽: alternatives inside the chosen 소속 colour and the money left, only on request (their trade volume
+        // is checked then: each card and grade once, kept three days).
+        _ = StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget);
+        var spent = _working.Where((x, i) => x is not null && i != index && !x.Owned).Sum(x => x!.Price);
+        var maxPrice = budget < long.MaxValue ? Math.Max(0, budget - spent) : long.MaxValue;
+        var aiButton = new Button
+        {
+            Content = s is null ? "✨ AI 추천픽 보기" : "✨ AI 대체 선수 보기", Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 14, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch,
+            ToolTip = "예산·팀컬러·랭커 가격 분배에 맞는 카드를 고르고, 거래가 거의 없는 매물은 빼고 보여 줍니다.",
+        };
+        var aiList = new StackPanel();
+        aiButton.Click += async (_, _) =>
+        {
+            aiButton.IsEnabled = false;
+            aiList.Children.Clear();
+            var checking = new TextBlock { Text = "AI 추천 고르는 중…", Style = (Style)FindResource("Hint") };
+            aiList.Children.Add(checking);
+            try
+            {
+                var found = await Task.Run(() => maker.Suggest(index, position, grade, s, UsedPlayers(index), budget, _allocation, perKind: 5, members: members, maxPrice: maxPrice));
+                IReadOnlySet<(long SpId, int Grade)> illiquid = StudioKit.Squads is { } sq
+                    ? await sq.IlliquidAsync(found.Select(x => (x.Slot.Card.SpId, x.Slot.Grade)), new Progress<string>(m => checking.Text = m))
+                    : new HashSet<(long, int)>();
+                if (_selected != index) return;
+                aiList.Children.Clear();
+                var suggestions = found.Where(x => !illiquid.Contains((x.Slot.Card.SpId, x.Slot.Grade))).GroupBy(x => x.Reason).SelectMany(g => g.Take(4)).ToList();
+                aiList.Children.Add(new TextBlock
+                {
+                    Text = (members is null ? "" : "소속 팀컬러 선수만 · ") + (maxPrice < long.MaxValue ? $"남은 예산 {Bp.Format(maxPrice)} 안에서" : "예산 제한 없음")
+                        + (illiquid.Count > 0 ? $" · 거래가 거의 없는 {illiquid.Count}장 제외" : ""),
+                    Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 0, 0, 4), TextWrapping = TextWrapping.Wrap,
+                });
+                if (suggestions.Count == 0) aiList.Children.Add(new TextBlock { Text = "조건에 맞는 카드가 없습니다.", Style = (Style)FindResource("Hint") });
+                foreach (var group in suggestions.GroupBy(x => x.Reason))
+                {
+                    aiList.Children.Add(new TextBlock { Text = group.Key, Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 6, 0, 2) });
+                    foreach (var x in group) aiList.Children.Add(CandidateButton(index, x.Slot, s));
+                }
+            }
+            finally
+            {
+                aiButton.IsEnabled = true;
+            }
+        };
+        ai.Children.Add(aiButton);
+        ai.Children.Add(aiList);
+
+        if (s is not null)
+        {
+            _into = faces;
+            _ = ShowFacesAsync(s);
+            _into = more;
+            ShowTraining(s);
+            var c = s.Card;
+            Line("시세 · 같은 스펙 예상가 [추정]", s.Owned ? "보유 (0으로 계산)" : $"{Bp.Format(s.Price)} · {Bp.Format(s.Expected)} ({StudioKit.Pct(s.Discount)})");
+            if (s.RankerUsers > 0) Line("랭커 사용", $"{s.RankerUsers}명 ({s.RankerShare:P1}, 전날 공식경기)");
+            if (c.Tags.Count > 0) Line("특성·개인기·체형", StudioKit.Tags(c));
+            var g = MarketGroups.Get(c.Group);
+            var core = g.CoreStats.OrderByDescending(x => x.Weight).Where(x => c.Stats.ContainsKey(x.Stat)).Take(8)
+                .Select(x => $"{MarketGroups.StatNames.GetValueOrDefault(x.Stat, x.Stat)} {c.Stats[x.Stat]}");
+            Line($"코어 능력치 (+1){(g.CoreGap(c) is { } gap ? $" · 코어 {gap:+0.0;-0.0}" : "")}", string.Join("  ", core));
+            _ = ShowRankerStatsAsync(s, more);
+        }
+        _into = null;
     }
 
     /// <summary>Members of the chosen 소속 colour (the AI uses only them), or null when none is chosen.</summary>
@@ -955,9 +1008,20 @@ public partial class SquadPage : UserControl
                 },
             },
         };
+        // The card's own season picture (or the one the user picked for it), like on the pitch.
+        FrameworkElement content = text;
+        if (Faces.Enabled)
+        {
+            var face = new Image { Width = 40, Height = 40, Stretch = System.Windows.Media.Stretch.Uniform, Margin = new Thickness(0, 0, 8, 0), Source = Faces.Cached(c.SpId) };
+            System.Windows.Media.RenderOptions.SetBitmapScalingMode(face, System.Windows.Media.BitmapScalingMode.HighQuality);
+            if (face.Source is null) _ = SetFaceAsync(face, c.SpId);
+            DockPanel.SetDock(face, Dock.Left);
+            content = new DockPanel { LastChildFill = true, Children = { face, text } };
+        }
+        text.VerticalAlignment = VerticalAlignment.Center;
         var b = new Button
         {
-            Content = text, HorizontalContentAlignment = HorizontalAlignment.Left, Style = (Style)FindResource("Ghost"),
+            Content = content, HorizontalContentAlignment = HorizontalAlignment.Left, Style = (Style)FindResource("Ghost"),
             Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         b.Click += async (_, _) =>
@@ -977,13 +1041,11 @@ public partial class SquadPage : UserControl
         return b;
     }
 
-    private async Task ShowRankerStatsAsync(SquadSlot s)
+    private async Task ShowRankerStatsAsync(SquadSlot s, Panel into)
     {
         if (StudioKit.Squads is not { } squads) return;
         var line = new TextBlock { Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 4, 0, 0), Text = "랭커 20경기 기록 불러오는 중…", TextWrapping = TextWrapping.Wrap };
-        // Just above the card's buttons (the first row of them), under the prices and stats.
-        var buttons = Detail.Children.OfType<WrapPanel>().FirstOrDefault();
-        Detail.Children.Insert(buttons is null ? Detail.Children.Count : Detail.Children.IndexOf(buttons), line);
+        into.Children.Add(line);
         try
         {
             var stats = await squads.RankerStatsAsync([(s.Card.SpId, s.Position)]);
@@ -1005,14 +1067,14 @@ public partial class SquadPage : UserControl
             Line("OVR", $"{s.Ovr}" + (s.TeamColorBonus > 0 ? $" + 팀컬러 {s.TeamColorBonus:0.#} [추정]" : ""));
             return;
         }
-        Detail.Children.Add(new TextBlock { Text = "인게임 OVR" + (f.Exact ? " [계산]" : " [추정]"), Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
-        Detail.Children.Add(new TextBlock { Text = f.Value.ToString(), Style = (Style)FindResource("BigNumber"), Foreground = (System.Windows.Media.Brush)FindResource("Accent") });
-        Detail.Children.Add(new TextBlock { Text = f.Breakdown, Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
+        Into.Children.Add(new TextBlock { Text = "인게임 OVR" + (f.Exact ? " [계산]" : " [추정]"), Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
+        Into.Children.Add(new TextBlock { Text = f.Value.ToString(), Style = (Style)FindResource("BigNumber"), Foreground = (System.Windows.Media.Brush)FindResource("Accent") });
+        Into.Children.Add(new TextBlock { Text = f.Breakdown, Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
         var colors = s.ColorLevels.Select(l => string.Join(", ", l.Effects)).Where(e => e.Length > 0).ToList();
         if (colors.Count > 0)
-            Detail.Children.Add(new TextBlock { Text = "적용 팀컬러: " + string.Join(" / ", colors), Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
+            Into.Children.Add(new TextBlock { Text = "적용 팀컬러: " + string.Join(" / ", colors), Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
         if (!f.Exact)
-            Detail.Children.Add(new TextBlock { Text = "카드 스탯을 받으면 정확한 값으로 바뀝니다.", Style = (Style)FindResource("Hint") });
+            Into.Children.Add(new TextBlock { Text = "카드 스탯을 받으면 정확한 값으로 바뀝니다.", Style = (Style)FindResource("Hint") });
     }
 
     /// <summary>
@@ -1026,20 +1088,20 @@ public partial class SquadPage : UserControl
         var ability = StudioKit.Squads?.KnownAbility(s.Card.SpId);
         var before = FinalOvrMath.Compute(s.Card, ability, s.Position, s.Grade, Adaptability, s.ColorLevels);
         var plan = FinalOvrMath.Training(s.Position, s.Grade, before);
-        Detail.Children.Add(new TextBlock { Text = $"집중훈련 추천 ({s.Position})", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 2) });
-        Detail.Children.Add(new TextBlock
+        Into.Children.Add(new TextBlock { Text = $"집중훈련 추천 ({s.Position})", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 2) });
+        Into.Children.Add(new TextBlock
         {
             Text = $"스탯 {plan.Stats.Count}개 +2씩: " + string.Join(" · ", plan.Stats.Select(t => $"{t.Stat} +2")) + $"\n= 가중 {plan.Points}점 → OVR +{plan.Gain}"
                 + (plan.PointsToNext is { } need ? $" (지금 다음 OVR까지 {need}점)" : " (카드 스탯을 받으면 정확히 계산)"),
             TextWrapping = TextWrapping.Wrap,
         });
         if (plan.Cheapest.Count > 0 && plan.PointsToNext is { } n)
-            Detail.Children.Add(new TextBlock
+            Into.Children.Add(new TextBlock
             {
                 Text = $"OVR +1만 원하면: " + string.Join(" · ", plan.Cheapest.Select(c => $"{c.Stat} +{c.Plus}")) + $" ({n}점 이상)",
                 Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap,
             });
-        Detail.Children.Add(new TextBlock
+        Into.Children.Add(new TextBlock
         {
             Text = $"{s.Position} OVR에 들어가는 스탯 (가중치, 합 100): " + string.Join(" · ", weights.Select(kv => $"{kv.Key} {kv.Value}"))
                 + "\n스탯 1 오를 때 OVR +가중치/100. 공식 데이터센터 카드 244장에서 계산해 모두 일치 [계산].",
@@ -1055,8 +1117,7 @@ public partial class SquadPage : UserControl
         var hint = new TextBlock { Text = "시즌별 사진 불러오는 중…", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap };
         var grid = new WrapPanel();
         var buttons = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-        var at = Math.Min(Detail.Children.Count, Detail.Children.IndexOf(Detail.Children.OfType<WrapPanel>().FirstOrDefault()) + 1);
-        foreach (var e in new UIElement[] { header, hint, grid, buttons }.Reverse()) Detail.Children.Insert(Math.Max(0, at), e);
+        foreach (var e in new UIElement[] { header, hint, grid, buttons }) Into.Children.Add(e);
         buttons.Children.Add(Action("이 시즌 기본", () => { Faces.Pick(s.Card.SpId, null); return Task.CompletedTask; }));
         buttons.Children.Add(Action("내 이미지…", () =>
         {
@@ -1099,6 +1160,11 @@ public partial class SquadPage : UserControl
         }
     }
 
+    private static async Task SetFaceAsync(Image image, long spId)
+    {
+        if (await Faces.GetAsync(spId) is { } source) image.Source = source;
+    }
+
     private static async Task SetImageAsync(Image image, Button button, string url)
     {
         if (await Faces.LoadAsync(url) is { } source) image.Source = source;
@@ -1107,8 +1173,8 @@ public partial class SquadPage : UserControl
 
     private void Line(string label, string value)
     {
-        Detail.Children.Add(new TextBlock { Text = label, Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
-        Detail.Children.Add(new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap });
+        Into.Children.Add(new TextBlock { Text = label, Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
+        Into.Children.Add(new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap });
     }
 
     private Button Action(string text, Func<Task> change)

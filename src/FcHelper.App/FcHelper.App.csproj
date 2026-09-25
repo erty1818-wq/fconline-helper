@@ -8,6 +8,8 @@
     <!-- Only for the tray icon (NotifyIcon). -->
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>FcHelper</AssemblyName>
+    <!-- Compared with the release page's tag (v0.6.0) for updates: raise it with every release. -->
+    <Version>0.6.0</Version>
     <RootNamespace>FcHelper.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Keep the resident footprint small: no background GC thread, give memory back when idle. -->
@@ -24,6 +26,11 @@
 
   <ItemGroup>
     <PackageReference Include="System.Speech" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Screenshots of the official pages for the first-run API key guide. -->
+    <Resource Include="Assets\ApiGuide\*.png" />
   </ItemGroup>
 
   <ItemGroup>
