@@ -10,7 +10,7 @@ namespace FcHelper.Market;
 /// </summary>
 public sealed class SquadService(
     MarketService market, MarketStore store, IRankerChartSource charts, TeamColorCache teamColors,
-    IRankerStatsSource? rankerStats = null, TimeProvider? time = null)
+    IRankerStatsSource? rankerStats = null, TimeProvider? time = null, SalaryCapCache? salaryCap = null)
 {
     public const int OfficialMatch = 50;
     public static readonly TimeSpan ChartTtl = TimeSpan.FromHours(12);
@@ -140,6 +140,16 @@ public sealed class SquadService(
 
     public IReadOnlyList<PriceMove> Alerts() => Advisors.Alerts(PriceMoves(ModelGrade, 1, 10_000_000));
 
+    /// <summary>The salary cap known now (310 until the squad maker has been read).</summary>
+    public int SalaryCap => salaryCap?.Current ?? SalaryCapSource.Fallback;
+
+    /// <summary>The salary cap, re-read from the official squad maker weekly.</summary>
+    public async Task<int> SalaryCapAsync(CancellationToken ct = default) => salaryCap is null ? SalaryCapSource.Fallback : await salaryCap.GetAsync(ct);
+
+    /// <summary>The user's current eleven with the bonuses of the given team colours.</summary>
+    public IReadOnlyList<SquadSlot> CurrentSquad(IEnumerable<OwnedCard> owned, IReadOnlyList<TeamColorTarget> teamColors) =>
+        Advisors.WithTeamColors(CurrentSquad(owned), teamColors);
+
     /// <summary>The user's current eleven as squad slots, from the cards (and grades) of their latest official match.</summary>
     public IReadOnlyList<SquadSlot> CurrentSquad(IEnumerable<OwnedCard> owned)
     {
@@ -155,13 +165,30 @@ public sealed class SquadService(
         return slots;
     }
 
-    /// <param name="teamColorId">The team colour the squad is built on (0 = none): replacements must be members.</param>
-    public async Task<IReadOnlyList<UpgradePlan>> UpgradesAsync(IEnumerable<OwnedCard> owned, long budget, IReadOnlyList<int> grades, double saleFee = 0,
-        int maxMoves = 2, int teamColorId = 0, CancellationToken ct = default)
+    /// <param name="teamColorIds">Team colours to keep at their level (see <see cref="Advisors.Upgrades"/>).</param>
+    public async Task<IReadOnlyList<UpgradePlan>> UpgradesAsync(IEnumerable<OwnedCard> owned, long budget, IReadOnlyList<int> grades, SaleFee? fee = null,
+        int maxMoves = 2, IReadOnlyList<int>? teamColorIds = null, CancellationToken ct = default)
     {
-        var members = teamColorId > 0 && await TeamColorAsync(teamColorId, ct) is { } tc ? tc.Members : null;
-        return Advisors.Upgrades(CurrentSquad(owned), Pool(), c => ModelOf(c), budget, grades, saleFee, maxMoves, teamColorMembers: members);
+        var targets = await TargetsAsync(teamColorIds ?? [], ct);
+        return Advisors.Upgrades(CurrentSquad(owned, targets), Pool(), c => ModelOf(c), budget, grades, fee, maxMoves, teamColors: targets);
     }
+
+    /// <summary>
+    /// Team colours with their members, for a squad request or the upgrades. The game runs one colour per category
+    /// (소속 / 특성 / 강화) at a time, so a second one of the same category is dropped (the first given wins).
+    /// </summary>
+    public async Task<IReadOnlyList<TeamColorTarget>> TargetsAsync(IEnumerable<int> ids, CancellationToken ct = default)
+    {
+        var targets = new List<TeamColorTarget>();
+        foreach (var id in ids.Where(i => i > 0).Distinct())
+            if (await TeamColorAsync(id, ct) is { } tc && targets.All(t => t.Color.Category != tc.Color.Category))
+                targets.Add(new TeamColorTarget(tc.Color, tc.Members));
+        return targets;
+    }
+
+    /// <summary>The detected colours the game would run: the strongest of each category.</summary>
+    public static IReadOnlyList<int> ActiveTeamColors(IEnumerable<(TeamColor Color, int Owned, TeamColorLevel Level)> detected) =>
+        detected.GroupBy(d => d.Color.Category).Select(g => g.First().Color.Id).ToList();
 
     /// <summary>
     /// Team colours the squad is built on: the colours shared by at least half of a few sampled cards (read from their
@@ -184,7 +211,9 @@ public sealed class SquadService(
             var count = ids.Count(tc.Members.Contains);
             if (tc.Color.LevelFor(count) is { } level) result.Add((tc.Color, count, level));
         }
-        return result.OrderByDescending(r => r.Item3.AllStats).ThenByDescending(r => r.Item2).ToList();
+        // Strongest first within a category: all-stats bonus, then the extra single-stat bonuses.
+        return result.OrderBy(r => r.Item1.Category).ThenByDescending(r => r.Item3.AllStats)
+            .ThenByDescending(r => TeamColorParser.StatBonuses(r.Item3.Effects).Values.Sum()).ThenByDescending(r => r.Item2).ToList();
     }
 
     public IReadOnlyList<TailoredPick> Tailored(IEnumerable<TacticalNeed> needs, int grade, long maxPrice = long.MaxValue, int perNeed = 5) =>

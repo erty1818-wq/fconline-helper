@@ -14,8 +14,16 @@
                 </DockPanel>
                 <WrapPanel>
                     <StackPanel Margin="0,0,14,0"><TextBlock Text="예산 (판매 대금 포함 순비용)" Style="{StaticResource FieldLabel}" /><TextBox x:Name="BudgetBox" Width="110" Text="10억" /></StackPanel>
-                    <StackPanel Margin="0,0,14,0"><TextBlock Text="판매 수수료 %" Style="{StaticResource FieldLabel}" /><TextBox x:Name="FeeBox" Width="70" Text="0" /></StackPanel>
-                    <StackPanel Margin="0,0,14,0"><TextBlock Text="유지할 팀컬러" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="TeamColorBox" MinWidth="220" DisplayMemberPath="Label" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0">
+                        <TextBlock x:Name="FeeLabel" Text="판매 수수료 40%" Style="{StaticResource FieldLabel}" />
+                        <WrapPanel>
+                            <ToggleButton x:Name="PcRoomChip" Style="{StaticResource Chip}" Content="PC방" Click="OnFeeChanged" ToolTip="수수료 30% 할인 (TOP CLASS와 함께면 50%)" />
+                            <ToggleButton x:Name="TopClassChip" Style="{StaticResource Chip}" Content="TOP CLASS" Click="OnFeeChanged" ToolTip="수수료 20% 할인" />
+                        </WrapPanel>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="할인 쿠폰 %" Style="{StaticResource FieldLabel}" /><TextBox x:Name="CouponBox" Width="60" Text="0" TextChanged="OnFeeChanged" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="쿠폰 최대 할인" Style="{StaticResource FieldLabel}" /><TextBox x:Name="CouponMaxBox" Width="80" ToolTip="쿠폰의 카드당 최대 할인 BP (비우면 제한 없음)" TextChanged="OnFeeChanged" /></StackPanel>
+                    <StackPanel Margin="0,0,14,0"><TextBlock Text="유지할 팀컬러 (단계가 내려가는 교체 제외)" Style="{StaticResource FieldLabel}" /><WrapPanel x:Name="TeamColorChips" MinHeight="28" /></StackPanel>
                     <Button x:Name="FindButton" Style="{StaticResource Primary}" Content="교체 추천" VerticalAlignment="Bottom" Click="OnFind" />
                 </WrapPanel>
             </StackPanel>

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using FcHelper.Market;
 using FcHelper.Services;
 
@@ -17,8 +18,7 @@ public partial class MySquadPage : UserControl
     public MySquadPage()
     {
         InitializeComponent();
-        TeamColorBox.ItemsSource = new[] { new TeamColorItem("없음 (팀컬러 무시)", 0) };
-        TeamColorBox.SelectedIndex = 0;
+        TeamColorChips.Children.Add(new TextBlock { Text = "불러오면 자동 감지", Style = (Style)FindResource("Hint"), VerticalAlignment = VerticalAlignment.Center });
         Loaded += async (_, _) => { if (_owned.Count == 0) await LoadAsync(); };
     }
 
@@ -44,11 +44,20 @@ public partial class MySquadPage : UserControl
                 + (_current.Count < _owned.Count ? $" ({_owned.Count - _current.Count}명은 시세 데이터에 없음)" : "");
             Status.Text = "팀컬러 확인 중… (처음에는 30초쯤 걸립니다)";
             var detected = await squads.DetectTeamColorsAsync(_owned);
-            var items = new List<TeamColorItem> { new("없음 (팀컬러 무시)", 0) };
-            items.AddRange(detected.Select(d => new TeamColorItem($"{d.Color.Name} · {d.Owned}명 {d.Level.Level}단계 (+{d.Level.AllStats})", d.Color.Id)));
-            TeamColorBox.ItemsSource = items;
-            TeamColorBox.SelectedIndex = items.Count > 1 ? 1 : 0;
-            Status.Text = detected.Count > 0 ? $"팀컬러 감지: {string.Join(", ", detected.Select(d => $"{d.Color.Name} {d.Owned}명"))}. 유지할 팀컬러를 고르고 [교체 추천]을 누르세요." : "적용 중인 팀컬러가 없습니다.";
+            TeamColorChips.Children.Clear();
+            // The game runs one colour per category: the strongest is on, the others can be switched to.
+            var active = SquadService.ActiveTeamColors(detected);
+            foreach (var d in detected)
+                TeamColorChips.Children.Add(new ToggleButton
+                {
+                    Content = $"{TeamColor.CategoryLabel(d.Color.Category)} {d.Color.Name} {d.Owned}명 {d.Level.Level}단계", Tag = d.Color.Id, IsChecked = active.Contains(d.Color.Id),
+                    Style = (Style)FindResource("Chip"), ToolTip = string.Join(" / ", d.Level.Effects) + (d.Color.AppliesToSquad ? " · 선발 전원" : " · 해당 카드만"),
+                });
+            if (detected.Count == 0) TeamColorChips.Children.Add(new TextBlock { Text = "없음", Style = (Style)FindResource("Hint"), VerticalAlignment = VerticalAlignment.Center });
+            // Show the pitch with the bonuses the squad has now.
+            _current = squads.CurrentSquad(_owned, await squads.TargetsAsync(active));
+            Pitch.Show(_current);
+            Status.Text = detected.Count > 0 ? $"팀컬러 감지: {string.Join(", ", detected.Select(d => $"{d.Color.Name} {d.Owned}명"))}. [교체 추천]을 누르세요." : "적용 중인 팀컬러가 없습니다.";
         });
     }
 
@@ -57,19 +66,31 @@ public partial class MySquadPage : UserControl
         if (StudioKit.Squads is not { } squads) return;
         if (_owned.Count == 0) { Status.Text = "먼저 내 스쿼드를 불러오세요."; return; }
         if (!StudioKit.TryPrice(BudgetBox, 500_000_000, out var budget)) { Status.Text = "예산은 10억처럼 입력하세요."; return; }
-        var fee = double.TryParse(FeeBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var f) ? Math.Clamp(f, 0, 100) / 100 : 0;
-        var tc = (TeamColorBox.SelectedItem as TeamColorItem)?.Id ?? 0;
+        var fee = Fee();
+        var tc = TeamColorChips.Children.OfType<ToggleButton>().Where(b => b.IsChecked == true).Select(b => (int)b.Tag).ToList();
         await StudioKit.Run(FindButton, Status, async () =>
         {
             Status.Text = "계산 중…";
             var grades = _owned.Select(o => o.Grade).Distinct().Order().ToList();
             var plans = await squads.UpgradesAsync(_owned, budget, grades, fee, 2, tc);
+            _current = squads.CurrentSquad(_owned, await squads.TargetsAsync(tc));
             Plans.ItemsSource = plans.Select(p => new UpgradeRow(
                 string.Join("  +  ", p.Moves.Select(m => $"{m.Out.Card.Name} → {m.In.Name} {m.In.Season} +{m.Grade}")),
                 $"환산 +{p.TotalGain:0.0} · 순비용 {Bp.Format(Math.Max(0, p.NetCost))} · " + string.Join(" · ", p.Moves.Select(m => $"{m.In.Name} OVR {m.Ovr} 구매 {Bp.Format(m.BuyPrice)}")),
                 p)).ToList();
             Status.Text = plans.Count == 0 ? "예산 안에서 좋아지는 교체가 없습니다." : "교체안을 누르면 바뀌는 자리가 피치에 표시됩니다.";
         });
+    }
+
+    /// <summary>The official fee rule with the user's PC방 / TOP CLASS / coupon.</summary>
+    private SaleFee Fee() => new(PcRoomChip.IsChecked == true, TopClassChip.IsChecked == true,
+        int.TryParse(CouponBox.Text.Trim(), out var c) ? Math.Clamp(c, 0, 100) : 0,
+        StudioKit.TryPrice(CouponMaxBox, 0, out var max) ? max : 0);
+
+    private void OnFeeChanged(object sender, RoutedEventArgs e)
+    {
+        if (FeeLabel is null || CouponMaxBox is null) return; // during InitializeComponent
+        FeeLabel.Text = $"판매 수수료 {Fee().Rate * 100:0.#}%";
     }
 
     private void OnPlanSelected(object sender, SelectionChangedEventArgs e)

@@ -185,26 +185,32 @@ public static class Advisors
     /// The one or two swaps that raise effective OVR the most for a net budget: buy price minus what the replaced card
     /// sells for (after the market fee). Pairs must use different slots and footballers.
     /// </summary>
-    /// <param name="teamColorMembers">When the squad is built on a team colour, only its members may come in, so the bonus stays.</param>
+    /// <param name="current">The squad with its team colour bonuses (<see cref="WithTeamColors"/>).</param>
+    /// <param name="teamColors">Colours to keep: a swap may not drop one to a lower level. A 소속 bonus stays with the
+    /// slot whoever comes in; a 특성 bonus only when the new card is a member too.</param>
     public static IReadOnlyList<UpgradePlan> Upgrades(IReadOnlyList<SquadSlot> current, IEnumerable<MarketCard> pool, Func<MarketCard, PriceModel?> modelOf,
-        long budget, IReadOnlyList<int> grades, double saleFee = 0, int maxMoves = 2, int top = 5, IReadOnlySet<long>? teamColorMembers = null)
+        long budget, IReadOnlyList<int> grades, SaleFee? fee = null, int maxMoves = 2, int top = 5, IReadOnlyList<TeamColorTarget>? teamColors = null)
     {
+        fee ??= SaleFee.Standard;
+        teamColors ??= [];
+        var counts = teamColors.Select(t => current.Count(s => t.Members.Contains(s.Card.SpId))).ToArray();
         var owned = current.Select(s => s.Card.PlayerId).ToHashSet();
-        var poolList = pool.Where(c => c.IsTraded && !owned.Contains(c.PlayerId) && (teamColorMembers is null || teamColorMembers.Contains(c.SpId))).ToList();
+        var poolList = pool.Where(c => c.IsTraded && !owned.Contains(c.PlayerId)).ToList();
         var options = new List<Upgrade>();
         foreach (var slot in current)
         {
-            var sale = (long)(slot.Price * (1 - saleFee));
+            var sale = fee.NetOf(slot.Price);
             var best = new List<Upgrade>();
             foreach (var c in poolList)
             {
+                if (!KeepsLevels(teamColors, counts, [(slot.Card.SpId, c.SpId)])) continue;
+                var colorBonus = TeamColorBonusAt(slot.Position, c.SpId, teamColors, counts);
                 foreach (var g in grades)
                 {
                     var ovr = c.OvrAt(slot.Position, g);
                     var price = c.PriceAt(g);
                     if (ovr is null || price <= Grades.FloorPrice || price - sale > budget) continue;
-                    // A replaced team-colour member takes its bonus with it (the level of the others is not re-checked).
-                    var gain = ovr.Value + (modelOf(c)?.PremiumInOvr(c) ?? 0) - slot.EffectiveOvr;
+                    var gain = ovr.Value + colorBonus + (modelOf(c)?.PremiumInOvr(c) ?? 0) - slot.EffectiveOvr;
                     if (gain > 0.5) best.Add(new Upgrade(slot, c, g, ovr.Value, gain, price, sale));
                 }
             }
@@ -218,10 +224,40 @@ public static class Advisors
             {
                 var (a, b) = (options[i], options[j]);
                 if (a.Out.Index == b.Out.Index || a.In.PlayerId == b.In.PlayerId || a.NetCost + b.NetCost > budget) continue;
+                if (!KeepsLevels(teamColors, counts, [(a.Out.Card.SpId, a.In.SpId), (b.Out.Card.SpId, b.In.SpId)])) continue;
                 plans.Add(new UpgradePlan([a, b], a.EffectiveGain + b.EffectiveGain, a.NetCost + b.NetCost));
             }
         }
         return plans.OrderByDescending(p => p.TotalGain).ThenBy(p => p.NetCost).Take(top).ToList();
+    }
+
+    /// <summary>The squad's slots with the OVR their team colours add (members counted over the whole squad).</summary>
+    public static IReadOnlyList<SquadSlot> WithTeamColors(IReadOnlyList<SquadSlot> squad, IReadOnlyList<TeamColorTarget> teamColors)
+    {
+        var counts = teamColors.Select(t => squad.Count(s => t.Members.Contains(s.Card.SpId))).ToArray();
+        return squad.Select(s => s with { TeamColorBonus = TeamColorBonusAt(s.Position, s.Card.SpId, teamColors, counts) }).ToList();
+    }
+
+    /// <summary>OVR the colours add to a card at a position, at the levels the member counts reach.</summary>
+    public static double TeamColorBonusAt(string position, long spId, IReadOnlyList<TeamColorTarget> teamColors, IReadOnlyList<int> counts)
+    {
+        var total = 0.0;
+        for (var i = 0; i < teamColors.Count; i++)
+            if (teamColors[i].Color.LevelFor(counts[i]) is { } level && (teamColors[i].Color.AppliesToSquad || teamColors[i].Members.Contains(spId)))
+                total += level.OvrGain(position);
+        return total;
+    }
+
+    /// <summary>Whether the swaps (card out, card in) leave every colour at its level.</summary>
+    private static bool KeepsLevels(IReadOnlyList<TeamColorTarget> teamColors, int[] counts, (long Out, long In)[] swaps)
+    {
+        for (var i = 0; i < teamColors.Count; i++)
+        {
+            var members = teamColors[i].Members;
+            var after = counts[i] + swaps.Sum(s => (members.Contains(s.In) ? 1 : 0) - (members.Contains(s.Out) ? 1 : 0));
+            if (teamColors[i].Color.LevelIndexFor(after) != teamColors[i].Color.LevelIndexFor(counts[i]) && after < counts[i]) return false;
+        }
+        return true;
     }
 
     // ── opponent-tailored picks ────────────────────────────────────────────

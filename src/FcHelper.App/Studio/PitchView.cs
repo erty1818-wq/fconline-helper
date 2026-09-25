@@ -74,7 +74,7 @@ public sealed class PitchView : Viewbox
         var accent = (Brush)res["Accent"];
         var ovr = new TextBlock
         {
-            Text = (s.Ovr + s.TeamColorBonus).ToString(), FontSize = 20, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Segoe UI"),
+            Text = Math.Round(s.Ovr + s.TeamColorBonus).ToString(), FontSize = 20, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Segoe UI"),
             Foreground = s.TeamColorBonus > 0 ? accent : (Brush)res["Text"], HorizontalAlignment = HorizontalAlignment.Center,
         };
         var name = new TextBlock { Text = s.Card.Name, FontSize = 12, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 104, HorizontalAlignment = HorizontalAlignment.Center };
@@ -92,7 +92,7 @@ public sealed class PitchView : Viewbox
         {
             Child = panel, Background = (Brush)res["Raised"], BorderBrush = outline, BorderThickness = new Thickness(s.Index == Selected || Highlighted.Contains(s.Index) ? 2 : 1),
             CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 4, 6, 5), Width = 112, Cursor = Cursors.Hand,
-            ToolTip = $"{s.Card.Name} {s.Card.Season} +{s.Grade}\nOVR {s.Ovr}{(s.TeamColorBonus > 0 ? $" (+팀컬러 {s.TeamColorBonus})" : "")} · 환산 {s.EffectiveOvr:0.0} [추정]\n급여 {s.Pay}"
+            ToolTip = $"{s.Card.Name} {s.Card.Season} +{s.Grade}\nOVR {s.Ovr}{(s.TeamColorBonus > 0 ? $" (+팀컬러 {s.TeamColorBonus:0.#})" : "")} · 환산 {s.EffectiveOvr:0.0} [추정]\n급여 {s.Pay}"
                 + (s.RankerUsers > 0 ? $" · 랭커 {s.RankerUsers}명" : "") + (s.Locked ? "\n고정됨" : ""),
         };
         if (s.Locked)

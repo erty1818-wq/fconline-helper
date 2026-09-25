@@ -19,7 +19,8 @@ internal static class SquadCommands
         var market = new MarketService(lists, store, _ => Task.FromResult("[]"));
         FcOnlineApi? api = string.IsNullOrWhiteSpace(apiKey) ? null : new FcOnlineApi(http, apiKey, new RateLimiter(5));
         var squads = new SquadService(market, store, new DataCenterChartClient(http, dataCenter),
-            new TeamColorCache(store, new DataCenterTeamColorClient(http, dataCenter, lists)), api);
+            new TeamColorCache(store, new DataCenterTeamColorClient(http, dataCenter, lists)), api,
+            salaryCap: new SalaryCapCache(store, new SalaryCapSource(http, dataCenter)));
         if (store.LatestFinished() is null)
         {
             Console.Error.WriteLine("시세 데이터가 없습니다. 앱을 켜 두면 자동으로 받습니다.");
@@ -76,15 +77,16 @@ internal static class SquadCommands
             ? Formations.Custom("사용자", f.Split(','))
             : Formations.Find(option("formation") ?? "4-2-2-2") ?? throw new InvalidOperationException(
                 $"포메이션은 {string.Join(", ", Formations.All.Select(x => x.Name))} 또는 GK,LB,CB,... 11개입니다.");
-        (TeamColor Color, IReadOnlySet<long> Members)? tc = option("teamcolor") is { } id ? await squads.TeamColorAsync(Int(id, 0)) : null;
+        // --teamcolor 2002,40515 = 소속 프랑스 + 특성 2024 프랑스.
+        var targets = await squads.TargetsAsync((option("teamcolor") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(id => Int(id, 0)));
+        var cap = option("cap") is { } c ? Int(c, int.MaxValue) : await squads.SalaryCapAsync();
         var request = new SquadRequest
         {
             Formation = formation,
             Budget = Price(option("budget"), long.MaxValue),
-            SalaryCap = Int(option("cap"), int.MaxValue),
+            SalaryCap = cap,
             Grades = (option("grades") ?? "8").Split(',').Select(g => Int(g, 8)).ToList(),
-            TeamColor = tc?.Color,
-            TeamColorMembers = tc?.Members ?? new HashSet<long>(),
+            TeamColors = targets,
             RankerPicksOnly = option("ranker-only") is "yes" or "y" or "1",
         };
         var mode = option("mode") ?? "all";
@@ -93,15 +95,21 @@ internal static class SquadCommands
             : await squads.BuildAsync(request with { Mode = mode switch { "balanced" => SquadMode.Balanced, "value" => SquadMode.Value, "ranker" => SquadMode.RankerPicks, _ => SquadMode.Strongest } }, rankFrom, rankTo);
         foreach (var p in plans)
         {
-            Console.WriteLine($"\n■ {p.Label} · {p.Formation.Name} · 총 {Bp.Format(p.TotalPrice)} · 급여 {p.TotalPay} · 평균 OVR {p.AverageOvr:0.0} · 환산 {p.AverageEffectiveOvr:0.0}"
-                + (p.TeamColorLevel is { } l ? $" · 팀컬러 {request.TeamColor!.Name} {l.Level}단계({p.TeamColorMembers}명, +{l.AllStats})" : request.TeamColor is not null ? $" · 팀컬러 {p.TeamColorMembers}명(단계 미달)" : ""));
+            Console.WriteLine($"\n■ {p.Label} · {p.Formation.Name} · 총 {Bp.Format(p.TotalPrice)} · 급여 {p.TotalPay}/{cap} · 평균 OVR {p.AverageOvr:0.0} · 환산 {p.AverageEffectiveOvr:0.0}"
+                + string.Concat(p.TeamColors.Select(t => $" · {TeamColorText(t)}")));
             foreach (var s in p.Slots)
-                Console.WriteLine($"  {s.Position,-4} {s.Card.Name,-10} {s.Card.Season,-8} +{s.Grade,-2} OVR {s.Ovr + s.TeamColorBonus}{(s.TeamColorBonus > 0 ? "*" : " ")} 환산 {s.EffectiveOvr,5:0.0} · {Bp.Format(s.Price),7} · 급여 {s.Pay,2}"
+                Console.WriteLine($"  {s.Position,-4} {s.Card.Name,-10} {s.Card.Season,-8} +{s.Grade,-2} OVR {s.Ovr + s.TeamColorBonus,5:0.#}{(s.TeamColorBonus > 0 ? "*" : " ")} 환산 {s.EffectiveOvr,5:0.0} · {Bp.Format(s.Price),7} · 급여 {s.Pay,2}"
                     + (s.RankerUsers > 0 ? $" · 랭커 {s.RankerUsers}명" : "") + (s.Discount < -0.15 ? $" · 스펙 대비 {s.Discount:P0}" : ""));
         }
         Console.WriteLine("\n환산 OVR = OVR + 시장이 약발·특성·개인기·능력치에 매기는 값(OVR 단위) [추정]. * = 팀컬러 보너스 포함.");
+        Console.WriteLine("팀컬러: 소속 보너스는 선발 전원, 특성 보너스는 해당 카드만. 개별 능력치 보너스의 OVR 환산은 [추정].");
         return 0;
     }
+
+    private static string TeamColorText(AppliedTeamColor t) =>
+        $"{FcHelper.Market.TeamColor.CategoryLabel(t.Color.Category)} {t.Color.Name} " + (t.Level is { } l
+            ? $"{l.Level}단계({t.Members}명, {string.Join("/", l.Effects)}{(t.Color.AppliesToSquad ? ", 전원" : ", 해당 카드만")})"
+            : $"{t.Members}명(단계 미달)");
 
     private static int Grade(SquadService squads, Func<string, string?> option)
     {
@@ -128,7 +136,7 @@ internal static class SquadCommands
         if (option("id") is { } id)
         {
             if (await squads.TeamColorAsync(Int(id, 0)) is not { } tc) { Console.Error.WriteLine("팀컬러를 찾지 못했습니다."); return 3; }
-            Console.WriteLine($"{tc.Color.Name} ({tc.Color.Kind}) · 적용 선수 {tc.Members.Count}장");
+            Console.WriteLine($"{tc.Color.Name} ({FcHelper.Market.TeamColor.CategoryLabel(tc.Color.Category)} · {(tc.Color.AppliesToSquad ? "보너스는 선발 전원" : "보너스는 해당 카드만")}) · 적용 선수 {tc.Members.Count}장");
             foreach (var l in tc.Color.Levels) Console.WriteLine($"  {l.Level}단계 {l.Members}명: {string.Join(", ", l.Effects)}");
             return 0;
         }
@@ -136,7 +144,7 @@ internal static class SquadCommands
         foreach (var (color, usage) in popular) Console.WriteLine($"  {color.Id,6} {color.Name,-14} 랭커 {usage.Users}명 ({usage.Share:P1}) · 최대 {color.MaxMembers}명");
         if (popular.Count == 0)
             foreach (var t in (await squads.TeamColorsAsync()).Where(t => t.Kind == TeamColorKind.Club).Take(20)) Console.WriteLine($"  {t.Id,6} {t.Name}");
-        Console.WriteLine("상세와 적용 선수: fch teamcolor --id <번호>. 스쿼드에 적용: fch squad --teamcolor <번호>");
+        Console.WriteLine("상세와 적용 선수: fch teamcolor --id <번호>. 스쿼드에 적용: fch squad --teamcolor <소속번호>,<특성번호>");
         return 0;
     }
 
@@ -150,21 +158,24 @@ internal static class SquadCommands
         var current = squads.CurrentSquad(owned);
         Console.WriteLine($"지금 스쿼드 (최근 공식경기): 시세 합 {Bp.Format(current.Sum(s => s.Price))} · 평균 OVR {current.Average(s => s.Ovr):0.0} · 환산 {current.Average(s => s.EffectiveOvr):0.0}");
         foreach (var s in current) Console.WriteLine($"  {s.Position,-4} {s.Card.Name,-10} {s.Card.Season,-8} +{s.Grade,-2} OVR {s.Ovr} · {Bp.Format(s.Price)}");
-        var teamColor = Int(option("teamcolor"), 0);
-        if (teamColor == 0 && option("teamcolor") is null)
+        var teamColors = (option("teamcolor") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(id => Int(id, 0)).ToList();
+        if (option("teamcolor") is null)
         {
             var detected = await squads.DetectTeamColorsAsync(owned);
             if (detected.Count > 0)
             {
-                Console.WriteLine($"팀컬러 감지: {string.Join(", ", detected.Select(d => $"{d.Color.Name}({d.Color.Id}) {d.Owned}명 {d.Level.Level}단계 {string.Join("/", d.Level.Effects)}"))}");
-                teamColor = detected[0].Color.Id;
-                Console.WriteLine($"→ {detected[0].Color.Name} 팀컬러를 유지하는 교체만 봅니다 (끄려면 --teamcolor 0).");
+                Console.WriteLine($"팀컬러 감지: {string.Join(", ", detected.Select(d => $"{FcHelper.Market.TeamColor.CategoryLabel(d.Color.Category)} {d.Color.Name}({d.Color.Id}) {d.Owned}명 {d.Level.Level}단계 {string.Join("/", d.Level.Effects)}"))}");
+                teamColors = SquadService.ActiveTeamColors(detected).ToList();
+                var active = detected.Where(d => teamColors.Contains(d.Color.Id)).Select(d => d.Color.Name);
+                Console.WriteLine($"→ 게임은 종류별로 하나만 적용하므로 {string.Join(", ", active)} 기준으로, 이 단계를 지키는 교체만 봅니다 (바꾸려면 --teamcolor <번호>, 끄려면 0).");
             }
         }
+        // Official fee rule: --pcroom, --topclass, --coupon <%>, --coupon-max <최대 할인 BP>.
+        var fee = new SaleFee(Flag(option("pcroom")), Flag(option("topclass")), Int(option("coupon"), 0), Price(option("coupon-max"), 0));
+        Console.WriteLine($"판매 수수료 {fee.Rate:P0} (기본 40%{(fee.BenefitPercent > 0 ? $", 혜택 -{fee.BenefitPercent}%" : "")}{(fee.CouponPercent > 0 ? $", 쿠폰 -{fee.CouponPercent}%" : "")})");
         // By default look at the grades the user already plays with.
         var grades = option("grades") is { } gs ? gs.Split(',').Select(g => Int(g, 8)).ToList() : owned.Select(o => o.Grade).Distinct().Order().ToList();
-        var plans = await squads.UpgradesAsync(owned, Price(option("budget"), 500_000_000), grades,
-            double.TryParse(option("fee"), NumberStyles.Float, CultureInfo.InvariantCulture, out var fee) ? fee : 0, teamColorId: teamColor);
+        var plans = await squads.UpgradesAsync(owned, Price(option("budget"), 500_000_000), grades, fee, teamColorIds: teamColors);
         Console.WriteLine($"\n예산 {Bp.Format(Price(option("budget"), 500_000_000))} 안에서 효과 큰 교체:");
         foreach (var p in plans)
             Console.WriteLine("  " + string.Join(" + ", p.Moves.Select(m => $"{m.Out.Card.Name}→{m.In.Name} {m.In.Season} +{m.Grade} (OVR {m.Ovr}, +{m.EffectiveGain:0.0})"))
@@ -202,4 +213,5 @@ internal static class SquadCommands
 
     private static int Int(string? s, int fallback) => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
     private static long Price(string? s, long fallback) => s is not null && Bp.TryParse(s, out var v) ? v : fallback;
+    private static bool Flag(string? s) => s is "yes" or "y" or "1" or "true" or "on";
 }

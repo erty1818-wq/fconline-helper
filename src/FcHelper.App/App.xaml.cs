@@ -85,7 +85,8 @@ public partial class App : Application
         var lists = new DataCenterListClient(_http, dataCenter);
         _market = new MarketService(lists, marketStore, ct => _http.GetStringAsync(SeasonListUrl, ct));
         Squads = new SquadService(_market, marketStore, new DataCenterChartClient(_http, dataCenter),
-            new TeamColorCache(marketStore, new DataCenterTeamColorClient(_http, dataCenter, lists)), _rankerStats);
+            new TeamColorCache(marketStore, new DataCenterTeamColorClient(_http, dataCenter, lists)), _rankerStats,
+            salaryCap: new SalaryCapCache(marketStore, new SalaryCapSource(_http, dataCenter)));
         _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
         _ = KeepMarketFreshAsync(_exit.Token);
         if (Service is null)

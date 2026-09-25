@@ -28,15 +28,19 @@
                     </StackPanel>
                     <StackPanel Margin="0,0,14,6">
                         <TextBlock Text="급여 한도 (비우면 없음)" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="CapBox" Width="90" />
+                        <TextBox x:Name="CapBox" Width="90" ToolTip="공식 스쿼드메이커의 급여 한도를 자동으로 넣습니다 (주 1회 확인)" />
                     </StackPanel>
                     <StackPanel Margin="0,0,14,6">
                         <TextBlock Text="강화 단계 (여러 개면 자동 선택)" Style="{StaticResource FieldLabel}" />
                         <WrapPanel x:Name="GradeChips" />
                     </StackPanel>
                     <StackPanel Margin="0,0,14,6">
-                        <TextBlock Text="팀컬러" Style="{StaticResource FieldLabel}" />
-                        <ComboBox x:Name="TeamColorBox" MinWidth="170" DisplayMemberPath="Label" />
+                        <TextBlock Text="소속 팀컬러 (선발 전원 보너스)" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="TeamColorBox" MinWidth="170" DisplayMemberPath="Label" SelectionChanged="OnTeamColorChanged" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,14,6">
+                        <TextBlock Text="특성 팀컬러 (해당 카드만 보너스)" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="FeatureBox" MinWidth="170" DisplayMemberPath="Label" />
                     </StackPanel>
                     <StackPanel Margin="0,0,14,6">
                         <TextBlock Text="랭커 기준" Style="{StaticResource FieldLabel}" />

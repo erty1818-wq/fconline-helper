@@ -18,6 +18,12 @@ internal static class StudioKit
         return string.IsNullOrWhiteSpace(box.Text) || Bp.TryParse(box.Text, out value);
     }
 
+    /// <summary>"소속 프랑스 4단계 · 11명 (전체 능력치 +4/드리블 +3) · 선발 전원" for a plan or my squad.</summary>
+    public static string TeamColorLine(AppliedTeamColor t) =>
+        $"{TeamColor.CategoryLabel(t.Color.Category)} {t.Color.Name} " + (t.Level is { } l
+            ? $"{l.Level}단계 · {t.Members}명 ({string.Join("/", l.Effects)}) · {(t.Color.AppliesToSquad ? "선발 전원" : "해당 카드만")}"
+            : $"{t.Members}명 (단계 미달)");
+
     public static int IntOr(TextBox box, int fallback) => int.TryParse(box.Text.Trim(), out var v) ? v : fallback;
 
     public static readonly string[] RatedPositions = ["ST", "CF", "LW", "RW", "CAM", "LM", "RM", "CM", "CDM", "LB", "RB", "LWB", "RWB", "CB", "GK"];

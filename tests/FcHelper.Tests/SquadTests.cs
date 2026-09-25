@@ -66,10 +66,50 @@ public class ChartAndTeamColorParserTests
     [Fact]
     public void Team_colour_level_follows_the_member_count()
     {
-        var tc = new TeamColor(1016, "FC 바르셀로나", TeamColorKind.Club, 11, [new(1, 3, 1, []), new(2, 6, 3, []), new(4, 11, 4, [])]);
+        var tc = new TeamColor(1016, "FC 바르셀로나", TeamColorCategory.Affiliation, 11, [new(1, 3, 1, []), new(2, 6, 3, []), new(4, 11, 4, [])]);
         Assert.Null(tc.LevelFor(2));
         Assert.Equal(2, tc.LevelFor(7)!.Level);
-        Assert.Equal(TeamColorKind.Nation, TeamColor.KindOf(2001));
+        Assert.Equal(TeamColorKind.Club, tc.Kind);
+        Assert.True(tc.AppliesToSquad);
+        Assert.Equal(TeamColorKind.Nation, (tc with { Id = 2002 }).Kind);
+        // "2026 프랑스" is listed under 특성 even though its id looks like a club season: only its cards get the bonus.
+        var feature = new TeamColor(40515, "2024 프랑스", TeamColorCategory.Feature, 8, []);
+        Assert.Equal(TeamColorKind.Feature, feature.Kind);
+        Assert.False(feature.AppliesToSquad);
+    }
+
+    [Fact]
+    public void Single_stat_bonuses_count_by_their_weight_in_the_position()
+    {
+        var level = new TeamColorLevel(1, 8, 0, ["골 결정력 +3", "위치 선정 +3", "가속력 +2", "속력 +2"]);
+        Assert.Equal(new Dictionary<string, int> { ["골 결정력"] = 3, ["위치 선정"] = 3, ["가속력"] = 2, ["속력"] = 2 }, TeamColorParser.StatBonuses(level.Effects));
+        Assert.Equal(3 * .18 + 3 * .13 + 2 * .04 + 2 * .05, level.OvrGain("RS"), 3);
+        Assert.True(level.OvrGain("CB") < level.OvrGain("ST"));
+        Assert.Equal(4 + 3 * .15, new TeamColorLevel(4, 11, 4, ["전체 능력치 +4", "드리블 +3"]).OvrGain("LM"), 3);
+    }
+
+    [Fact]
+    public void Reads_the_salary_cap_from_the_squad_maker_script()
+    {
+        const string js = "t=e?.totalPay,i=Number(t??0)>310,a=Math.round(Math.min(Number(t??0)/310*100,100)),x=Number(n??0)>310";
+        Assert.Equal(310, SalaryCapSource.Parse(js));
+        Assert.Null(SalaryCapSource.Parse("i=Number(t??0)>310,a=Math.round(Math.min(Number(t??0)/300*100,100))"));
+        Assert.Null(SalaryCapSource.Parse("nothing here"));
+    }
+
+    [Fact]
+    public void Sale_fee_follows_the_official_calculator()
+    {
+        const long price = 10_000_000_000; // 100억
+        Assert.Equal(4_000_000_000, SaleFee.Standard.FeeOn(price));
+        Assert.Equal(2_800_000_000, new SaleFee(PcRoom: true).FeeOn(price));
+        Assert.Equal(3_200_000_000, new SaleFee(TopClass: true).FeeOn(price));
+        Assert.Equal(2_000_000_000, new SaleFee(true, true).FeeOn(price));
+        Assert.Equal(2_400_000_000, new SaleFee(PcRoom: true, CouponPercent: 10).FeeOn(price));
+        Assert.Equal(2_700_000_000, new SaleFee(PcRoom: true, CouponPercent: 10, CouponMaxDiscount: 100_000_000).FeeOn(price));
+        Assert.Equal(0, new SaleFee(true, true, CouponPercent: 80).FeeOn(price)); // coupon limited to 100 − 50
+        Assert.Equal(7_200_000_000, new SaleFee(PcRoom: true).NetOf(price));
+        Assert.Equal(0.28, new SaleFee(PcRoom: true).Rate, 3);
     }
 }
 
@@ -164,15 +204,61 @@ public class SquadBuilderTests
     {
         var cards = Market();
         var members = cards.Where(c => c.Ovr1 == 123).Select(c => c.SpId).ToHashSet();
-        var tc = new TeamColor(1, "테스트", TeamColorKind.Club, 11, [new(1, 3, 1, []), new(4, 11, 4, [])]);
+        var tc = new TeamColor(1, "테스트", TeamColorCategory.Affiliation, 11, [new(1, 3, 1, []), new(4, 11, 4, [])]);
 
         var plan = Builder(cards).Build(new SquadRequest
         {
-            Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColor = tc, TeamColorMembers = members,
+            Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(tc, members)],
         })[0];
 
-        Assert.Equal(4, plan.TeamColorLevel!.Level);
+        Assert.Equal(4, plan.TeamColors[0].Level!.Level);
         Assert.All(plan.Slots, s => Assert.Equal(4, s.TeamColorBonus));
+    }
+
+    [Fact]
+    public void Affiliation_bonus_reaches_every_starter_once_the_level_is_met()
+    {
+        var cards = Market();
+        // Only three weaker cards count, but +1 for all eleven beats 3 OVR lost on three slots.
+        var members = cards.Where(c => c.Ovr1 == 120 && c.Group is "GK" or "FB").Select(c => c.SpId).ToHashSet();
+        var tc = new TeamColor(2002, "프랑스", TeamColorCategory.Affiliation, 11, [new(1, 3, 1, []), new(4, 11, 4, [])]);
+
+        var plan = Builder(cards).Build(new SquadRequest
+        {
+            Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(tc, members)],
+        })[0];
+
+        Assert.Equal(3, plan.TeamColors[0].Members);
+        Assert.All(plan.Slots, s => Assert.Equal(1, s.TeamColorBonus));
+    }
+
+    [Fact]
+    public void Feature_bonus_goes_only_to_its_members()
+    {
+        var cards = Market();
+        var members = cards.Where(c => c.Ovr1 == 123 && c.Group is "ST" or "CAM").Select(c => c.SpId).ToHashSet();
+        var feature = new TeamColor(40515, "2024 프랑스", TeamColorCategory.Feature, 4, [new(1, 3, 0, ["속력 +2", "골 결정력 +3"])]);
+
+        var plan = Builder(cards).Build(new SquadRequest
+        {
+            Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(feature, members)],
+        })[0];
+
+        Assert.True(plan.TeamColors[0].Members >= 3);
+        foreach (var s in plan.Slots)
+        {
+            if (!members.Contains(s.Card.SpId)) Assert.Equal(0, s.TeamColorBonus);
+            else if (s.Position == "ST") Assert.Equal(2 * .05 + 3 * .18, s.TeamColorBonus, 3);
+            else Assert.True(s.TeamColorBonus > 0);
+        }
+
+        // An upgrade may not take the colour below its level: members at the threshold are only swapped for members.
+        var pool = cards.Concat([Card("ST", 130, 50_000_000), Card("CAM", 130, 50_000_000)]).ToList();
+        var current = Advisors.WithTeamColors(plan.Slots.Select(x => x with { Owned = true }).ToList(), [new TeamColorTarget(feature, members)]);
+        var upgrades = Advisors.Upgrades(current, pool, _ => null, 1_000_000_000, [8], teamColors: [new TeamColorTarget(feature, members)]);
+        Assert.NotEmpty(upgrades);
+        if (plan.TeamColors[0].Members == 3)
+            Assert.All(upgrades.SelectMany(u => u.Moves), m => Assert.True(!members.Contains(m.Out.Card.SpId) || members.Contains(m.In.SpId)));
     }
 }
 

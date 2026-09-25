@@ -304,7 +304,7 @@ public sealed class MarketStore
         using var tx = c.BeginTransaction();
         foreach (var t in colors)
             Exec(c, "INSERT OR REPLACE INTO team_color VALUES ($i, $n, $k, $m, $j, $u)",
-                ("$i", t.Id), ("$n", t.Name), ("$k", t.Kind.ToString()), ("$m", t.MaxMembers), ("$j", JsonSerializer.Serialize(t.Levels)), ("$u", Iso(now)));
+                ("$i", t.Id), ("$n", t.Name), ("$k", t.Category.ToString()), ("$m", t.MaxMembers), ("$j", JsonSerializer.Serialize(t.Levels)), ("$u", Iso(now)));
         tx.Commit();
     }
 
@@ -315,7 +315,8 @@ public sealed class MarketStore
         using var r = cmd.ExecuteReader();
         var list = new List<TeamColor>();
         while (r.Read())
-            list.Add(new TeamColor(r.GetInt32(0), r.GetString(1), Enum.Parse<TeamColorKind>(r.GetString(2)), r.GetInt32(3),
+            // The kind column holds the category; rows from before v2 (Club, Nation, ...) are replaced by the next catalogue fetch.
+            list.Add(new TeamColor(r.GetInt32(0), r.GetString(1), Enum.TryParse<TeamColorCategory>(r.GetString(2), out var cat) ? cat : TeamColorCategory.Affiliation, r.GetInt32(3),
                 JsonSerializer.Deserialize<List<TeamColorLevel>>(r.GetString(4))!));
         return list;
     }

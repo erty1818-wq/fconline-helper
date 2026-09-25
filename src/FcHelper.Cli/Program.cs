@@ -180,6 +180,11 @@ static void PrintUsage() => Console.Error.WriteLine("""
           내 최근 경기 100건을 캐시에 저장합니다.
       fch value [--pos W] [--grade 8] [--min 1억] [--max 30억] [--top 15]
           같은 스펙 대비 싸게 거래되는 선수 (API 키 불필요, 앱이 받아 둔 시세 사용).
+      fch squad [--formation 4-2-2-2] [--budget 100억] [--grades 5,8] [--cap 310] [--teamcolor 2002,40515]
+          스쿼드 추천. 급여 한도는 공식 스쿼드메이커에서 읽은 값이 기본. 팀컬러는 소속,특성 번호.
+      fch upgrade --me <닉네임> [--budget 10억] [--pcroom yes] [--topclass yes] [--coupon 10] [--coupon-max 5억]
+          내 스쿼드 교체 추천. 판매 수수료는 공식 계산식 (기본 40%, PC방·TOP CLASS·쿠폰 할인).
+      fch picks | grade | salary | movers | formation | teamcolor | tailor  (자세한 옵션은 docs/UI_PROMPT.md)
       fch dump <닉네임> [--count 3] [--out docs/samples]
           match-detail 원본 JSON을 저장합니다 (필드 검증용).
 

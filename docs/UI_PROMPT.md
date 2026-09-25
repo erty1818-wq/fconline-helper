@@ -50,7 +50,8 @@ var market = squads.Market;                        // MarketService: 상태·갱
 | `squads.Grade(spId, position, from?, to?)` | 없음 | 즉시 | `GradeAdvice` |
 | `squads.SalaryEfficiency(position, grade, min, max, minOvr)` | 없음 | 즉시 | `SalaryValue` 목록 |
 | `squads.PriceMoves(grade, days, minPrice)` / `squads.Alerts()` | 없음 | 즉시 | `PriceMove` 목록 (과거 시세가 쌓여야 보임) |
-| `squads.CurrentSquad(owned)` / `squads.UpgradesAsync(owned, budget, grades, fee, 2, teamColorId)` | 팀컬러 지정 시 첫 호출 | 1~2초 | 내 스쿼드 / `UpgradePlan` |
+| `squads.CurrentSquad(owned, targets)` / `squads.UpgradesAsync(owned, budget, grades, SaleFee, 2, teamColorIds)` | 팀컬러 지정 시 첫 호출 | 1~2초 | 내 스쿼드 / `UpgradePlan` |
+| `squads.SalaryCap` / `SalaryCapAsync()` | 창 열 때 (주 1회 실제 확인) | 즉시 / 수 초 | 급여 한도 기본값 (공식 스쿼드메이커) |
 | `squads.DetectTeamColorsAsync(owned)` | 카드 4장 상세 + 팀컬러 멤버 | 첫 호출 10~60초 | 내 스쿼드의 팀컬러와 단계 |
 | `squads.Tailored(needs, grade, maxPrice)` | 없음 | 즉시 | `TailoredPick` (상대 맞춤) |
 | `squads.FormationAdviceAsync(opponentFormation)` | 랭커 차트 | 즉시 | `FormationAdvice` |
@@ -87,7 +88,7 @@ var market = squads.Market;                        // MarketService: 상태·갱
 트레이 메뉴에 **"스쿼드·시세"** 항목 하나를 추가하고, 이 하나의 창(`SquadStudioWindow`)에 내비게이션으로 아래 화면을 둔다. 기존 "가성비 찾기"(`ValueWindow`)는 이 창의 한 탭으로 옮기거나 같은 디자인으로 맞춘다.
 
 ### 4.1 스쿼드 짜기 (메인)
-- **입력 바**(상단 한 줄, 접을 수 있음): 포메이션(드롭다운 + "직접 지정"), 예산(BP 입력 + 빠른 칩: 10억/50억/100억/500억), 급여 한도(숫자, 기본 비움=무제한), 강화 단계(다중 선택 칩 1~13, 기본 +8; 2개 이상이면 "강화도 자동 선택" 표시), 팀컬러(검색 가능한 드롭다운, 인기 팀컬러 상단 + "내 스쿼드 팀컬러 감지" 버튼), 랭커 범위(1~10000, 기본 전체), "랭커픽만" 토글, **짜기** 버튼.
+- **입력 바**(상단 한 줄, 접을 수 있음): 포메이션(드롭다운 + "직접 지정"), 예산(BP 입력 + 빠른 칩: 10억/50억/100억/500억), 급여 한도(숫자, 기본 = 공식 스쿼드메이커 값 310, 비우면 무제한), 강화 단계(다중 선택 칩 1~13, 기본 +8; 2개 이상이면 "강화도 자동 선택" 표시), 소속 팀컬러(선발 전원 보너스, 인기 팀컬러 상단) + 특성 팀컬러(해당 카드만 보너스, 고른 소속 이름이 들어간 특성 목록 예: 프랑스 → 2026 프랑스), 랭커 범위(1~10000, 기본 전체), "랭커픽만" 토글, **짜기** 버튼.
 - **모드 비교 스트립**: `CompareModesAsync` 결과 4개 카드 가로 배치 — 모드명, 총액, 평균 OVR, 환산 OVR, 급여 합, 팀컬러 단계. 가장 싼 안과 가장 강한 안에 배지. 클릭하면 아래 피치에 표시. 기본 선택은 "균형".
 - **피치 뷰**: 초록 계열이 아닌 어두운 피치(Panel 톤 + Line 라인). 포메이션 슬롯 위치에 선수 칩(이름, 시즌 배지, `+강화`, OVR 큰 숫자, 팀컬러 보너스 있으면 `*`). 슬롯 좌표는 포지션 줄로 배치: GK y=92%, CB/LB/RB/LWB/RWB y=74%, CDM y=58%, CM y=47%, CAM/LM/RM y=34%, CF y=22%, ST/LW/RW y=11%; 같은 줄은 좌→우(L* 왼쪽, R* 오른쪽, 나머지 가운데)로 균등 분배.
 - **슬롯 상호작용**: 칩 클릭 → 오른쪽 상세 패널(카드 정보, 강화 단계별 가격 미니 차트, 랭커 사용률, 랭커 20경기 스탯(`RankerStatsAsync`), "이 슬롯 고정"(Locked), "이 선수 제외"(ExcludedPlayers), "보유 중"(Owned=가격 0) 토글). 고정/제외 후 **다시 짜기**.
@@ -116,8 +117,8 @@ var market = squads.Market;                        // MarketService: 상태·갱
 
 ### 4.7 내 스쿼드 업그레이드
 - 내 닉네임(설정) → `MyCurrentCards` → 현재 11명 피치 뷰(보유=가격 0).
-- 팀컬러 감지 결과 칩(`DetectTeamColorsAsync`: "대한민국 10명 3단계 +3"), 유지할 팀컬러 선택.
-- 예산·허용 강화·판매 수수료(기본 0, 입력 가능) → `UpgradesAsync` 상위 5안: "하석주 → 이영표 TK +8 · 순비용 880만 · 환산 +2.4", 적용 미리보기(피치에서 바뀌는 칸 강조).
+- 팀컬러 감지 결과 칩(`DetectTeamColorsAsync`: "소속 대한민국 10명 3단계"), 종류별로 가장 강한 것만 켜진 상태, 토글 가능.
+- 예산·허용 강화·판매 수수료(`SaleFee`: 기본 40%, PC방/TOP CLASS 토글, 쿠폰 %·최대 할인) → `UpgradesAsync` 상위 5안: "하석주 → 이영표 TK +8 · 순비용 880만 · 환산 +2.4", 적용 미리보기(피치에서 바뀌는 칸 강조).
 
 ### 4.8 상대 맞춤 (상대 분석과 연결)
 - 검색 창/상대 카드에서 "맞춤 추천" 버튼 → 상대의 `NeedsAgainst`, `OpponentFormation`.

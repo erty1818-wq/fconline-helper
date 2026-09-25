@@ -35,18 +35,55 @@ public partial class SquadPage : UserControl
         RankBox.SelectedIndex = 0;
         TeamColorBox.ItemsSource = new[] { new TeamColorItem("없음", 0) };
         TeamColorBox.SelectedIndex = 0;
+        FeatureBox.ItemsSource = new[] { new TeamColorItem("없음", 0) };
+        FeatureBox.SelectedIndex = 0;
         Pitch.SlotClicked += ShowDetail;
-        Loaded += async (_, _) => await LoadTeamColorsAsync();
+        Loaded += async (_, _) =>
+        {
+            await LoadSalaryCapAsync();
+            await LoadTeamColorsAsync();
+        };
         ShowLocks();
     }
 
     private (int, int) RankRange => RankBox.SelectedIndex switch { 1 => (1, 1000), 2 => (1, 100), _ => (1, 10000) };
+
+    private int? _capShown;
+
+    /// <summary>Fills the salary cap from the official squad maker unless the user typed their own.</summary>
+    private async Task LoadSalaryCapAsync()
+    {
+        if (StudioKit.Squads is not { } squads) return;
+        var typed = CapBox.Text.Trim();
+        if (typed.Length > 0 && typed != _capShown?.ToString()) return;
+        CapBox.Text = (_capShown = squads.SalaryCap).ToString();
+        var cap = await squads.SalaryCapAsync();
+        if ((CapBox.Text ?? "").Trim() == _capShown?.ToString()) CapBox.Text = (_capShown = cap).ToString();
+    }
+
+    private IReadOnlyList<TeamColor> _catalog = [];
+
+    /// <summary>특성 colours that go with the chosen 소속 one by name ("프랑스" → "2026 프랑스", "프랑스 1기 황금세대").</summary>
+    private void OnTeamColorChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (TeamColorBox.SelectedItem is not TeamColorItem { Id: > 0 } item) return;
+        var name = _catalog.FirstOrDefault(t => t.Id == item.Id)?.Name;
+        var keep = FeatureBox.SelectedItem as TeamColorItem;
+        var items = new List<TeamColorItem> { new("없음", 0) };
+        if (name is not null)
+            items.AddRange(_catalog.Where(t => t.Category == TeamColorCategory.Feature && t.Name.Contains(name, StringComparison.Ordinal))
+                .OrderByDescending(t => t.Name).Select(t => new TeamColorItem($"{t.Name} ({t.MaxMembers}명)", t.Id)));
+        if (keep is { Id: > 0 } && items.All(i => i.Id != keep.Id)) items.Add(keep);
+        FeatureBox.ItemsSource = items;
+        FeatureBox.SelectedItem = items.FirstOrDefault(i => i.Id == keep?.Id) ?? items[0];
+    }
 
     private async Task LoadTeamColorsAsync()
     {
         if (StudioKit.Squads is not { } squads || TeamColorBox.Items.Count > 1) return;
         try
         {
+            _catalog = await squads.TeamColorsAsync();
             var popular = await squads.PopularTeamColorsAsync();
             var items = new List<TeamColorItem> { new("없음", 0) };
             items.AddRange(popular.Select(p => new TeamColorItem($"{p.Color.Name} (랭커 {p.Usage.Share:P0})", p.Color.Id)));
@@ -59,13 +96,14 @@ public partial class SquadPage : UserControl
         }
     }
 
-    /// <summary>Selects a team colour (from the team colour page).</summary>
-    public void UseTeamColor(int id, string name)
+    /// <summary>Selects a team colour (from the team colour page): 특성 colours go in their own box.</summary>
+    public void UseTeamColor(int id, string name, TeamColorCategory category)
     {
-        var items = TeamColorBox.ItemsSource.Cast<TeamColorItem>().ToList();
+        var box = category == TeamColorCategory.Feature ? FeatureBox : TeamColorBox;
+        var items = box.ItemsSource.Cast<TeamColorItem>().ToList();
         if (items.All(i => i.Id != id)) items.Add(new TeamColorItem(name, id));
-        TeamColorBox.ItemsSource = items;
-        TeamColorBox.SelectedItem = items.First(i => i.Id == id);
+        box.ItemsSource = items;
+        box.SelectedItem = items.First(i => i.Id == id);
     }
 
     /// <summary>Fixes a card into the first free slot of its position (from other pages: "스쿼드에 넣기").</summary>
@@ -104,8 +142,7 @@ public partial class SquadPage : UserControl
         await StudioKit.Run(BuildButton, Status, async () =>
         {
             Status.Text = "계산 중… (처음에는 랭커 데이터를 받느라 1분쯤 걸립니다)";
-            var tcId = (TeamColorBox.SelectedItem as TeamColorItem)?.Id ?? 0;
-            var tc = tcId > 0 ? await squads.TeamColorAsync(tcId) : null;
+            var targets = await squads.TargetsAsync([(TeamColorBox.SelectedItem as TeamColorItem)?.Id ?? 0, (FeatureBox.SelectedItem as TeamColorItem)?.Id ?? 0]);
             var request = new SquadRequest
             {
                 Formation = Formations.Find((string)FormationBox.SelectedItem)!,
@@ -114,8 +151,7 @@ public partial class SquadPage : UserControl
                 Grades = grades,
                 Locked = new Dictionary<int, LockedCard>(_locked),
                 ExcludedPlayers = new HashSet<int>(_excluded),
-                TeamColor = tc?.Color,
-                TeamColorMembers = tc?.Members ?? new HashSet<long>(),
+                TeamColors = targets,
                 RankerPicksOnly = RankerOnlyBox.IsChecked == true,
             };
             var (from, to) = RankRange;
@@ -125,7 +161,7 @@ public partial class SquadPage : UserControl
             var strongest = plans.MaxBy(p => p.AverageEffectiveOvr);
             Modes.ItemsSource = plans.Select(p => new ModeCard(p, p.Label, Bp.Format(p.TotalPrice),
                 $"평균 OVR {p.AverageOvr:0.0}", $"환산 {p.AverageEffectiveOvr:0.0} [추정]", $"급여 {p.TotalPay}",
-                p.TeamColorLevel is { } l ? $"팀컬러 {l.Level}단계 · {p.TeamColorMembers}명 (+{l.AllStats})" : tc is not null ? $"팀컬러 {p.TeamColorMembers}명 (단계 미달)" : "",
+                string.Join("\n", p.TeamColors.Select(StudioKit.TeamColorLine)),
                 ReferenceEquals(p, cheapest) ? "가장 쌈" : ReferenceEquals(p, strongest) ? "가장 강함" : "")).ToList();
             Modes.SelectedIndex = plans.Count > 1 ? 1 : 0;
         });
@@ -146,7 +182,7 @@ public partial class SquadPage : UserControl
         Detail.Children.Add(new Image { Source = Skin.Get("player"), Width = 72, Height = 72, HorizontalAlignment = HorizontalAlignment.Left });
         Detail.Children.Add(new TextBlock { Text = c.Name, Style = (Style)FindResource("H1"), Margin = new Thickness(0, 8, 0, 0) });
         Detail.Children.Add(new TextBlock { Text = $"{c.Season} · {s.Position} · +{s.Grade} · 약발 {c.WeakFoot} · 급여 {s.Pay}", Style = (Style)FindResource("Hint") });
-        Line("OVR", $"{s.Ovr}" + (s.TeamColorBonus > 0 ? $" + 팀컬러 {s.TeamColorBonus}" : ""));
+        Line("OVR", $"{s.Ovr}" + (s.TeamColorBonus > 0 ? $" + 팀컬러 {s.TeamColorBonus:0.#}" + (s.TeamColorBonus % 1 != 0 ? " [추정]" : "") : ""));
         Line("환산 OVR [추정]", $"{s.EffectiveOvr:0.0}  (시장 가치 {s.Premium:+0.0;-0.0})");
         Line("시세", s.Owned ? "보유 (0으로 계산)" : Bp.Format(s.Price));
         Line("같은 스펙 예상가 [추정]", $"{Bp.Format(s.Expected)}  ({StudioKit.Pct(s.Discount)})");
