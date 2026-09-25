@@ -31,6 +31,9 @@
   <ItemGroup>
     <!-- Screenshots of the official pages for the first-run API key guide. -->
     <Resource Include="Assets\ApiGuide\*.png" />
+    <!-- The default artwork (docs/SKIN_ASSETS.md) ships inside the exe, so every PC and every update gets it; a PNG in
+         the skin folder still replaces it. -->
+    <Resource Include="skin\*.png" />
   </ItemGroup>
 
   <ItemGroup>

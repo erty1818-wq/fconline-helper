@@ -56,7 +56,12 @@
                 <TextBlock Text="NEXON Open API 키" Style="{StaticResource FieldLabel}" />
                 <PasswordBox x:Name="KeyBox" />
                 <DockPanel Margin="0,4,0,8">
-                    <Button DockPanel.Dock="Left" Style="{StaticResource Ghost}" Content="📖 키 발급 방법 보기 (사진 안내)" Click="OnApiGuide" Padding="10,4" Margin="0,0,10,0" />
+                    <Button DockPanel.Dock="Left" Style="{StaticResource Ghost}" Click="OnApiGuide" Padding="10,4" Margin="0,0,10,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Image Source="{app:Icon Guide}" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="키 발급 방법 보기 (사진 안내)" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                     <TextBlock Style="{StaticResource Hint}" VerticalAlignment="Center" TextWrapping="Wrap">
                         <Hyperlink NavigateUri="https://openapi.nexon.com/ko/" RequestNavigate="OnOpenLink" Foreground="{StaticResource Info}">openapi.nexon.com</Hyperlink>
                         <Run Text="에서 무료로 발급 (약 3분)" />

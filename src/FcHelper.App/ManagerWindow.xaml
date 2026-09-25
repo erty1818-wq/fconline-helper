@@ -8,9 +8,24 @@
         <!-- Header: title and the two views -->
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <ToggleButton x:Name="PicksTab" Style="{StaticResource Chip}" Content="팀컬러 픽률" IsChecked="True" Click="OnTab" Checked="OnTab" />
-                <ToggleButton x:Name="HoneyTab" Style="{StaticResource Chip}" Content="🐝 꿀선수 찾기" Click="OnTab" Checked="OnTab" />
-                <ToggleButton x:Name="CoachTab" Style="{StaticResource Chip}" Content="구단주 분석" Click="OnTab" Checked="OnTab" />
+                <ToggleButton x:Name="PicksTab" Style="{StaticResource Chip}" IsChecked="True" Click="OnTab" Checked="OnTab">
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="{app:Icon Nav.TeamColor}" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="팀컬러 픽률" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton x:Name="HoneyTab" Style="{StaticResource Chip}" Click="OnTab" Checked="OnTab">
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="{app:Icon Honey}" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="꿀선수 찾기" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton x:Name="CoachTab" Style="{StaticResource Chip}" Click="OnTab" Checked="OnTab">
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="{app:Icon Home.Manager}" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="구단주 분석" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ToggleButton>
             </StackPanel>
             <StackPanel Orientation="Horizontal">
                 <Image Source="{app:Skin logo}" Width="34" Height="34" />
@@ -71,7 +86,7 @@
                     <StackPanel>
                         <TextBlock Text="감독모드 꿀선수 찾기" Style="{StaticResource H2}" />
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,8"
-                                   Text="감독모드 랭커들이 이 카드로 낸 평균 기록(공식 ranker-stats)이 같은 가격대 카드보다 얼마나 좋은지. 가격 대비 1.2배 이상이면 🐝. 거래가 거의 없는 매물은 뺍니다." />
+                                   Text="감독모드 랭커들이 이 카드로 낸 평균 기록(공식 ranker-stats)이 같은 가격대 카드보다 얼마나 좋은지. 가격 대비 1.2배 이상이면 꿀선수로 분류됩니다. 거래가 거의 없는 매물은 뺍니다." />
                         <WrapPanel>
                             <StackPanel Margin="0,0,14,0"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="HoneyPosition" MinWidth="90" /></StackPanel>
                             <StackPanel Margin="0,0,14,0"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="HoneyGrade" MinWidth="70" /></StackPanel>
@@ -91,7 +106,27 @@
                 </Border>
                 <DataGrid x:Name="HoneyResults">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="꿀" Binding="{Binding Honey}" Width="34" ElementStyle="{StaticResource HoneyMark}" />
+                        <DataGridTemplateColumn Header="꿀" Width="36">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Image Source="{app:Icon Honey}" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="꿀선수: 가격 대비 활약 1.2배 이상">
+                                        <Image.Style>
+                                            <Style TargetType="Image">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Honey}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Honey}" Value="{x:Null}">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Image.Style>
+                                    </Image>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                         <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
                         <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="75" />
                         <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="50" ElementStyle="{StaticResource Num}" />

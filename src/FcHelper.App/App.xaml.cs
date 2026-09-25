@@ -458,7 +458,8 @@ public partial class App : Application
             downloaded ? "받아 두었습니다. 알림 창의 [지금 다시 시작]을 누르거나 다음에 켤 때 적용됩니다." : "트레이 메뉴나 알림 창에서 [지금 업데이트]를 누르세요.", Forms.ToolTipIcon.Info);
         if (_updateItem is not null)
         {
-            _updateItem.Text = $"⬆ 새 버전 {info.Tag}으로 업데이트";
+            _updateItem.Text = $"새 버전 {info.Tag}으로 업데이트";
+            _updateItem.Image = AppIcons.ToWinFormsBitmap("Icon.Update", 16);
             _updateItem.Font = new System.Drawing.Font(_updateItem.Font, System.Drawing.FontStyle.Bold);
         }
         ShowUpdateToast(info, downloaded);

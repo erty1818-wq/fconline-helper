@@ -248,24 +248,57 @@ public sealed class PitchView : Viewbox
             if (face.Source is null) _ = LoadFaceAsync(face, s.Card.SpId);
             panel.Children.Insert(0, new Border { Height = FaceHeight, Child = face, ClipToBounds = true });
         }
-        // 🐝 꿀선수: trading well under similar cards (AI squads only hold cards that trade).
-        FrameworkElement body = !s.Owned && Honey.IsHoney(s.Discount)
-            ? new Grid { Children = { panel, new TextBlock { Text = Honey.Mark, Style = (Style)res["HoneyMark"], FontSize = 13, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top } } }
-            : panel;
+        var cardGrid = new Grid { Children = { panel } };
+
+        // 꿀선수 배지: trading well under similar cards
+        if (!s.Owned && Honey.IsHoney(s.Discount))
+        {
+            var beeBadge = new Border
+            {
+                Width = 16,
+                Height = 16,
+                CornerRadius = new CornerRadius(8),
+                Background = (Brush)res["Panel"],
+                BorderBrush = (Brush)res["Warn"],
+                BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(1, 1, 0, 0),
+                Child = AppIcons.Make("Icon.Honey", 12),
+                ToolTip = "꿀선수: 같은 스펙 카드보다 30% 이상 싸게 거래",
+            };
+            cardGrid.Children.Add(beeBadge);
+        }
+
+        // 고정된 카드 배지
+        if (s.Locked)
+        {
+            var lockBadge = new Border
+            {
+                Width = 16,
+                Height = 16,
+                CornerRadius = new CornerRadius(8),
+                Background = (Brush)res["Panel"],
+                BorderBrush = (Brush)res["Line"],
+                BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 1, 1, 0),
+                Child = AppIcons.Make("Icon.Lock", 11),
+                ToolTip = "고정됨 (AI가 바꾸지 않음)",
+            };
+            cardGrid.Children.Add(lockBadge);
+        }
+
         var outline = s.Index == Selected ? accent : Highlighted.Contains(s.Index) ? warn : (Brush)res["Line"];
         var tip = $"{s.Card.Name} {s.Card.Season} +{s.Grade} · {s.Position}" + (isOffPos ? " (원래 포지션 아님)\n" : "\n")
             + (s.Final is { } fin ? $"인게임 OVR {fin.Value}: {fin.Breakdown}" : $"OVR {s.Ovr}{(s.TeamColorBonus > 0 ? $" (+팀컬러 {s.TeamColorBonus:0.#})" : "")}")
             + $"\n환산 {s.EffectiveOvr:0.0} [추정] · 급여 {s.Pay}" + (s.RankerUsers > 0 ? $" · 랭커 {s.RankerUsers}명" : "") + (s.Locked ? "\n고정됨" : "");
         var border = new Border
         {
-            Child = body, Background = Skin.Brush("card-frame") ?? (Brush)res["Raised"], BorderBrush = outline, BorderThickness = new Thickness(s.Index == Selected || Highlighted.Contains(s.Index) ? 2 : 1),
+            Child = cardGrid, Background = Skin.Brush("card-frame") ?? (Brush)res["Raised"], BorderBrush = outline, BorderThickness = new Thickness(s.Index == Selected || Highlighted.Contains(s.Index) ? 2 : 1),
             CornerRadius = new CornerRadius(9), Padding = new Thickness(4, 3, 4, 4), Width = ChipWidth, Cursor = Cursors.Hand, ToolTip = tip,
         };
-        if (s.Locked)
-        {
-            border.Child = null;
-            border.Child = new Grid { Children = { body, new TextBlock { Text = "🔒", FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top } } };
-        }
 
         if (_spots is not null)
         {

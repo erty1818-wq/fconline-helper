@@ -28,7 +28,7 @@ public sealed class ReportView
         Controller = a.Controller is { } c ? ReportText.ControllerLabel(c.Label) : "";
         PreviousNicknames = r.PreviousNicknames.Count > 0 ? $"이전 닉네임: {string.Join(", ", r.PreviousNicknames)}" : "";
         HeadToHead = r.HeadToHead is { } h
-            ? $"🔁 재대결 {h.Matches}전 {h.Wins}승 {h.Draws}무 {h.Losses}패" + (h.LastScore is null ? "" : $" · 지난 경기 {h.LastScore}")
+            ? $"재대결 {h.Matches}전 {h.Wins}승 {h.Draws}무 {h.Losses}패" + (h.LastScore is null ? "" : $" · 지난 경기 {h.LastScore}")
             : "";
 
         var rec = a.Record;
@@ -40,7 +40,7 @@ public sealed class ReportView
         Threats = a.Threats.Take(ReportText.CardThreats).Select(Item).ToList();
         Weakness = a.Weaknesses.Take(1).Select(Item).ToList();
         Matchups = r.MatchupAlerts.Take(2).Select(m => new InsightItem(m.Text, "상성")).ToList();
-        Signature = a.Signature is { } s ? $"✦ 시그니처 골: {ReportText.SignatureText(r, s)}" : "";
+        Signature = a.Signature is { } s ? $"시그니처 골: {ReportText.SignatureText(r, s)}" : "";
         DangerPlayers = a.Players.Take(2).Select(p => $"{r.PlayerName(p.SpId)}  {p.Goals}골 {p.Assists}도움"
             + (r.Market.ContainsKey(p.SpId) ? ReportText.MarketSuffix(r, p.SpId) : $" · 강화 {p.TopGrade}")).ToList();
         Traits = a.Traits.Where(t => t.Key != "controller").Take(3).Select(Item).ToList();

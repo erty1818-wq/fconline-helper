@@ -38,12 +38,26 @@ public sealed class UpdateToast : Window
         _update.Click += async (_, _) => await UpdateAsync();
         var later = new Button { Content = "나중에", Style = (Style)res["Ghost"], Padding = new Thickness(12, 4, 12, 4) };
         later.Click += (_, _) => Close();
+        var titlePanel = new StackPanel { Orientation = Orientation.Horizontal };
+        var updateIcon = AppIcons.Make("Icon.Update", 20);
+        updateIcon.Margin = new Thickness(0, 0, 8, 0);
+        updateIcon.VerticalAlignment = VerticalAlignment.Center;
+        titlePanel.Children.Add(updateIcon);
+        titlePanel.Children.Add(new TextBlock
+        {
+            Text = $"새 버전 {info.Tag}이 나왔습니다",
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            Foreground = (Brush)res["Accent"],
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
         var body = new StackPanel
         {
             Children =
             {
-                new TextBlock { Text = $"⬆ 새 버전 {info.Tag}이 나왔습니다", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = (Brush)res["Accent"] },
-                new TextBlock { Text = $"지금 버전 v{Updater.Current}", Style = (Style)res["Hint"] },
+                titlePanel,
+                new TextBlock { Text = $"지금 버전 v{Updater.Current}", Style = (Style)res["Hint"], Margin = new Thickness(28, 2, 0, 0) },
             },
         };
         foreach (var n in notes) body.Children.Add(new TextBlock { Text = "· " + n, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) });

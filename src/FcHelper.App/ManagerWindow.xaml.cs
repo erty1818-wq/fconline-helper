@@ -146,7 +146,7 @@ public partial class ManagerWindow : Window
                 $"{h.Stats.Tackle:0.0}", $"{h.Stats.Block:0.0}", $"{h.Score:0.0}", $"{h.Expected:0.0}", $"{h.Ratio:0.00}배", h.Ratio)).ToList();
             Status.Text = found.Count == 0
                 ? "조건에 맞고 감독모드 랭커 기록이 있는 카드가 없습니다. 가격대를 넓히거나 최소 경기 수를 낮춰 보세요."
-                : $"{position} +{grade} · {found.Count}장 · 🐝 {found.Count(h => h.IsHoney)}장 · 활약 점수 = 경기당 골×10 + 도움×7 + 유효 슈팅×2 + … [계산], 가격 대비 = 같은 가격대 평균과 비교";
+                : $"{position} +{grade} · {found.Count}장 · 꿀선수 {found.Count(h => h.IsHoney)}장 · 활약 점수 = 경기당 골×10 + 도움×7 + 유효 슈팅×2 + … [계산], 가격 대비 = 같은 가격대 평균과 비교";
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or NexonApiException)
         {

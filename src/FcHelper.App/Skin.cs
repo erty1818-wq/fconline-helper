@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Markup;
 using System.Windows.Media;
@@ -8,9 +8,9 @@ using FcHelper.Services;
 namespace FcHelper.App;
 
 /// <summary>
-/// Replaceable artwork. Every image the studio shows has a key; a PNG named after the key in
-/// %LOCALAPPDATA%\FcHelper\skin\ (or a "skin" folder next to the exe) replaces the built-in placeholder without a
-/// rebuild. The list of keys, sizes and purposes is in docs/SKIN_ASSETS.md, written for an image-generating AI.
+/// Replaceable artwork. Every image the studio shows has a key. The default artwork is built into the exe (skin\*.png in
+/// the project); a PNG named after the key in %LOCALAPPDATA%\FcHelper\skin\ (or a "skin" folder next to the exe) replaces
+/// it without a rebuild, and without any the drawn placeholder shows. The list of keys, sizes and purposes is in docs/SKIN_ASSETS.md, written for an image-generating AI.
 /// </summary>
 public static class Skin
 {
@@ -18,7 +18,10 @@ public static class Skin
     public static readonly string[] Keys =
     [
         "logo", "pitch", "hero", "empty", "player",
-        "nav-squad", "nav-picks", "nav-value", "nav-grade", "nav-salary", "nav-trends", "nav-mysquad", "nav-opponent", "nav-teamcolor", "home-search", "home-squad", "home-manager", "card-frame", "card-empty", "home-card", "background",
+        "nav-squad", "nav-picks", "nav-value", "nav-grade", "nav-salary", "nav-trends", "nav-mysquad", "nav-opponent", "nav-teamcolor",
+        "home-search", "home-squad", "home-manager",
+        "honey", "lock", "undo", "fullscreen", "image", "close", "chevron-left", "chevron-right", "check", "update", "warning", "target", "note", "rematch", "signature", "sparkle", "guide",
+        "card-frame", "card-empty", "home-card", "background",
     ];
 
     private static readonly Dictionary<string, ImageSource?> Cache = [];
@@ -50,7 +53,28 @@ public static class Skin
                 // A broken file falls back to the placeholder.
             }
         }
-        return Cache[key] = image;
+        return Cache[key] = image ?? BuiltIn(key);
+    }
+
+    /// <summary>The artwork compiled into the exe for a key, or null.</summary>
+    private static ImageSource? BuiltIn(string key)
+    {
+        var uri = new Uri($"pack://application:,,,/skin/{key}.png", UriKind.Absolute);
+        try
+        {
+            if (Application.GetResourceStream(uri) is null) return null;
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.UriSource = uri;
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
+        }
+        catch (Exception e) when (e is IOException or NotSupportedException or FileFormatException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The custom PNG, else the built-in vector placeholder.</summary>

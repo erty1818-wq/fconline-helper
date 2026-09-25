@@ -21,9 +21,9 @@ public partial class HomeWindow : Window
     {
         _app = app;
         InitializeComponent();
-        SearchIcon.Content = EntryIcon("home-search", "");
-        SquadIcon.Content = EntryIcon("home-squad", "");
-        ManagerIcon.Content = EntryIcon("home-manager", "");
+        SearchIcon.Content = AppIcons.Make("Icon.Home.Search", 44);
+        SquadIcon.Content = AppIcons.Make("Icon.Home.Squad", 44);
+        ManagerIcon.Content = AppIcons.Make("Icon.Home.Manager", 44);
         // Replaceable artwork (docs/SKIN_ASSETS.md): card backgrounds and the window background.
         if (Skin.Brush("home-card") is { } card)
             foreach (var entry in new Control[] { SearchEntry, SquadEntry, ManagerEntry }) entry.Background = card;
@@ -76,10 +76,6 @@ public partial class HomeWindow : Window
             : status?.Current is { FinishedAt: { } at } ? $"시세 {at.ToLocalTime():M/d HH:mm} 기준 · 카드 {status.Cards:#,0}장"
             : "시세 데이터 준비 중 (처음에는 40분쯤 걸립니다)";
     }
-
-    private FrameworkElement EntryIcon(string key, string glyph) => Skin.HasCustom(key)
-        ? new Image { Source = Skin.Get(key), Width = 44, Height = 44 }
-        : new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 34, Foreground = (Brush)FindResource("Accent") };
 
     private void OnSearch(object sender, RoutedEventArgs e) => _app.ShowSearch();
 

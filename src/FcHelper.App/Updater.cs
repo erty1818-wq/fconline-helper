@@ -20,8 +20,8 @@ public sealed record UpdateInfo(Version Version, string Tag, string Notes, strin
 /// </summary>
 public sealed class Updater(HttpClient http)
 {
-    /// <summary>Public repository whose releases carry FcHelper.exe (the source repository is private).</summary>
-    public const string Repository = "erty1818-wq/fconline-helper-releases";
+    /// <summary>The public repository whose releases carry FcHelper.exe.</summary>
+    public const string Repository = "erty1818-wq/fconline-helper";
     private const string AssetName = "FcHelper.exe";
 
     public static Version Current { get; } =

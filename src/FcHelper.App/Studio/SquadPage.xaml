@@ -9,7 +9,7 @@
             <StackPanel>
                 <DockPanel Margin="0,0,0,10">
                     <Button x:Name="BuildButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="AI 추천 스쿼드" Click="OnBuild"
-                            ToolTip="4가지 방식(최강·균형·가성비·랭커픽)으로 짜서 비교합니다. 🔒 고정한 선수는 그대로 둡니다." />
+                            ToolTip="4가지 방식(최강·균형·가성비·랭커픽)으로 짜서 비교합니다. 고정한 선수는 그대로 둡니다." />
                     <ToggleButton x:Name="ConditionsToggle" DockPanel.Dock="Right" Style="{StaticResource Chip}" Content="조건 접기" IsChecked="True"
                                   Margin="0,0,10,0" VerticalAlignment="Center" Click="OnToggleConditions" ToolTip="조건을 접으면 피치가 커집니다" />
                     <StackPanel>
@@ -88,9 +88,21 @@
                             <Button Style="{StaticResource Ghost}" Content="빈 스쿼드" Click="OnNewSquad" Padding="9,3" Margin="0,0,5,4" ToolTip="빈 스쿼드로 직접 짜기" />
                             <Button x:Name="FillButton" Style="{StaticResource Ghost}" Content="빈 자리 AI" Click="OnFillEmpty" Padding="9,3" Margin="0,0,5,4"
                                     ToolTip="지금 들어 있는 선수는 모두 두고, 빈 자리만 예산·급여·팀컬러에 맞춰 AI로 채웁니다." />
-                            <Button x:Name="UndoButton" Style="{StaticResource Ghost}" Content="↶" Click="OnUndo" Padding="9,3" Margin="0,0,5,4" IsEnabled="False" ToolTip="되돌리기 (Ctrl + Z)" />
-                            <Button x:Name="FocusButton" Style="{StaticResource Ghost}" Content="⛶ 크게 보기" Click="OnToggleFocus" Padding="9,3" Margin="0,0,5,4" ToolTip="전체 화면으로 피치 보기 (F11)" />
-                            <Button Style="{StaticResource Ghost}" Content="🖼 저장" Click="OnSaveImage" Padding="9,3" Margin="0,0,12,4" ToolTip="피치와 합계를 PNG로 사진 폴더(FcHelper)에 저장" />
+                            <Button x:Name="UndoButton" Style="{StaticResource Ghost}" Click="OnUndo" Padding="8,4" Margin="0,0,5,4" IsEnabled="False" ToolTip="되돌리기 (Ctrl + Z)">
+                                <Image Source="{app:Icon Undo}" Width="16" Height="16" />
+                            </Button>
+                            <Button x:Name="FocusButton" Style="{StaticResource Ghost}" Click="OnToggleFocus" Padding="9,3" Margin="0,0,5,4" ToolTip="전체 화면으로 피치 보기 (F11)">
+                                <StackPanel Orientation="Horizontal">
+                                    <Image Source="{app:Icon Fullscreen}" Width="16" Height="16" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="크게 보기" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource Ghost}" Click="OnSaveImage" Padding="9,3" Margin="0,0,12,4" ToolTip="피치와 합계를 PNG로 사진 폴더(FcHelper)에 저장">
+                                <StackPanel Orientation="Horizontal">
+                                    <Image Source="{app:Icon Image}" Width="16" Height="16" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="저장" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
                             <TextBlock Text="전체 강화" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,2,4" />
                             <StackPanel x:Name="BulkGrades" Orientation="Horizontal" Margin="0,0,12,4" />
                             <!-- What the in-game OVR on the cards includes -->
@@ -112,8 +124,10 @@
                 <Border x:Name="EmptyState" DockPanel.Dock="Top" HorizontalAlignment="Center" Background="{StaticResource Panel}" Opacity="0.96"
                         BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="14,8,8,8" Margin="0,0,0,6" MaxWidth="560">
                     <DockPanel>
-                        <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="✕" Click="OnCloseHint" Padding="7,2" Margin="10,0,0,0"
-                                VerticalAlignment="Top" ToolTip="안내 닫기" />
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Click="OnCloseHint" Padding="7,2" Margin="10,0,0,0"
+                                VerticalAlignment="Top" ToolTip="안내 닫기">
+                            <Image Source="{app:Icon Close}" Width="12" Height="12" />
+                        </Button>
                         <StackPanel>
                             <TextBlock Text="빈 자리(+)를 눌러 선수를 넣거나, 위의 [AI 추천 스쿼드]를 누르세요" FontWeight="SemiBold" TextWrapping="Wrap" />
                             <TextBlock Style="{StaticResource Hint}" Margin="0,3,0,0" TextWrapping="Wrap"
@@ -131,8 +145,15 @@
                             BorderThickness="1" CornerRadius="12" Padding="14,12" Visibility="Collapsed" MaxWidth="340">
                         <StackPanel>
                             <DockPanel Margin="0,0,0,10">
-                                <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="✕ 나가기 (Esc)" Click="OnExitFocus" Padding="8,3" />
-                                <Button x:Name="FocusCollapseBtn" DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="◀" Margin="0,0,6,0" Padding="6,3" Click="OnToggleFocusCollapse" ToolTip="패널 접기/펼치기" />
+                                <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Click="OnExitFocus" Padding="8,3">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Image Source="{app:Icon Close}" Width="12" Height="12" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                        <TextBlock Text="나가기 (Esc)" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="FocusCollapseBtn" DockPanel.Dock="Right" Style="{StaticResource Ghost}" Margin="0,0,6,0" Padding="6,3" Click="OnToggleFocusCollapse" ToolTip="패널 접기/펼치기">
+                                    <Image x:Name="FocusCollapseImg" Source="{app:Icon ChevronLeft}" Width="12" Height="12" />
+                                </Button>
                                 <TextBlock Text="스쿼드" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
                             </DockPanel>
                             <StackPanel x:Name="FocusPanelBody">
@@ -149,7 +170,12 @@
                             BorderThickness="1,0,0,0" Padding="16,14" Visibility="Collapsed">
                         <DockPanel>
                             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                                <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="✕ 닫기" Click="OnCloseDrawer" Padding="8,3" />
+                                <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Click="OnCloseDrawer" Padding="8,3">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Image Source="{app:Icon Close}" Width="12" Height="12" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                        <TextBlock Text="닫기" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
                                 <TextBlock Text="선수 상세" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
                             </DockPanel>
                             <Border x:Name="FocusDrawerHost" />
@@ -216,7 +242,9 @@
                 <Border x:Name="LibraryBorder" DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Padding="8,5" Margin="0,0,6,6">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Left" Text="보관함" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,6,0" />
-                        <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="✕" Click="OnLibraryDelete" Padding="7,2" ToolTip="고른 스쿼드 삭제" />
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Click="OnLibraryDelete" Padding="7,2" ToolTip="고른 스쿼드 삭제">
+                            <Image Source="{app:Icon Close}" Width="12" Height="12" />
+                        </Button>
                         <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="열기" Click="OnLibraryLoad" Padding="8,2" Margin="0,0,4,0" />
                         <ComboBox x:Name="LibraryBox" DockPanel.Dock="Right" Width="96" Margin="0,0,4,0" />
                         <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="저장" Click="OnLibrarySave" Padding="8,2" Margin="0,0,8,0" />

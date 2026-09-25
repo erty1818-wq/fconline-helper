@@ -405,12 +405,12 @@ public partial class SquadPage : UserControl
         if (FocusPanelBody.Visibility == Visibility.Visible)
         {
             FocusPanelBody.Visibility = Visibility.Collapsed;
-            FocusCollapseBtn.Content = "▶";
+            FocusCollapseImg.Source = AppIcons.Get("Icon.ChevronRight");
         }
         else
         {
             FocusPanelBody.Visibility = Visibility.Visible;
-            FocusCollapseBtn.Content = "◀";
+            FocusCollapseImg.Source = AppIcons.Get("Icon.ChevronLeft");
         }
     }
 
@@ -653,7 +653,7 @@ public partial class SquadPage : UserControl
         _selected = null;
         Modes.SelectedIndex = -1;
         await RefreshWorkingAsync();
-        ShowHint("빈 자리(+)를 누르고 선수를 고르세요. 직접 넣은 선수는 🔒 고정되어, [AI 추천 스쿼드]나 [빈 자리 AI로 채우기]를 누르면 나머지 자리만 AI가 채웁니다.");
+        ShowHint("빈 자리(+)를 누르고 선수를 고르세요. 직접 넣은 선수는 고정되어, [AI 추천 스쿼드]나 [빈 자리 AI로 채우기]를 누르면 나머지 자리만 AI가 채웁니다.");
     }
 
     private async Task OnFormationChangedAsync()
@@ -784,8 +784,8 @@ public partial class SquadPage : UserControl
         Totals.Foreground = (System.Windows.Media.Brush)FindResource(pay > cap || price > budget ? "Warn" : "Text");
         TeamColorsLine.Text = string.Join("   ", _workingColors.Select(StudioKit.TeamColorLine));
         var fixedCount = filled.Count(s => s.Locked || s.Owned);
-        LockInfo.Text = (fixedCount > 0 ? $"🔒 고정 {fixedCount}명 (AI가 바꾸지 않음)" : "")
-            + (_excluded.Count > 0 ? $"   ✕ 제외 {string.Join(", ", _excluded.Select(p => StudioKit.Squads?.Pool().FirstOrDefault(c => c.PlayerId == p)?.Name ?? p.ToString()))}" : "");
+        LockInfo.Text = (fixedCount > 0 ? $"고정 {fixedCount}명 (AI가 바꾸지 않음)" : "")
+            + (_excluded.Count > 0 ? $"   · 제외 {string.Join(", ", _excluded.Select(p => StudioKit.Squads?.Pool().FirstOrDefault(c => c.PlayerId == p)?.Name ?? p.ToString()))}" : "");
 
         FocusTotals.Text = Totals.Text;
         FocusTotals.Foreground = Totals.Foreground;
@@ -853,7 +853,7 @@ public partial class SquadPage : UserControl
             head.Children.Add(gradeBox);
             ShowFinal(s);
             var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-            actions.Children.Add(Action(s.Locked ? "고정 해제" : "🔒 고정 (AI가 안 바꿈)", async () => await SetSlotAsync(index, s with { Locked = !s.Locked })));
+            actions.Children.Add(Action(s.Locked ? "고정 해제" : "고정 (AI가 안 바꿈)", async () => await SetSlotAsync(index, s with { Locked = !s.Locked }), s.Locked ? null : "Icon.Lock"));
             actions.Children.Add(Action(s.Owned ? "보유 해제" : "보유 중 (가격 0)", async () => await SetSlotAsync(index, s with { Owned = !s.Owned })));
             actions.Children.Add(Action("자리 비우기", async () => await SetSlotAsync(index, null)));
             actions.Children.Add(Action("이 선수 제외", async () => { _excluded.Add(c.PlayerId); await SetSlotAsync(index, null); }));
@@ -907,9 +907,17 @@ public partial class SquadPage : UserControl
         _ = StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget);
         var spent = _working.Where((x, i) => x is not null && i != index && !x.Owned).Sum(x => x!.Price);
         var maxPrice = budget < long.MaxValue ? Math.Max(0, budget - spent) : long.MaxValue;
+        var aiStack = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        aiStack.Children.Add(AppIcons.Make("Icon.Sparkle", 16));
+        aiStack.Children.Add(new TextBlock
+        {
+            Text = s is null ? "AI 추천픽 보기" : "AI 대체 선수 보기",
+            Margin = new Thickness(6, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
         var aiButton = new Button
         {
-            Content = s is null ? "✨ AI 추천픽 보기" : "✨ AI 대체 선수 보기", Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 14, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch,
+            Content = aiStack, Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 14, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch,
             ToolTip = "예산·팀컬러·랭커 가격 분배에 맞는 카드를 고르고, 거래가 거의 없는 매물은 빼고 보여 줍니다.",
         };
         var aiList = new StackPanel();
@@ -990,24 +998,45 @@ public partial class SquadPage : UserControl
     {
         var c = candidate.Card;
         var known = StudioKit.Squads?.KnownLiquidity(c.SpId, candidate.Grade);
-        var text = new StackPanel
+        var titlePanel = new StackPanel { Orientation = Orientation.Horizontal };
+        if (Honey.IsHoney(candidate.Discount, known))
         {
-            Children =
+            var bee = AppIcons.Make("Icon.Honey", 14);
+            bee.Margin = new Thickness(0, 0, 5, 0);
+            bee.VerticalAlignment = VerticalAlignment.Center;
+            titlePanel.Children.Add(bee);
+        }
+        titlePanel.Children.Add(new TextBlock
+        {
+            Text = $"{c.Name} · {c.Season} +{candidate.Grade}",
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var subPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        var diffText = current is null ? "" : $" · {(candidate.Price - current.Price >= 0 ? "+" : "−")}{Bp.Format(Math.Abs(candidate.Price - current.Price))}";
+        subPanel.Children.Add(new TextBlock
+        {
+            Text = $"OVR {candidate.Ovr} · 환산 {candidate.EffectiveOvr:0.0} · {Bp.Format(candidate.Price)} · 급여 {c.Pay}{diffText}",
+            Style = (Style)FindResource("Hint"),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        if (known is { Tradable: false })
+        {
+            subPanel.Children.Add(new TextBlock { Text = " · ", Style = (Style)FindResource("Hint"), VerticalAlignment = VerticalAlignment.Center });
+            var warn = AppIcons.Make("Icon.Warning", 12);
+            warn.Margin = new Thickness(0, 0, 3, 0);
+            warn.VerticalAlignment = VerticalAlignment.Center;
+            subPanel.Children.Add(warn);
+            subPanel.Children.Add(new TextBlock
             {
-                new TextBlock
-                {
-                    Text = (Honey.IsHoney(candidate.Discount, known) ? Honey.Mark + " " : "") + $"{c.Name} · {c.Season} +{candidate.Grade}",
-                    FontWeight = FontWeights.SemiBold,
-                },
-                new TextBlock
-                {
-                    Text = $"OVR {candidate.Ovr} · 환산 {candidate.EffectiveOvr:0.0} · {Bp.Format(candidate.Price)} · 급여 {c.Pay}"
-                        + (current is null ? "" : $" · {(candidate.Price - current.Price >= 0 ? "+" : "−")}{Bp.Format(Math.Abs(candidate.Price - current.Price))}")
-                        + (known is { Tradable: false } ? " · ⚠ 거래 거의 없음" : ""),
-                    Style = (Style)FindResource("Hint"),
-                },
-            },
-        };
+                Text = "거래 거의 없음",
+                Style = (Style)FindResource("Hint"),
+                Foreground = (System.Windows.Media.Brush)FindResource("Warn"),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+        var text = new StackPanel { Children = { titlePanel, subPanel } };
         // The card's own season picture (or the one the user picked for it), like on the pitch.
         FrameworkElement content = text;
         if (Faces.Enabled)
@@ -1148,9 +1177,25 @@ public partial class SquadPage : UserControl
         {
             var image = new Image { Height = 54, Width = 54, Stretch = System.Windows.Media.Stretch.Uniform };
             var picked = chosen == o.Url || chosen is null && o.SpId == s.Card.SpId;
+            var labelPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            if (picked)
+            {
+                var check = AppIcons.Make("Icon.Check", 10);
+                check.Margin = new Thickness(0, 0, 3, 0);
+                check.VerticalAlignment = VerticalAlignment.Center;
+                labelPanel.Children.Add(check);
+            }
+            labelPanel.Children.Add(new TextBlock
+            {
+                Text = o.Season,
+                FontSize = 10,
+                FontWeight = picked ? FontWeights.Bold : FontWeights.Normal,
+                Foreground = (System.Windows.Media.Brush)FindResource(picked ? "Accent" : "Text"),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
             var b = new Button
             {
-                Content = new StackPanel { Children = { image, new TextBlock { Text = (picked ? "✓ " : "") + o.Season, FontSize = 10, FontWeight = picked ? FontWeights.Bold : FontWeights.Normal, Foreground = (System.Windows.Media.Brush)FindResource(picked ? "Accent" : "Text"), HorizontalAlignment = HorizontalAlignment.Center } } },
+                Content = new StackPanel { Children = { image, labelPanel } },
                 Style = (Style)FindResource("Ghost"), Padding = new Thickness(3), Margin = new Thickness(0, 0, 4, 4), ToolTip = $"{o.Season} 사진",
                 BorderBrush = (System.Windows.Media.Brush)FindResource(picked ? "Accent" : "Line"), BorderThickness = new Thickness(picked ? 2 : 1),
             };
@@ -1177,9 +1222,23 @@ public partial class SquadPage : UserControl
         Into.Children.Add(new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap });
     }
 
-    private Button Action(string text, Func<Task> change)
+    private Button Action(string text, Func<Task> change, string? iconKey = null)
     {
-        var b = new Button { Content = text, Style = (Style)FindResource("Ghost"), Margin = new Thickness(0, 0, 6, 6), Padding = new Thickness(9, 4, 9, 4) };
+        var b = new Button { Style = (Style)FindResource("Ghost"), Margin = new Thickness(0, 0, 6, 6), Padding = new Thickness(9, 4, 9, 4) };
+        if (iconKey is not null)
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            var img = AppIcons.Make(iconKey, 14);
+            img.Margin = new Thickness(0, 0, 5, 0);
+            img.VerticalAlignment = VerticalAlignment.Center;
+            sp.Children.Add(img);
+            sp.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
+            b.Content = sp;
+        }
+        else
+        {
+            b.Content = text;
+        }
         b.Click += async (_, _) => await change();
         return b;
     }

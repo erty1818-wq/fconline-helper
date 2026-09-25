@@ -3,7 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
-        <SolidColorBrush x:Key="Bg" Color="#15181D" />
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Icons.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <SolidColorBrush x:Key="Bg" Color="#15181D" />
         <SolidColorBrush x:Key="Panel" Color="#1E2229" />
         <SolidColorBrush x:Key="Line" Color="#2C323B" />
         <SolidColorBrush x:Key="Text" Color="#E8EAED" />
@@ -513,5 +518,6 @@
             <Setter Property="Foreground" Value="{StaticResource Accent}" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

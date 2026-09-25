@@ -10,11 +10,12 @@ namespace FcHelper.App.Studio;
 /// </summary>
 public partial class StudioWindow : Window
 {
-    private sealed record PageInfo(string Key, string Label, string Glyph, Func<FrameworkElement> Create);
+    private sealed record PageInfo(string Key, string Label, Func<FrameworkElement> Create);
 
     private readonly List<PageInfo> _pages;
     private readonly Dictionary<string, FrameworkElement> _created = [];
     private readonly Dictionary<string, RadioButton> _buttons = [];
+    private readonly Dictionary<string, Image> _navIcons = [];
 
     public StudioWindow()
     {
@@ -22,21 +23,25 @@ public partial class StudioWindow : Window
         if (Skin.Brush("background", System.Windows.Media.Stretch.UniformToFill) is { } background) Background = background;
         _pages =
         [
-            new("squad", "스쿼드 짜기", "", () => new SquadPage()),
-            new("picks", "숨은 랭커픽", "", () => new PicksPage()),
-            new("value", "가성비 찾기", "", () => new ValuePage()),
-            new("grade", "강화 효율", "", () => new GradePage()),
-            new("salary", "급여 효율", "", () => new SalaryPage()),
-            new("trends", "시세 추이", "", () => new TrendsPage()),
-            new("mysquad", "내 스쿼드", "", () => new MySquadPage()),
-            new("opponent", "상대 맞춤", "", () => new OpponentPage()),
-            new("teamcolor", "팀컬러", "", () => new TeamColorPage()),
+            new("squad", "스쿼드 짜기", () => new SquadPage()),
+            new("picks", "숨은 랭커픽", () => new PicksPage()),
+            new("value", "가성비 찾기", () => new ValuePage()),
+            new("grade", "강화 효율", () => new GradePage()),
+            new("salary", "급여 효율", () => new SalaryPage()),
+            new("trends", "시세 추이", () => new TrendsPage()),
+            new("mysquad", "내 스쿼드", () => new MySquadPage()),
+            new("opponent", "상대 맞춤", () => new OpponentPage()),
+            new("teamcolor", "팀컬러", () => new TeamColorPage()),
         ];
         foreach (var p in _pages)
         {
             var button = new RadioButton { Style = (Style)FindResource("NavItem"), GroupName = "nav", Content = NavContent(p) };
             System.Windows.Automation.AutomationProperties.SetName(button, p.Label); // screen readers and UI tests
-            button.Checked += (_, _) => Show(p.Key);
+            button.Checked += (_, _) =>
+            {
+                Show(p.Key);
+                UpdateNavIcons(p.Key);
+            };
             _buttons[p.Key] = button;
             Nav.Children.Add(button);
         }
@@ -60,17 +65,23 @@ public partial class StudioWindow : Window
         Navigate("squad");
     }
 
-    private static object NavContent(PageInfo p)
+    private object NavContent(PageInfo p)
     {
-        var key = "nav-" + p.Key;
-        FrameworkElement icon = Skin.HasCustom(key)
-            ? new Image { Source = Skin.Get(key), Width = 20, Height = 20 }
-            : new TextBlock { Text = p.Glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, Width = 20, VerticalAlignment = VerticalAlignment.Center };
+        var icon = AppIcons.Make("nav-" + p.Key, 20);
+        _navIcons[p.Key] = icon;
         return new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Children = { icon, new TextBlock { Text = p.Label, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 13 } },
         };
+    }
+
+    private void UpdateNavIcons(string selectedKey)
+    {
+        foreach (var (k, icon) in _navIcons)
+        {
+            icon.Source = AppIcons.Get("nav-" + k, active: k == selectedKey);
+        }
     }
 
     private WindowState _prevWindowState = WindowState.Normal;

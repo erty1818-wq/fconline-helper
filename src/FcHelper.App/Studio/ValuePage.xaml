@@ -1,7 +1,8 @@
 <UserControl x:Class="FcHelper.App.Studio.ValuePage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:studio="clr-namespace:FcHelper.App.Studio">
+             xmlns:studio="clr-namespace:FcHelper.App.Studio"
+             xmlns:app="clr-namespace:FcHelper.App">
     <DockPanel>
         <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
             <StackPanel>
@@ -29,7 +30,27 @@
         <Grid>
             <DataGrid x:Name="Results">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="꿀" Binding="{Binding Honey}" Width="34" ElementStyle="{StaticResource HoneyMark}" SortMemberPath="Discount" />
+                    <DataGridTemplateColumn Header="꿀" Width="36" SortMemberPath="Discount">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Image Source="{app:Icon Honey}" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="꿀선수: 같은 스펙 카드보다 30% 이상 싸게 거래">
+                                    <Image.Style>
+                                        <Style TargetType="Image">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Honey}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Honey}" Value="{x:Null}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Image.Style>
+                                </Image>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="130" />
                     <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="70" />
                     <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="45" />
