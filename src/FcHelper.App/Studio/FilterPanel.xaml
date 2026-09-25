@@ -53,7 +53,6 @@
             <CheckBox x:Name="SkillBox" Content="개인기 5성 이상" Margin="0,2,16,0" />
             <CheckBox x:Name="TeamColorBox" Content="랭커 주요 팀컬러 20개 선수만" IsChecked="True" Margin="0,2,16,0"
                       ToolTip="어제 랭커가 가장 많이 쓴 소속 팀컬러 20개 중 하나라도 해당되는 카드만 (처음에는 팀컬러 멤버를 받느라 2분쯤 걸립니다)" />
-            <CheckBox x:Name="OutlierBox" Content="호날두·호나우두·굴리트 제외" Margin="0,2,16,0" ToolTip="이름값이 가격을 정하는 카드. 가격 모델 학습에서는 항상 빠집니다" />
             <Button Content="조건 초기화" Style="{StaticResource Ghost}" Padding="8,2" Click="OnReset" />
         </WrapPanel>
     </StackPanel>

@@ -15,8 +15,12 @@ public sealed class PitchView : Viewbox
     private const double W = 600, H = 800;
     private readonly Canvas _canvas = new() { Width = W, Height = H };
     private IReadOnlyList<SquadSlot> _slots = [];
+    /// <summary>Empty slots of a hand-made squad: index and position.</summary>
+    private IReadOnlyList<(int Index, string Position)> _empty = [];
 
     public event Action<SquadSlot>? SlotClicked;
+    /// <summary>An empty slot was clicked (index, position): the squad maker offers cards for it.</summary>
+    public event Action<int, string>? EmptySlotClicked;
 
     /// <summary>Slot indices to outline (e.g. the ones an upgrade would change).</summary>
     public IReadOnlySet<int> Highlighted { get; set; } = new HashSet<int>();
@@ -34,6 +38,21 @@ public sealed class PitchView : Viewbox
     public void Show(IReadOnlyList<SquadSlot> slots)
     {
         _slots = slots;
+        _empty = [];
+        Render();
+    }
+
+    /// <summary>A squad being made by hand: <paramref name="positions"/> are the formation's slots, null entries are empty.</summary>
+    public void Show(IReadOnlyList<SquadSlot?> slots, IReadOnlyList<string> positions)
+    {
+        _slots = slots.Where(s => s is not null).Cast<SquadSlot>().ToList();
+        _empty = positions.Select((p, i) => (i, Formations.Normalize(p))).Where(x => slots[x.i] is null).ToList();
+        Render();
+    }
+
+    public void Select(int? index)
+    {
+        Selected = index;
         Render();
     }
 
@@ -53,12 +72,13 @@ public sealed class PitchView : Viewbox
     private void Render()
     {
         _canvas.Children.Clear();
-        foreach (var line in _slots.GroupBy(s => LineY(s.Position)))
+        var items = _slots.Select(s => (s.Index, s.Position, Slot: (SquadSlot?)s)).Concat(_empty.Select(e => (e.Index, e.Position, Slot: (SquadSlot?)null)));
+        foreach (var line in items.GroupBy(s => LineY(s.Position)))
         {
             var ordered = line.OrderBy(s => Side(s.Position)).ThenBy(s => s.Index).ToList();
             for (var i = 0; i < ordered.Count; i++)
             {
-                var chip = Chip(ordered[i]);
+                var chip = ordered[i].Slot is { } slot ? Chip(slot) : EmptyChip(ordered[i].Index, ordered[i].Position);
                 chip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 var x = W * (i + 1) / (ordered.Count + 1) - chip.DesiredSize.Width / 2;
                 Canvas.SetLeft(chip, Math.Clamp(x, 4, W - chip.DesiredSize.Width - 4));
@@ -66,6 +86,34 @@ public sealed class PitchView : Viewbox
                 _canvas.Children.Add(chip);
             }
         }
+    }
+
+    private FrameworkElement EmptyChip(int index, string position)
+    {
+        var res = Application.Current.Resources;
+        var selected = index == Selected;
+        var border = new Border
+        {
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = "+", FontSize = 22, FontWeight = FontWeights.Bold, Foreground = (Brush)res["Accent"], HorizontalAlignment = HorizontalAlignment.Center },
+                    new TextBlock { Text = position, FontSize = 12, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center },
+                    new TextBlock { Text = "선수 추가", FontSize = 10, Foreground = (Brush)res["Muted"], HorizontalAlignment = HorizontalAlignment.Center },
+                },
+            },
+            Background = (Brush)res["Panel"], BorderBrush = selected ? (Brush)res["Accent"] : (Brush)res["Line"],
+            BorderThickness = new Thickness(selected ? 2 : 1), CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 4, 6, 5),
+            Width = 112, Cursor = Cursors.Hand, ToolTip = $"{position}: 눌러서 선수 고르기",
+        };
+        border.MouseLeftButtonUp += (_, _) =>
+        {
+            Selected = index;
+            Render();
+            EmptySlotClicked?.Invoke(index, position);
+        };
+        return border;
     }
 
     private FrameworkElement Chip(SquadSlot s)

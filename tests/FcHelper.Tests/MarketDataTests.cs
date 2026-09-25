@@ -128,7 +128,6 @@ public class PriceModelTests
         Assert.False(new CardFilter { MinStats = new Dictionary<string, int> { ["agility"] = 100 } }.Matches(card, 8)); // not collected
         Assert.False(new CardFilter { Members = new HashSet<long> { 2 } }.Matches(card, 8));
         Assert.False(new CardFilter { MaxPay = 24 }.Matches(card, 8));
-        Assert.False(new CardFilter { ExcludePriceOutliers = true }.Matches(card with { Name = "호나우두" }, 8));
         Assert.True(MarketGroups.Get("CB").CoreGap(card) > 0);
     }
 

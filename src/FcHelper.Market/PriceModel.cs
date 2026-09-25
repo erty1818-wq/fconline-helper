@@ -273,8 +273,6 @@ public sealed record CardFilter
     public string? Name { get; init; }
     /// <summary>Only these cards, e.g. members of the team colours rankers use; null = any.</summary>
     public IReadOnlySet<long>? Members { get; init; }
-    /// <summary>Leaves out 호날두 / 호나우두 / 굴리트, whose price is the name.</summary>
-    public bool ExcludePriceOutliers { get; init; }
     /// <summary>Cards almost nobody rated are rarely traded; their low price says little.</summary>
     public int MinRatings { get; init; } = 10;
 
@@ -298,7 +296,7 @@ public sealed record CardFilter
         if (MinCoreGap is { } gap && (MarketGroups.Get(c.Group).CoreGap(c) is not { } g || g < gap)) return false;
         if (Name is { Length: > 0 } name && !c.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) return false;
         if (Members is not null && !Members.Contains(c.SpId)) return false;
-        return !ExcludePriceOutliers || !MarketGroups.IsPriceOutlier(c);
+        return true;
     }
 
     public static string BodyOf(MarketCard c) => c.Tags.Contains("body:thin") ? "thin" : c.Tags.Contains("body:heavy") ? "heavy" : "normal";

@@ -261,6 +261,23 @@ public class SquadBuilderTests
     }
 
     [Fact]
+    public void Ranker_allocation_moves_the_money_to_the_strikers()
+    {
+        var cards = Market();
+        var request = new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000_000 };
+        var free = Builder(cards).Build(request)[0];
+        // Rankers put 30% of the squad on each striker and little on the rest.
+        var roles = new[] { "GK", "FB", "CB", "CDM", "CAM" }.ToDictionary(r => r, r => new RoleShare(r, 10, 0.03, 0.005, 0.05, 25, 20, 30, 130));
+        roles["ST"] = new RoleShare("ST", 10, 0.3, 0.25, 0.35, 25, 20, 30, 140);
+        var alloc = new RankerAllocation(10, 0, 1_000_000_000, 280, roles);
+
+        var plan = Builder(cards).Build(request with { Allocation = alloc })[0];
+
+        Assert.All(plan.Slots.Where(s => s.Position == "ST"), s => Assert.True(s.Price >= 0.25 * 0.7 * 1_000_000_000));
+        Assert.True(plan.Slots.Where(s => s.Position == "ST").Sum(s => s.Price) > free.Slots.Where(s => s.Position == "ST").Sum(s => s.Price));
+    }
+
+    [Fact]
     public void Affiliation_squad_uses_only_member_cards()
     {
         var cards = Market();
@@ -304,6 +321,58 @@ public class SquadBuilderTests
         Assert.NotEmpty(upgrades);
         if (plan.TeamColors[0].Members == 3)
             Assert.All(upgrades.SelectMany(u => u.Moves), m => Assert.True(!members.Contains(m.Out.Card.SpId) || members.Contains(m.In.SpId)));
+    }
+}
+
+public class RankerAllocationTests
+{
+    [Fact]
+    public void Reads_rank_nickname_and_team_value_from_the_ranking()
+    {
+        const string html = """
+            <div class="tr">
+                <span class="td rank_no">21</span>
+                <span class="td rank_coach">
+                    <span class="coach_wrap"><span class="name profile_pointer" data-sn="434811662">프라임핀트</span></span>
+                    <span class="price" alt="69,492,316,970" title="69,492,316,970">694억 9,231만</span>
+                </span>
+            </div>
+            """;
+        Assert.Equal([(21, "프라임핀트", 69_492_316_970L)], RankerSquadClient.Parse(html));
+    }
+
+    private static MarketCard Card(long spId, string pos, long price8, int pay) => new()
+    {
+        Group = Formations.GroupOf(pos), SpId = spId, Name = $"c{spId}", Season = "S", Pay = pay, Ovr1 = 120, WeakFoot = 3, RatingCount = 50,
+        Prices = new Dictionary<int, long> { [1] = 5000, [8] = price8 }, Positions = new Dictionary<string, int> { [pos] = 120 },
+    };
+
+    [Fact]
+    public void Splits_price_and_salary_by_role_and_leaves_out_squads_under_10_eok()
+    {
+        var formation = Formations.Find("4-2-2-2")!;
+        var cards = new Dictionary<long, MarketCard>();
+        RankerSquad Squad(int n, long strikerPrice)
+        {
+            var players = formation.Slots.Select((pos, i) =>
+            {
+                var id = n * 100L + i;
+                cards[id] = Card(id, pos, pos == "ST" ? strikerPrice : 100_000_000, pos == "ST" ? 32 : 27);
+                return new RankerSquadPlayer(id, 8, pos == "ST" ? (i == 9 ? "LS" : "RS") : pos);
+            }).ToList();
+            return new RankerSquad(n, $"r{n}", 0, players);
+        }
+        // Two real squads (9 × 1억 + 2 × 20억 = 49억) and one being rebuilt (under 10억).
+        var squads = new[] { Squad(1, 2_000_000_000), Squad(2, 2_000_000_000), Squad(3, 10_000_000) };
+
+        var a = RankerAllocation.Analyse(squads, cards);
+
+        Assert.Equal(2, a.Squads);
+        Assert.Equal(1, a.Skipped);
+        Assert.Equal(20.0 / 49, a.Roles["ST"].PriceShare, 3);
+        Assert.Equal(32, a.Roles["ST"].Pay, 3);
+        Assert.Equal("FB", RankerAllocation.RoleOf("LB"));
+        Assert.Equal(4, a.Roles["FB"].Slots);
     }
 }
 

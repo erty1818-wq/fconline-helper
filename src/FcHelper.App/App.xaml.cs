@@ -87,7 +87,8 @@ public partial class App : Application
         _market = new MarketService(lists, marketStore, ct => _http.GetStringAsync(SeasonListUrl, ct));
         Squads = new SquadService(_market, marketStore, new DataCenterChartClient(_http, dataCenter),
             new TeamColorCache(marketStore, new DataCenterTeamColorClient(_http, dataCenter, lists)), _rankerStats,
-            salaryCap: new SalaryCapCache(marketStore, new SalaryCapSource(_http, dataCenter)));
+            salaryCap: new SalaryCapCache(marketStore, new SalaryCapSource(_http, dataCenter)),
+            rankerSquads: new RankerSquadClient(_http, dataCenter, () => _rankerStats as FcOnlineApi));
         _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
         _ = KeepMarketFreshAsync(_exit.Token);
         // The home screen asks for the key on first run; the squad helper works without one.

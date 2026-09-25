@@ -8,8 +8,12 @@
         <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
             <StackPanel>
                 <DockPanel Margin="0,0,0,10">
-                    <Button x:Name="BuildButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="스쿼드 짜기" Click="OnBuild" />
-                    <TextBlock Text="스쿼드 짜기" Style="{StaticResource H1}" />
+                    <Button x:Name="BuildButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="AI 추천 스쿼드" Click="OnBuild"
+                            ToolTip="4가지 방식(최강·균형·가성비·랭커픽)으로 짜서 비교합니다. 🔒 고정한 선수는 그대로 둡니다." />
+                    <StackPanel>
+                        <TextBlock Text="스쿼드 메이커" Style="{StaticResource H1}" />
+                        <TextBlock Style="{StaticResource Hint}" Text="AI 추천을 받아 고치거나, 빈 스쿼드에서 직접 짜거나, 일부만 넣고 나머지를 AI로 채울 수 있습니다." />
+                    </StackPanel>
                 </DockPanel>
                 <WrapPanel>
                     <StackPanel Margin="0,0,14,6">
@@ -47,7 +51,9 @@
                         <ComboBox x:Name="RankBox" MinWidth="120" />
                     </StackPanel>
                     <StackPanel Margin="0,0,0,6" VerticalAlignment="Bottom">
-                        <CheckBox x:Name="RankerOnlyBox" Content="랭커가 쓰는 카드만" Margin="0,0,0,6" />
+                        <CheckBox x:Name="RankerOnlyBox" Content="랭커가 쓰는 카드만" Margin="0,0,0,4" />
+                        <CheckBox x:Name="AllocBox" Content="랭커 가격·급여 분배 따르기" IsChecked="True" Margin="0,0,0,6"
+                                  ToolTip="상위 랭커 100명의 최근 스쿼드(시세 10억 이상)에서 포지션별 가격 비중·급여의 평균과 10~90% 범위를 구해, 그 범위 안에서 짭니다. 공격수에 돈을 쓰는 랭커 방식입니다." />
                     </StackPanel>
                 </WrapPanel>
                 <TextBlock x:Name="LockInfo" Style="{StaticResource Hint}" />
@@ -110,11 +116,26 @@
 
         <TextBlock x:Name="Status" DockPanel.Dock="Top" Foreground="{StaticResource Warn}" Margin="0,0,0,6" />
 
+        <!-- Hand-made eleven: tools and totals -->
+        <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Padding="12,8" Margin="0,0,0,8">
+            <StackPanel>
+                <WrapPanel>
+                    <Button Style="{StaticResource Ghost}" Content="빈 스쿼드로 직접 짜기" Click="OnNewSquad" Padding="10,4" Margin="0,0,6,4" />
+                    <Button x:Name="FillButton" Style="{StaticResource Ghost}" Content="빈 자리 AI로 채우기" Click="OnFillEmpty" Padding="10,4" Margin="0,0,14,4"
+                            ToolTip="지금 들어 있는 선수는 모두 두고, 빈 자리만 예산·급여·팀컬러에 맞춰 채웁니다." />
+                    <TextBlock Text="전체 강화" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,2,4" />
+                    <StackPanel x:Name="BulkGrades" Orientation="Horizontal" Margin="0,0,0,4" />
+                </WrapPanel>
+                <TextBlock x:Name="Totals" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <TextBlock x:Name="TeamColorsLine" Style="{StaticResource Hint}" Foreground="{StaticResource Accent}" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
         <!-- Pitch + detail -->
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="300" />
+                <ColumnDefinition Width="340" />
             </Grid.ColumnDefinitions>
             <Grid>
                 <studio:PitchView x:Name="Pitch" Margin="0,0,12,0" />
@@ -122,16 +143,16 @@
                         BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="24,18" MaxWidth="420">
                     <StackPanel>
                         <Image Source="{app:Skin empty}" MaxHeight="120" Margin="0,0,0,8" />
-                        <TextBlock Text="조건을 정하고 [스쿼드 짜기]를 누르세요" FontSize="15" HorizontalAlignment="Center" />
-                        <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0"
-                                   Text="최강 · 균형 · 가성비 · 랭커픽 4가지 안을 한 번에 비교합니다. 처음에는 랭커 데이터를 받느라 1분쯤 걸립니다." />
+                        <TextBlock Text="[AI 추천 스쿼드] 또는 [빈 스쿼드로 직접 짜기]" FontSize="15" HorizontalAlignment="Center" />
+                        <TextBlock Style="{StaticResource Hint}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,6,0,0" TextWrapping="Wrap"
+                                   Text="AI는 최강 · 균형 · 가성비 · 랭커픽 4가지 안을 비교합니다. 고른 안은 선수마다 바꾸거나 강화를 고칠 수 있습니다." />
                     </StackPanel>
                 </Border>
             </Grid>
             <Border Grid.Column="1" Style="{StaticResource CardPanel}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="Detail">
-                        <TextBlock Text="선수를 누르면 여기 자세히 나옵니다." Style="{StaticResource Hint}" />
+                        <TextBlock Text="선수나 빈 자리(+)를 누르면 여기서 바꾸고, 대체 선수를 보고, 검색할 수 있습니다." Style="{StaticResource Hint}" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>

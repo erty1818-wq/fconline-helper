@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Globalization;
 using FcHelper.Core.Models;
 using FcHelper.NexonApi;
 
@@ -10,7 +12,7 @@ namespace FcHelper.Market;
 /// </summary>
 public sealed class SquadService(
     MarketService market, MarketStore store, IRankerChartSource charts, TeamColorCache teamColors,
-    IRankerStatsSource? rankerStats = null, TimeProvider? time = null, SalaryCapCache? salaryCap = null)
+    IRankerStatsSource? rankerStats = null, TimeProvider? time = null, SalaryCapCache? salaryCap = null, IRankerSquadSource? rankerSquads = null)
 {
     public const int OfficialMatch = 50;
     public static readonly TimeSpan ChartTtl = TimeSpan.FromHours(12);
@@ -87,6 +89,31 @@ public sealed class SquadService(
         }
     }
 
+    // ── rankers' squads ────────────────────────────────────────────────────
+
+    public static readonly TimeSpan RankerSquadTtl = TimeSpan.FromDays(3);
+    public const int RankerSquadCount = 100;
+    private const string RankerSquadKey = "ranker.squads";
+
+    /// <summary>The top rankers' latest official elevens, fetched every three days (about 300 API calls).</summary>
+    public async Task<IReadOnlyList<RankerSquad>> RankerSquadsAsync(bool allowFetch = true, IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        var cached = store.GetValue(RankerSquadKey);
+        var squads = cached is null ? null : JsonSerializer.Deserialize<List<RankerSquad>>(cached.Value.Value);
+        if (squads is not null && (Now - cached!.Value.UpdatedAt < RankerSquadTtl || !allowFetch || rankerSquads is null)) return squads;
+        if (!allowFetch || rankerSquads is null) return squads ?? [];
+        var fresh = await rankerSquads.FetchAsync(RankerSquadCount, progress, ct);
+        if (fresh.Count > 0) store.SetValue(RankerSquadKey, JsonSerializer.Serialize(fresh), Now);
+        return fresh.Count > 0 ? fresh : squads ?? [];
+    }
+
+    /// <summary>How rankers split price and salary per role, from squads worth 10억 or more at today's prices.</summary>
+    public async Task<RankerAllocation?> RankerAllocationAsync(bool allowFetch = true, IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        var squads = await RankerSquadsAsync(allowFetch, progress, ct);
+        return squads.Count == 0 ? null : RankerAllocation.Analyse(squads, EnsurePool().BySpId);
+    }
+
     // ── squads ─────────────────────────────────────────────────────────────
 
     public async Task<IReadOnlyList<SquadPlan>> BuildAsync(SquadRequest request, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default)
@@ -95,6 +122,13 @@ public sealed class SquadService(
         var rankers = chart is null ? null : new RankerUsage(chart.Picks);
         var pool = Pool();
         return await Task.Run(() => new SquadBuilder(pool, c => ModelOf(c), rankers).Build(request), ct);
+    }
+
+    /// <summary>The manual squad maker, with today's ranker usage for its suggestions.</summary>
+    public async Task<SquadMaker> MakerAsync(int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default)
+    {
+        var chart = await ChartAsync(rankFrom, rankTo, allowFetch: false, ct: ct);
+        return new SquadMaker(this, chart is null ? null : new RankerUsage(chart.Picks));
     }
 
     /// <summary>The best plan of every mode for the same request, for side-by-side comparison.</summary>
@@ -241,6 +275,55 @@ public sealed class SquadService(
         return chart.TeamColors
             .Select(u => (Color: affiliation.FirstOrDefault(t => u.Id > 0 ? t.Id == u.Id : t.Name == u.Name), Usage: u))
             .Where(t => t.Color is not null).Select(t => (t.Color!, t.Usage)).Take(top).ToList();
+    }
+
+    /// <summary>
+    /// 특성 colours that go with a 소속 colour. Names alone miss "바이언 첫번째 트레블" or "2026 뮌헨" for 바이에른 뮌헨, so
+    /// up to <paramref name="samples"/> members (rankers' picks first, then the strongest) are read for the colours printed
+    /// on their cards; a colour seen on two of them (or named after the club) counts when most of its own members
+    /// (≥ 60%) are members of the 소속 colour too. Kept for a week; the first time takes about a minute.
+    /// </summary>
+    public async Task<IReadOnlyList<(TeamColor Color, double Overlap)>> RelatedFeatureColorsAsync(int affiliationId, int samples = 24,
+        IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        const double MinOverlap = 0.6;
+        var catalog = (await TeamColorsAsync(ct)).ToDictionary(t => t.Id);
+        if (!catalog.TryGetValue(affiliationId, out var affiliation) || await TeamColorAsync(affiliationId, ct) is not { } tc) return [];
+        var key = $"teamcolor.related.v2.{affiliationId}";
+        var related = new Dictionary<int, double>();
+        if (store.GetValue(key) is { } cached && Now - cached.UpdatedAt < TeamColorCache.Ttl)
+        {
+            foreach (var part in cached.Value.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                if (part.Split(':') is [var id, var o]) related[int.Parse(id, CultureInfo.InvariantCulture)] = double.Parse(o, CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            var chart = await ChartAsync(allowFetch: false, ct: ct);
+            var rankerUse = chart?.Picks.GroupBy(p => p.SpId).ToDictionary(g => g.Key, g => g.Sum(p => p.Users)) ?? [];
+            var sample = Pool().Where(c => tc.Members.Contains(c.SpId))
+                .OrderByDescending(c => rankerUse.GetValueOrDefault(c.SpId)).ThenByDescending(c => c.Ovr1)
+                .DistinctBy(c => c.PlayerId).Take(samples).ToList();
+            var seen = new Dictionary<int, int>();
+            foreach (var (card, i) in sample.Select((c, i) => (c, i)))
+            {
+                progress?.Report($"{affiliation.Name} 카드의 팀컬러 확인 중 {i + 1}/{sample.Count}");
+                foreach (var id in await teamColors.CardTeamColorsAsync(card.SpId, ct))
+                    if (catalog.TryGetValue(id, out var t) && t.Category == TeamColorCategory.Feature) seen[id] = seen.GetValueOrDefault(id) + 1;
+            }
+            var candidates = seen.Where(kv => kv.Value >= 2).Select(kv => kv.Key)
+                .Concat(catalog.Values.Where(t => t.Category == TeamColorCategory.Feature && t.Name.Contains(affiliation.Name, StringComparison.Ordinal)).Select(t => t.Id))
+                .Distinct().ToList();
+            foreach (var (id, i) in candidates.Select((id, i) => (id, i)))
+            {
+                progress?.Report($"특성 팀컬러 멤버 확인 중 {i + 1}/{candidates.Count}");
+                if (await TeamColorAsync(id, ct) is not { Members.Count: > 0 } feature) continue;
+                var overlap = feature.Members.Count(tc.Members.Contains) / (double)feature.Members.Count;
+                if (overlap >= MinOverlap) related[id] = Math.Round(overlap, 2);
+            }
+            store.SetValue(key, string.Join(",", related.Select(kv => $"{kv.Key}:{kv.Value.ToString(CultureInfo.InvariantCulture)}")), Now);
+        }
+        return related.Where(kv => catalog.ContainsKey(kv.Key)).Select(kv => (catalog[kv.Key], kv.Value))
+            .OrderByDescending(x => x.Item1.Name).ToList();
     }
 
     /// <summary>How many of the team colours rankers use most count as "주요 랭커 팀컬러".</summary>

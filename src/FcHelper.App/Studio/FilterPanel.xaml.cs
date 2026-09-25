@@ -54,7 +54,6 @@ public partial class FilterPanel : UserControl
         foreach (var box in new[] { FootBox, BodyBox, Trait1Box, Trait2Box, Stat1Box, Stat2Box, Stat3Box }) box.SelectedIndex = 0;
         SkillBox.IsChecked = false;
         TeamColorBox.IsChecked = true;
-        OutlierBox.IsChecked = false;
     }
 
     /// <returns>The filter, or null with <paramref name="error"/> set when an entry cannot be read.</returns>
@@ -90,7 +89,6 @@ public partial class FilterPanel : UserControl
             MinCoreGap = double.TryParse(CoreGapBox.Text.Trim(), out var gap) ? gap : null,
             Name = NameBox.Text.Trim() is { Length: > 0 } n ? n : null,
             Members = members,
-            ExcludePriceOutliers = OutlierBox.IsChecked == true,
             MinRatings = minRatings,
         };
     }

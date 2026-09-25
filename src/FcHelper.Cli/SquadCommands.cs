@@ -7,7 +7,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "allocation"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -20,7 +20,8 @@ internal static class SquadCommands
         FcOnlineApi? api = string.IsNullOrWhiteSpace(apiKey) ? null : new FcOnlineApi(http, apiKey, new RateLimiter(5));
         var squads = new SquadService(market, store, new DataCenterChartClient(http, dataCenter),
             new TeamColorCache(store, new DataCenterTeamColorClient(http, dataCenter, lists)), api,
-            salaryCap: new SalaryCapCache(store, new SalaryCapSource(http, dataCenter)));
+            salaryCap: new SalaryCapCache(store, new SalaryCapSource(http, dataCenter)),
+            rankerSquads: new RankerSquadClient(http, dataCenter, () => api));
         if (store.LatestFinished() is null)
         {
             Console.Error.WriteLine("시세 데이터가 없습니다. 앱을 켜 두면 자동으로 받습니다.");
@@ -34,6 +35,15 @@ internal static class SquadCommands
             {
                 case "squad": return await Squad(squads, option, rankFrom, rankTo);
                 case "value": return await Value(squads, option);
+                case "allocation":
+                    var alloc = await squads.RankerAllocationAsync(progress: new Progress<string>(m => Console.Error.Write($"\r{m}          ")));
+                    Console.Error.WriteLine();
+                    if (alloc is null) { Console.Error.WriteLine("랭커 스쿼드를 받지 못했습니다 (API 키 필요)."); return 3; }
+                    Console.WriteLine($"랭커 {alloc.Squads}팀 (10억 미만·카드 불명 {alloc.Skipped}팀 제외) · 스쿼드 시세 중간값 {Bp.Format(alloc.MedianValue)} · 급여 중간값 {alloc.MedianPay:0}");
+                    Console.WriteLine("  역할          칸수  가격 비중 평균 (10~90%)      급여 평균 (10~90%)  OVR 평균");
+                    foreach (var r in alloc.Roles.Values.OrderByDescending(r => r.PriceShare))
+                        Console.WriteLine($"  {RankerAllocation.RoleName(r.Role),-8} {r.Slots,5}  {r.PriceShare,6:P1} ({r.PriceShareLow:P1}~{r.PriceShareHigh:P1})   {r.Pay,5:0.0} ({r.PayLow}~{r.PayHigh})   {r.Ovr:0.0}");
+                    return 0;
                 case "factors": return await Factors(squads, option);
                 case "traits":
                     await squads.RankerTeamColorMembersAsync();
@@ -100,6 +110,7 @@ internal static class SquadCommands
             SalaryCap = cap,
             Grades = (option("grades") ?? "8").Split(',').Select(g => Int(g, 8)).ToList(),
             TeamColors = targets,
+            Allocation = option("alloc") is "no" or "0" ? null : await squads.RankerAllocationAsync(),
             RankerPicksOnly = option("ranker-only") is "yes" or "y" or "1",
         };
         var mode = option("mode") ?? "all";
@@ -204,6 +215,11 @@ internal static class SquadCommands
             if (await squads.TeamColorAsync(Int(id, 0)) is not { } tc) { Console.Error.WriteLine("팀컬러를 찾지 못했습니다."); return 3; }
             Console.WriteLine($"{tc.Color.Name} ({FcHelper.Market.TeamColor.CategoryLabel(tc.Color.Category)} · {(tc.Color.AppliesToSquad ? "보너스는 선발 전원" : "보너스는 해당 카드만")}) · 적용 선수 {tc.Members.Count}장");
             foreach (var l in tc.Color.Levels) Console.WriteLine($"  {l.Level}단계 {l.Members}명: {string.Join(", ", l.Effects)}");
+            if (tc.Color.Category == TeamColorCategory.Affiliation)
+            {
+                var related = await squads.RelatedFeatureColorsAsync(tc.Color.Id);
+                Console.WriteLine($"관련 특성 팀컬러 {related.Count}개: " + string.Join(", ", related.Select(r => $"{r.Color.Name}({r.Color.Id}, 멤버 {r.Overlap:P0} 겹침)")));
+            }
             return 0;
         }
         var popular = await squads.PopularTeamColorsAsync();

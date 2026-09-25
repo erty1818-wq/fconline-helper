@@ -36,6 +36,12 @@ public sealed record SquadRequest
     /// slots are kept as the user set them.
     /// </summary>
     public bool OnlyAffiliationMembers { get; init; } = true;
+    /// <summary>
+    /// How rankers split price and salary per role. When set, each slot's candidates keep to the rankers' 10–90% range
+    /// of price share (of the budget) and of salary, widened a little, so the money goes where rankers put it (attack)
+    /// instead of wherever an OVR point is cheapest. A position with fewer such footballers than slots falls back to all cards.
+    /// </summary>
+    public RankerAllocation? Allocation { get; init; }
     /// <summary>Only cards top rankers field at that position.</summary>
     public bool RankerPicksOnly { get; init; }
     public int Plans { get; init; } = 3;
@@ -137,6 +143,16 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
                 if (price <= Grades.FloorPrice || price > r.Budget) continue;
                 list.Add(Make(card, position, g, r, locked: false, owned: false));
             }
+        }
+        if (r.Allocation?.For(position) is { } share)
+        {
+            var finite = r.Budget < long.MaxValue;
+            var priceLo = finite ? share.PriceShareLow * r.Budget * 0.7 : 0;
+            var priceHi = finite ? share.PriceShareHigh * r.Budget * 1.3 : double.MaxValue;
+            var banded = list.Where(c => c.Price >= priceLo && c.Price <= priceHi && c.Card.Pay >= share.PayLow - 1 && c.Card.Pay <= share.PayHigh + 1).ToList();
+            // Keep the band while it still has a card for every slot of this position (distinct footballers).
+            var slotsHere = r.Formation.Slots.Count(p => Formations.Normalize(p) == Formations.Normalize(position));
+            if (banded.Select(c => c.Card.PlayerId).Distinct().Count() >= slotsHere) list = banded;
         }
         // The strongest, plus the cheapest per strength band so low budgets still find squads.
         var strongest = list.OrderByDescending(c => c.Ovr + c.Premium + (c.Members != 0 ? 2 : 0)).Take(CandidatesPerSlot);

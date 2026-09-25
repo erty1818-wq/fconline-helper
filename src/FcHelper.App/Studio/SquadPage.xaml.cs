@@ -11,25 +11,41 @@ public sealed record TeamColorItem(string Label, int Id)
     public override string ToString() => Label;
 }
 
-/// <summary>Build squads under a budget and compare the four modes on one pitch.</summary>
+/// <summary>
+/// The squad maker: AI squads (four modes compared) and hand-made ones in the same eleven. An AI squad can be taken
+/// and edited slot by slot, a squad can be built from empty, and "빈 자리 AI로 채우기" completes whatever is there.
+/// Every slot offers alternatives and a search by name and season; grades can be changed per card or for all at once.
+/// </summary>
 public partial class SquadPage : UserControl
 {
-    private readonly Dictionary<int, LockedCard> _locked = [];
     private readonly HashSet<int> _excluded = [];
     private readonly List<ToggleButton> _grades = [];
-    private SquadPlan? _plan;
+    private SquadSlot?[] _working = new SquadSlot?[11];
+    private IReadOnlyList<AppliedTeamColor> _workingColors = [];
+    private SquadMaker? _maker;
+    private RankerAllocation? _allocation;
+    private int? _selected;
+    private string[] _positions = Formations.All[0].Slots;
+    /// <summary>The user started a hand-made squad: the pitch shows its empty slots.</summary>
+    private bool _manual;
 
     public SquadPage()
     {
         InitializeComponent();
         FormationBox.ItemsSource = Formations.All.Select(f => f.Name).ToList();
         FormationBox.SelectedIndex = 0;
-        FormationBox.SelectionChanged += (_, _) => { _locked.Clear(); ShowLocks(); };
+        FormationBox.SelectionChanged += async (_, _) => await OnFormationChangedAsync();
         foreach (var g in new[] { 5, 6, 7, 8, 9, 10, 11 })
         {
             var chip = new ToggleButton { Content = $"+{g}", Tag = g, Style = (Style)FindResource("Chip"), IsChecked = g == 8 };
             _grades.Add(chip);
             GradeChips.Children.Add(chip);
+        }
+        foreach (var g in new[] { 5, 8, 10, 11, 13 })
+        {
+            var b = new Button { Content = $"+{g}", Tag = g, Style = (Style)FindResource("Ghost"), Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(4, 0, 0, 0) };
+            b.Click += async (_, _) => await SetAllGradesAsync((int)b.Tag);
+            BulkGrades.Children.Add(b);
         }
         RankBox.ItemsSource = new[] { "상위 10,000명", "상위 1,000명", "상위 100명" };
         RankBox.SelectedIndex = 0;
@@ -37,16 +53,30 @@ public partial class SquadPage : UserControl
         TeamColorBox.SelectedIndex = 0;
         FeatureBox.ItemsSource = new[] { new TeamColorItem("없음", 0) };
         FeatureBox.SelectedIndex = 0;
-        Pitch.SlotClicked += ShowDetail;
+        FeatureBox.SelectionChanged += async (_, _) => await RefreshWorkingAsync();
+        Pitch.SlotClicked += s => _ = ShowSlotAsync(s.Index);
+        Pitch.EmptySlotClicked += (i, _) => { var shown = ShowSlotAsync(i); };
         Loaded += async (_, _) =>
         {
             await LoadSalaryCapAsync();
             await LoadTeamColorsAsync();
         };
-        ShowLocks();
+        ShowWorking();
     }
 
     private (int, int) RankRange => RankBox.SelectedIndex switch { 1 => (1, 1000), 2 => (1, 100), _ => (1, 10000) };
+    private Formation CurrentFormation => Formations.Find((string)FormationBox.SelectedItem)!;
+    /// <summary>The grade new cards come in at: the first chosen grade chip.</summary>
+    private int DefaultGrade => _grades.FirstOrDefault(g => g.IsChecked == true)?.Tag as int? ?? 8;
+    private IReadOnlySet<int> UsedPlayers(int except = -1) =>
+        _working.Where((s, i) => s is not null && i != except).Select(s => s!.Card.PlayerId).ToHashSet();
+
+    private async Task<SquadMaker?> MakerAsync()
+    {
+        if (StudioKit.Squads is not { } squads) return null;
+        var (from, to) = RankRange;
+        return _maker ??= await squads.MakerAsync(from, to);
+    }
 
     private int? _capShown;
 
@@ -63,16 +93,36 @@ public partial class SquadPage : UserControl
 
     private IReadOnlyList<TeamColor> _catalog = [];
 
-    /// <summary>특성 colours that go with the chosen 소속 one by name ("프랑스" → "2026 프랑스", "프랑스 1기 황금세대").</summary>
-    private void OnTeamColorChanged(object sender, SelectionChangedEventArgs e)
+    /// <summary>
+    /// 특성 colours that go with the chosen 소속 one: first by name at once ("프랑스" → "2026 프랑스"), then those printed on
+    /// its members' cards ("바이언 첫번째 트레블" for 바이에른 뮌헨; read once, then kept for a week).
+    /// </summary>
+    private async void OnTeamColorChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (TeamColorBox.SelectedItem is not TeamColorItem { Id: > 0 } item) return;
+        await RefreshWorkingAsync();
+        if (TeamColorBox.SelectedItem is not TeamColorItem { Id: > 0 } item || StudioKit.Squads is not { } squads) return;
         var name = _catalog.FirstOrDefault(t => t.Id == item.Id)?.Name;
+        var byName = name is null ? [] : _catalog.Where(t => t.Category == TeamColorCategory.Feature && t.Name.Contains(name, StringComparison.Ordinal)).ToList();
+        ShowFeatures(byName.Select(t => (t, 1.0)).ToList());
+        Status.Text = $"{name}의 특성 팀컬러 찾는 중… (처음에는 1~2분 걸립니다)";
+        try
+        {
+            var related = await squads.RelatedFeatureColorsAsync(item.Id, progress: new Progress<string>(m => Status.Text = m));
+            if ((TeamColorBox.SelectedItem as TeamColorItem)?.Id != item.Id) return; // the user moved on
+            ShowFeatures(related);
+            Status.Text = "";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException)
+        {
+            Status.Text = "특성 팀컬러를 다 찾지 못했습니다 (이름이 같은 것만 보입니다).";
+        }
+    }
+
+    private void ShowFeatures(IReadOnlyList<(TeamColor Color, double Overlap)> features)
+    {
         var keep = FeatureBox.SelectedItem as TeamColorItem;
         var items = new List<TeamColorItem> { new("없음", 0) };
-        if (name is not null)
-            items.AddRange(_catalog.Where(t => t.Category == TeamColorCategory.Feature && t.Name.Contains(name, StringComparison.Ordinal))
-                .OrderByDescending(t => t.Name).Select(t => new TeamColorItem($"{t.Name} ({t.MaxMembers}명)", t.Id)));
+        items.AddRange(features.Select(f => new TeamColorItem($"{f.Color.Name} ({f.Color.MaxMembers}명)", f.Color.Id)));
         if (keep is { Id: > 0 } && items.All(i => i.Id != keep.Id)) items.Add(keep);
         FeatureBox.ItemsSource = items;
         FeatureBox.SelectedItem = items.FirstOrDefault(i => i.Id == keep?.Id) ?? items[0];
@@ -106,54 +156,70 @@ public partial class SquadPage : UserControl
         box.SelectedItem = items.First(i => i.Id == id);
     }
 
-    /// <summary>Fixes a card into the first free slot of its position (from other pages: "스쿼드에 넣기").</summary>
-    public void LockCard(long spId, int grade, string position, bool owned = false)
+    /// <summary>Puts a card into the first free slot of its position, fixed for the AI (from other pages: "스쿼드에 넣기").</summary>
+    public async void LockCard(long spId, int grade, string position, bool owned = false)
     {
-        var formation = Formations.Find((string)FormationBox.SelectedItem)!;
+        if (StudioKit.Squads?.Card(spId) is not { } card || await MakerAsync() is not { } maker) return;
         var pos = Formations.Normalize(position);
-        var index = Enumerable.Range(0, 11).FirstOrDefault(i => formation.Slots[i] == pos && !_locked.ContainsKey(i), -1);
+        var index = Enumerable.Range(0, _positions.Length).Where(i => _positions[i] == pos).OrderBy(i => _working[i] is null ? 0 : 1).DefaultIfEmpty(-1).First();
         if (index < 0)
         {
-            Status.Text = $"{(string)FormationBox.SelectedItem}에는 비어 있는 {pos} 자리가 없습니다. 포메이션을 바꿔 보세요.";
+            Status.Text = $"{(string)FormationBox.SelectedItem}에는 {pos} 자리가 없습니다. 포메이션을 바꿔 보세요.";
             return;
         }
-        _locked[index] = new LockedCard(spId, grade, owned);
-        ShowLocks();
-    }
-
-    private void ShowLocks()
-    {
-        var squads = StudioKit.Squads;
-        string Name(long id) => squads?.Card(id) is { } c ? $"{c.Name} {c.Season}" : id.ToString();
-        var parts = _locked.OrderBy(kv => kv.Key).Select(kv => $"🔒 {Name(kv.Value.SpId)} +{kv.Value.Grade}{(kv.Value.Owned ? " (보유)" : "")}")
-            .Concat(_excluded.Select(p => $"✕ {squads?.Pool().FirstOrDefault(c => c.PlayerId == p)?.Name ?? p.ToString()}"));
-        LockInfo.Text = string.Join("   ", parts);
+        _working[index] = maker.Slot(index, pos, card, grade, owned, locked: true);
+        await RefreshWorkingAsync();
     }
 
     private void OnBudgetChip(object sender, RoutedEventArgs e) => BudgetBox.Text = (string)((Button)sender).Content;
 
+    // ── AI ─────────────────────────────────────────────────────────────────
+
+    private async Task<SquadRequest?> RequestAsync(SquadService squads, IReadOnlyDictionary<int, LockedCard> locked)
+    {
+        if (!StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget)) { Status.Text = "예산은 100억, 5000만처럼 입력하세요."; return null; }
+        var grades = _grades.Where(g => g.IsChecked == true).Select(g => (int)g.Tag).ToList();
+        if (grades.Count == 0) { Status.Text = "강화 단계를 하나 이상 고르세요."; return null; }
+        var targets = await squads.TargetsAsync([(TeamColorBox.SelectedItem as TeamColorItem)?.Id ?? 0, (FeatureBox.SelectedItem as TeamColorItem)?.Id ?? 0]);
+        _allocation = null;
+        if (AllocBox.IsChecked == true)
+        {
+            try
+            {
+                _allocation = await squads.RankerAllocationAsync(progress: new Progress<string>(m => Status.Text = $"{m} (처음 한 번, 3일마다 갱신)"));
+            }
+            catch (InvalidOperationException)
+            {
+                Status.Text = "랭커 분배는 API 키가 있어야 받을 수 있습니다. 분배 없이 짭니다.";
+            }
+        }
+        return new SquadRequest
+        {
+            Formation = CurrentFormation,
+            Budget = budget,
+            SalaryCap = StudioKit.IntOr(CapBox, int.MaxValue),
+            Grades = grades,
+            Locked = locked,
+            ExcludedPlayers = new HashSet<int>(_excluded),
+            TeamColors = targets,
+            Allocation = _allocation,
+            RankerPicksOnly = RankerOnlyBox.IsChecked == true,
+        };
+    }
+
+    /// <summary>Slots the user fixed (🔒) or owns stay as they are when the AI builds.</summary>
+    private Dictionary<int, LockedCard> FixedSlots(bool allFilled = false) =>
+        _working.Select((s, i) => (s, i)).Where(x => x.s is not null && (allFilled || x.s.Locked || x.s.Owned))
+            .ToDictionary(x => x.i, x => new LockedCard(x.s!.Card.SpId, x.s.Grade, x.s.Owned));
+
     private async void OnBuild(object sender, RoutedEventArgs e)
     {
         if (StudioKit.Squads is not { } squads) { Status.Text = "준비 중입니다."; return; }
-        if (!StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget)) { Status.Text = "예산은 100억, 5000만처럼 입력하세요."; return; }
-        var grades = _grades.Where(g => g.IsChecked == true).Select(g => (int)g.Tag).ToList();
-        if (grades.Count == 0) { Status.Text = "강화 단계를 하나 이상 고르세요."; return; }
         Status.Text = "";
         await StudioKit.Run(BuildButton, Status, async () =>
         {
+            if (await RequestAsync(squads, FixedSlots()) is not { } request) return;
             Status.Text = "계산 중… (처음에는 랭커 데이터를 받느라 1분쯤 걸립니다)";
-            var targets = await squads.TargetsAsync([(TeamColorBox.SelectedItem as TeamColorItem)?.Id ?? 0, (FeatureBox.SelectedItem as TeamColorItem)?.Id ?? 0]);
-            var request = new SquadRequest
-            {
-                Formation = Formations.Find((string)FormationBox.SelectedItem)!,
-                Budget = budget,
-                SalaryCap = StudioKit.IntOr(CapBox, int.MaxValue),
-                Grades = grades,
-                Locked = new Dictionary<int, LockedCard>(_locked),
-                ExcludedPlayers = new HashSet<int>(_excluded),
-                TeamColors = targets,
-                RankerPicksOnly = RankerOnlyBox.IsChecked == true,
-            };
             var (from, to) = RankRange;
             var plans = await squads.CompareModesAsync(request, from, to);
             Status.Text = plans.Count == 0 ? "조건에 맞는 스쿼드가 없습니다." : "";
@@ -164,60 +230,278 @@ public partial class SquadPage : UserControl
                 string.Join("\n", p.TeamColors.Select(StudioKit.TeamColorLine)),
                 ReferenceEquals(p, cheapest) ? "가장 쌈" : ReferenceEquals(p, strongest) ? "가장 강함" : "")).ToList();
             Modes.SelectedIndex = plans.Count > 1 ? 1 : 0;
+            if (_allocation is { } a) Status.Text = $"랭커 {a.Squads}팀의 포지션별 가격·급여 분배를 따랐습니다 (10억 미만 {a.Skipped}팀 제외).";
         });
     }
 
+    /// <summary>Takes an AI squad into the editable eleven.</summary>
     private void OnModeSelected(object sender, SelectionChangedEventArgs e)
     {
         if (Modes.SelectedItem is not ModeCard card) return;
-        _plan = card.Plan;
-        EmptyState.Visibility = Visibility.Collapsed;
-        Pitch.Show(card.Plan.Slots);
+        _working = card.Plan.Slots.OrderBy(s => s.Index).Select(s => (SquadSlot?)s).ToArray();
+        _workingColors = card.Plan.TeamColors;
+        _positions = card.Plan.Formation.Slots;
+        _selected = null;
+        ShowWorking();
+        ShowHint($"'{card.Plan.Label}' 안을 불러왔습니다. 선수를 누르면 바꾸거나 강화를 고칠 수 있습니다.");
     }
 
-    private void ShowDetail(SquadSlot s)
+    /// <summary>Keeps every card already in the eleven and lets the AI fill the empty slots.</summary>
+    private async void OnFillEmpty(object sender, RoutedEventArgs e)
+    {
+        if (StudioKit.Squads is not { } squads) return;
+        if (_working.All(s => s is not null)) { Status.Text = "빈 자리가 없습니다."; return; }
+        await StudioKit.Run(FillButton, Status, async () =>
+        {
+            if (await RequestAsync(squads, FixedSlots(allFilled: true)) is not { } request) return;
+            Status.Text = "빈 자리 채우는 중…";
+            var (from, to) = RankRange;
+            var plan = (await squads.BuildAsync(request with { Mode = SquadMode.Balanced, Plans = 1 }, from, to)).FirstOrDefault();
+            if (plan is null) { Status.Text = "조건에 맞는 카드가 없습니다."; return; }
+            var kept = _working.ToArray();
+            _working = plan.Slots.OrderBy(s => s.Index).Select(s => kept[s.Index] ?? s).Select(s => (SquadSlot?)s).ToArray();
+            Status.Text = "";
+            await RefreshWorkingAsync();
+        });
+    }
+
+    // ── hand-made eleven ───────────────────────────────────────────────────
+
+    private async void OnNewSquad(object sender, RoutedEventArgs e)
+    {
+        _working = new SquadSlot?[CurrentFormation.Slots.Length];
+        _positions = CurrentFormation.Slots;
+        _manual = true;
+        _selected = null;
+        Modes.SelectedIndex = -1;
+        await RefreshWorkingAsync();
+        ShowHint("빈 자리(+)를 누르고 선수를 고르세요. 일부만 넣고 [빈 자리 AI로 채우기]를 눌러도 됩니다.");
+    }
+
+    private async Task OnFormationChangedAsync()
+    {
+        if (await MakerAsync() is not { } maker) return;
+        _working = maker.Remap(_working, CurrentFormation).ToArray();
+        _positions = CurrentFormation.Slots;
+        _selected = null;
+        await RefreshWorkingAsync();
+    }
+
+    private async Task SetAllGradesAsync(int grade)
+    {
+        if (await MakerAsync() is not { } maker) return;
+        _working = _working.Select(s => s is null || s.Owned ? s : maker.WithGrade(s, grade)).ToArray();
+        await RefreshWorkingAsync();
+        Status.Text = $"모든 카드를 +{grade}로 바꿨습니다 (보유 카드는 그대로).";
+    }
+
+    private async Task SetSlotAsync(int index, SquadSlot? slot)
+    {
+        _working[index] = slot;
+        await RefreshWorkingAsync();
+        await ShowSlotAsync(index);
+    }
+
+    /// <summary>Re-applies team colours to the hand-made eleven and redraws the pitch and totals.</summary>
+    private async Task RefreshWorkingAsync()
+    {
+        if (StudioKit.Squads is { } squads && await MakerAsync() is { } maker)
+        {
+            try
+            {
+                var selected = await squads.TargetsAsync([(TeamColorBox.SelectedItem as TeamColorItem)?.Id ?? 0, (FeatureBox.SelectedItem as TeamColorItem)?.Id ?? 0]);
+                var filled = _working.Where(s => s is not null).Cast<SquadSlot>().ToList();
+                var (slots, colors) = await maker.ApplyTeamColorsAsync(filled, selected);
+                foreach (var s in slots) _working[s.Index] = s;
+                _workingColors = colors;
+            }
+            catch (Exception e) when (e is HttpRequestException or InvalidOperationException or TaskCanceledException)
+            {
+                // Team colours could not be read: the eleven stays without bonuses.
+            }
+        }
+        ShowWorking();
+    }
+
+    private void ShowWorking()
+    {
+        var any = _working.Any(s => s is not null);
+        EmptyState.Visibility = any || _manual ? Visibility.Collapsed : Visibility.Visible;
+        Pitch.Show(_working, _positions);
+        Pitch.Select(_selected);
+        var filled = _working.Where(s => s is not null).Cast<SquadSlot>().ToList();
+        var cap = StudioKit.IntOr(CapBox, int.MaxValue);
+        var pay = filled.Sum(s => s.Pay);
+        _ = StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget);
+        var price = filled.Where(s => !s.Owned).Sum(s => s.Price);
+        Totals.Text = filled.Count == 0 ? "빈 스쿼드"
+            : $"{filled.Count}/{_positions.Length}명 · 시세 {Bp.Format(price)}{(budget < long.MaxValue ? $" / 예산 {Bp.Format(budget)}" : "")} · 급여 {pay}{(cap < int.MaxValue ? $"/{cap}" : "")}"
+              + $" · 평균 OVR {filled.Average(s => s.Ovr + s.TeamColorBonus):0.0} · 환산 {filled.Average(s => s.EffectiveOvr):0.0} [추정]";
+        Totals.Foreground = (System.Windows.Media.Brush)FindResource(pay > cap || price > budget ? "Warn" : "Text");
+        TeamColorsLine.Text = string.Join("   ", _workingColors.Select(StudioKit.TeamColorLine));
+        var fixedCount = filled.Count(s => s.Locked || s.Owned);
+        LockInfo.Text = (fixedCount > 0 ? $"🔒 고정 {fixedCount}명 (AI가 바꾸지 않음)" : "")
+            + (_excluded.Count > 0 ? $"   ✕ 제외 {string.Join(", ", _excluded.Select(p => StudioKit.Squads?.Pool().FirstOrDefault(c => c.PlayerId == p)?.Name ?? p.ToString()))}" : "");
+    }
+
+    private void ShowHint(string text)
     {
         Detail.Children.Clear();
-        var c = s.Card;
-        Detail.Children.Add(new Image { Source = Skin.Get("player"), Width = 72, Height = 72, HorizontalAlignment = HorizontalAlignment.Left });
-        Detail.Children.Add(new TextBlock { Text = c.Name, Style = (Style)FindResource("H1"), Margin = new Thickness(0, 8, 0, 0) });
-        Detail.Children.Add(new TextBlock { Text = $"{c.Season} · {s.Position} · +{s.Grade} · 약발 {c.WeakFoot} · 급여 {s.Pay}", Style = (Style)FindResource("Hint") });
-        Line("OVR", $"{s.Ovr}" + (s.TeamColorBonus > 0 ? $" + 팀컬러 {s.TeamColorBonus:0.#}" + (s.TeamColorBonus % 1 != 0 ? " [추정]" : "") : ""));
-        Line("환산 OVR [추정]", $"{s.EffectiveOvr:0.0}  (시장 가치 {s.Premium:+0.0;-0.0})");
-        Line("시세", s.Owned ? "보유 (0으로 계산)" : Bp.Format(s.Price));
-        Line("같은 스펙 예상가 [추정]", $"{Bp.Format(s.Expected)}  ({StudioKit.Pct(s.Discount)})");
-        if (s.RankerUsers > 0) Line("랭커 사용", $"{s.RankerUsers}명 ({s.RankerShare:P1}, 전날 공식경기)");
-        if (c.Tags.Count > 0) Line("특성·개인기·체형", StudioKit.Tags(c));
-        var stats = string.Join("  ", c.Stats.Where(kv => MarketGroups.StatNames.ContainsKey(kv.Key)).Take(8).Select(kv => $"{MarketGroups.StatNames[kv.Key]} {kv.Value}"));
-        if (stats.Length > 0) Line("능력치 (+1 기준)", stats);
+        Detail.Children.Add(new TextBlock { Text = text, Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
+    }
 
-        var actions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
-        actions.Children.Add(Action(s.Locked ? "고정 해제" : "이 자리에 고정", () => { if (!_locked.Remove(s.Index)) _locked[s.Index] = new LockedCard(c.SpId, s.Grade, s.Owned); }));
-        actions.Children.Add(Action("보유 중 (가격 0)", () => _locked[s.Index] = new LockedCard(c.SpId, s.Grade, true)));
-        actions.Children.Add(Action("이 선수 빼기", () => { _locked.Remove(s.Index); _excluded.Add(c.PlayerId); }));
-        actions.Children.Add(Action("고정·제외 모두 해제", () => { _locked.Clear(); _excluded.Clear(); }));
-        Detail.Children.Add(actions);
-        Detail.Children.Add(new TextBlock { Text = "바꾼 뒤 [스쿼드 짜기]를 다시 누르세요.", Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 4, 0, 0) });
+    // ── slot panel ─────────────────────────────────────────────────────────
 
-        var toGrade = new Button { Content = "강화 효율 보기", Style = (Style)FindResource("Ghost"), Margin = new Thickness(0, 10, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
-        toGrade.Click += (_, _) => (Window.GetWindow(this) as StudioWindow)?.Navigate("grade", p => ((GradePage)p).Load(c.SpId, s.Position, s.Grade));
-        Detail.Children.Add(toGrade);
-        _ = ShowRankerStatsAsync(s);
+    private async Task ShowSlotAsync(int index)
+    {
+        if (await MakerAsync() is not { } maker) return;
+        _selected = index;
+        Pitch.Select(index);
+        var position = Formations.Normalize(_positions[index]);
+        var s = _working[index];
+        var grade = s?.Grade ?? DefaultGrade;
+        Detail.Children.Clear();
+
+        if (s is not null)
+        {
+            var c = s.Card;
+            Detail.Children.Add(new TextBlock { Text = c.Name, Style = (Style)FindResource("H1") });
+            Detail.Children.Add(new TextBlock { Text = $"{c.Season} · {s.Position} · 약발 {c.WeakFoot} · 급여 {s.Pay}", Style = (Style)FindResource("Hint") });
+            // Grade of this card: one click, the price and OVR follow.
+            var gradeBox = new ComboBox { ItemsSource = Enumerable.Range(1, 13).Select(g => $"+{g}").ToList(), SelectedIndex = s.Grade - 1, Width = 80, HorizontalAlignment = HorizontalAlignment.Left };
+            gradeBox.SelectionChanged += async (_, _) => await SetSlotAsync(index, maker.WithGrade(s, gradeBox.SelectedIndex + 1));
+            Detail.Children.Add(new TextBlock { Text = "강화", Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
+            Detail.Children.Add(gradeBox);
+            Line("OVR", $"{s.Ovr}" + (s.TeamColorBonus > 0 ? $" + 팀컬러 {s.TeamColorBonus:0.#}" + (s.TeamColorBonus % 1 != 0 ? " [추정]" : "") : ""));
+            Line("시세 · 같은 스펙 예상가 [추정]", s.Owned ? "보유 (0으로 계산)" : $"{Bp.Format(s.Price)} · {Bp.Format(s.Expected)} ({StudioKit.Pct(s.Discount)})");
+            if (s.RankerUsers > 0) Line("랭커 사용", $"{s.RankerUsers}명 ({s.RankerShare:P1}, 전날 공식경기)");
+            if (c.Tags.Count > 0) Line("특성·개인기·체형", StudioKit.Tags(c));
+            var g = MarketGroups.Get(c.Group);
+            var core = g.CoreStats.OrderByDescending(x => x.Weight).Where(x => c.Stats.ContainsKey(x.Stat)).Take(8)
+                .Select(x => $"{MarketGroups.StatNames.GetValueOrDefault(x.Stat, x.Stat)} {c.Stats[x.Stat]}");
+            Line($"코어 능력치 (+1){(g.CoreGap(c) is { } gap ? $" · 코어 {gap:+0.0;-0.0}" : "")}", string.Join("  ", core));
+
+            var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+            actions.Children.Add(Action(s.Locked ? "고정 해제" : "🔒 고정 (AI가 안 바꿈)", async () => await SetSlotAsync(index, s with { Locked = !s.Locked })));
+            actions.Children.Add(Action(s.Owned ? "보유 해제" : "보유 중 (가격 0)", async () => await SetSlotAsync(index, s with { Owned = !s.Owned })));
+            actions.Children.Add(Action("자리 비우기", async () => await SetSlotAsync(index, null)));
+            actions.Children.Add(Action("이 선수 제외", async () => { _excluded.Add(c.PlayerId); await SetSlotAsync(index, null); }));
+            actions.Children.Add(Action("강화 효율 보기", () =>
+            {
+                (Window.GetWindow(this) as StudioWindow)?.Navigate("grade", p => ((GradePage)p).Load(c.SpId, s.Position, s.Grade));
+                return Task.CompletedTask;
+            }));
+            Detail.Children.Add(actions);
+            _ = ShowRankerStatsAsync(s);
+        }
+        else
+        {
+            Detail.Children.Add(new TextBlock { Text = $"{position} 자리", Style = (Style)FindResource("H1") });
+            Detail.Children.Add(new TextBlock { Text = $"비어 있습니다. 아래 추천이나 검색에서 고르세요 (+{grade}로 들어갑니다).", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap });
+        }
+
+        // Alternatives for this slot: inside the chosen 소속 colour and the money left.
+        _ = StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget);
+        var members = await AffiliationMembersAsync();
+        var spent = _working.Where((x, i) => x is not null && i != index && !x.Owned).Sum(x => x!.Price);
+        var maxPrice = budget < long.MaxValue ? Math.Max(0, budget - spent) : long.MaxValue;
+        var suggestions = await Task.Run(() => maker.Suggest(index, position, grade, s, UsedPlayers(index), budget, _allocation, members: members, maxPrice: maxPrice));
+        if (_selected != index) return;
+        Detail.Children.Add(new TextBlock { Text = s is null ? "추천 선수" : "대체 선수", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 0) });
+        Detail.Children.Add(new TextBlock
+        {
+            Text = (members is null ? "" : "소속 팀컬러 선수만 · ") + (maxPrice < long.MaxValue ? $"남은 예산 {Bp.Format(maxPrice)} 안에서" : "예산 제한 없음"),
+            Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 0, 0, 4),
+        });
+        if (suggestions.Count == 0) Detail.Children.Add(new TextBlock { Text = "조건에 맞는 대체 카드가 없습니다.", Style = (Style)FindResource("Hint") });
+        foreach (var group in suggestions.GroupBy(x => x.Reason))
+        {
+            Detail.Children.Add(new TextBlock { Text = group.Key, Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 6, 0, 2) });
+            foreach (var x in group) Detail.Children.Add(CandidateButton(index, x.Slot, s));
+        }
+
+        // Search by name and season.
+        Detail.Children.Add(new TextBlock { Text = "선수 검색", Style = (Style)FindResource("H2"), Margin = new Thickness(0, 14, 0, 4) });
+        var nameBox = new TextBox { Margin = new Thickness(0, 0, 0, 4), ToolTip = "선수 이름 (일부만 써도 됩니다)" };
+        var seasonBox = new ComboBox { ItemsSource = new[] { "모든 시즌" }.Concat(maker.Seasons()).ToList(), SelectedIndex = 0, Margin = new Thickness(0, 0, 4, 0), MinWidth = 110 };
+        var sortBox = new ComboBox { ItemsSource = new[] { "OVR 높은 순", "가격 낮은 순", "스펙 대비 싼 순", "랭커 많이 쓰는 순" }, SelectedIndex = 0, MinWidth = 120 };
+        var results = new StackPanel();
+        var onlyMembers = new CheckBox { Content = "소속 팀컬러 선수만", IsChecked = members is not null, IsEnabled = members is not null, Margin = new Thickness(0, 4, 0, 4) };
+        async Task RunSearch()
+        {
+            var name = nameBox.Text;
+            var season = seasonBox.SelectedIndex > 0 ? (string)seasonBox.SelectedItem : null;
+            var sort = (CandidateSort)sortBox.SelectedIndex;
+            var only = onlyMembers.IsChecked == true ? members : null;
+            var found = await Task.Run(() => maker.Search(index, position, grade, name, season, sort, UsedPlayers(index), 40, only));
+            results.Children.Clear();
+            if (found.Count == 0) results.Children.Add(new TextBlock { Text = "찾은 카드가 없습니다.", Style = (Style)FindResource("Hint") });
+            foreach (var f in found) results.Children.Add(CandidateButton(index, f, s));
+        }
+        nameBox.KeyDown += async (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) await RunSearch(); };
+        seasonBox.SelectionChanged += async (_, _) => await RunSearch();
+        sortBox.SelectionChanged += async (_, _) => await RunSearch();
+        var searchButton = new Button { Content = "검색", Style = (Style)FindResource("Ghost"), Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(4, 0, 0, 0) };
+        searchButton.Click += async (_, _) => await RunSearch();
+        Detail.Children.Add(nameBox);
+        Detail.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { seasonBox, sortBox, searchButton } });
+        Detail.Children.Add(onlyMembers);
+        Detail.Children.Add(results);
+    }
+
+    /// <summary>Members of the chosen 소속 colour (the AI uses only them), or null when none is chosen.</summary>
+    private async Task<IReadOnlySet<long>?> AffiliationMembersAsync()
+    {
+        if (StudioKit.Squads is not { } squads || TeamColorBox.SelectedItem is not TeamColorItem { Id: > 0 } item) return null;
+        try
+        {
+            return await squads.TeamColorAsync(item.Id) is { Color.Category: TeamColorCategory.Affiliation } tc ? tc.Members : null;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>One card offered for a slot; clicking puts it in (keeping the fixed/owned marks of the slot).</summary>
+    private Button CandidateButton(int index, SquadSlot candidate, SquadSlot? current)
+    {
+        var c = candidate.Card;
+        var text = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock { Text = $"{c.Name} · {c.Season} +{candidate.Grade}", FontWeight = FontWeights.SemiBold },
+                new TextBlock
+                {
+                    Text = $"OVR {candidate.Ovr} · 환산 {candidate.EffectiveOvr:0.0} · {Bp.Format(candidate.Price)} · 급여 {c.Pay}"
+                        + (current is null ? "" : $" · {(candidate.Price - current.Price >= 0 ? "+" : "−")}{Bp.Format(Math.Abs(candidate.Price - current.Price))}"),
+                    Style = (Style)FindResource("Hint"),
+                },
+            },
+        };
+        var b = new Button
+        {
+            Content = text, HorizontalContentAlignment = HorizontalAlignment.Left, Style = (Style)FindResource("Ghost"),
+            Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 0, 4), HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        b.Click += async (_, _) => await SetSlotAsync(index, candidate with { Locked = current?.Locked ?? false });
+        return b;
     }
 
     private async Task ShowRankerStatsAsync(SquadSlot s)
     {
         if (StudioKit.Squads is not { } squads) return;
-        var line = new TextBlock { Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 12, 0, 0), Text = "랭커 20경기 기록 불러오는 중…" };
-        Detail.Children.Add(line);
+        var line = new TextBlock { Style = (Style)FindResource("Hint"), Margin = new Thickness(0, 4, 0, 0), Text = "랭커 20경기 기록 불러오는 중…", TextWrapping = TextWrapping.Wrap };
+        Detail.Children.Insert(Math.Min(Detail.Children.Count, 12), line);
         try
         {
             var stats = await squads.RankerStatsAsync([(s.Card.SpId, s.Position)]);
             line.Text = stats.TryGetValue(s.Card.SpId, out var r)
-                ? $"랭커가 이 카드로 뛴 {r.Status.MatchCount}경기 평균: 골 {r.Status.Goal:0.00} · 도움 {r.Status.Assist:0.00} · 슈팅 {r.Status.Shoot:0.0} · 패스 성공 {r.Status.PassSuccess:0.0}/{r.Status.PassTry:0.0} (공식 API)"
-                : "랭커 20경기 기록: 이 포지션에서 쓴 기록이 없습니다 (API 키가 없으면 표시되지 않습니다).";
+                ? $"랭커가 이 카드로 뛴 {r.Status.MatchCount}경기 평균: 골 {r.Status.Goal:0.00} · 도움 {r.Status.Assist:0.00} · 슈팅 {r.Status.Shoot:0.0} (공식 API)"
+                : "랭커 20경기 기록: 이 포지션에서 쓴 기록이 없습니다.";
         }
-        catch (Exception e) when (e is HttpRequestException or FcHelper.NexonApi.NexonApiException or TaskCanceledException)
+        catch (Exception e) when (e is HttpRequestException or FcHelper.NexonApi.NexonApiException or TaskCanceledException or InvalidOperationException)
         {
             line.Text = "랭커 20경기 기록을 불러오지 못했습니다.";
         }
@@ -226,13 +510,13 @@ public partial class SquadPage : UserControl
     private void Line(string label, string value)
     {
         Detail.Children.Add(new TextBlock { Text = label, Style = (Style)FindResource("FieldLabel"), Margin = new Thickness(0, 10, 0, 0) });
-        Detail.Children.Add(new TextBlock { Text = value });
+        Detail.Children.Add(new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap });
     }
 
-    private Button Action(string text, Action change)
+    private Button Action(string text, Func<Task> change)
     {
         var b = new Button { Content = text, Style = (Style)FindResource("Ghost"), Margin = new Thickness(0, 0, 6, 6), Padding = new Thickness(9, 4, 9, 4) };
-        b.Click += (_, _) => { change(); ShowLocks(); };
+        b.Click += async (_, _) => await change();
         return b;
     }
 }
