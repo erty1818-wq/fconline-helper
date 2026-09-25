@@ -9,6 +9,13 @@ public sealed record MarketStatus(MarketSnapshot? Current, int Cards, HarvestPro
 /// once when the Open API's season list shows a season it has not seen (new cards). The first run is a full
 /// collection. Callers decide *when* to call <see cref="RefreshIfDueAsync"/> (the app defers it while the game runs).
 /// </summary>
+/// <summary>A key new trait's average premium over a family of positions, with the per-group estimates behind it.</summary>
+public sealed record TraitValue(string Trait, string Scope, double Percent, double Low, double High, double OvrEquivalent, int Cards,
+    IReadOnlyList<(string Group, PriceFactor Factor)> ByGroup)
+{
+    public bool Clear => Low > 0 || High < 0;
+}
+
 public sealed class MarketService(
     IMarketListSource source, MarketStore store, Func<CancellationToken, Task<string>> seasonListJson, TimeProvider? time = null)
 {
@@ -148,10 +155,79 @@ public sealed class MarketService(
         }
     }
 
+    private readonly Dictionary<(long, string, int, int), PriceModel?> _playable = [];
+
+    /// <summary>
+    /// A model of the playable market only: cards at or above <paramref name="minOvr"/> at the grade (e.g. 130 when
+    /// searching 135+). Cheap low-OVR cards price stats and traits differently; null when too few cards.
+    /// </summary>
+    public PriceModel? ModelAbove(string group, int grade, int minOvr)
+    {
+        var snap = store.LatestFinished();
+        if (snap is null) return null;
+        lock (_models)
+        {
+            if (_models.Count == 0) _playable.Clear(); // refit together with the full models
+            var key = (snap.Id, group, grade, minOvr);
+            if (!_playable.TryGetValue(key, out var model))
+                _playable[key] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group).Where(c => c.OvrAt(grade) >= minOvr), _rankerMembers);
+            return model;
+        }
+    }
+
+    /// <summary>Position families whose key new traits are averaged together (a trait is rare in any one group).</summary>
+    public static readonly IReadOnlyList<(string Scope, string[] Groups)> TraitScopes =
+    [
+        ("공격 (ST·CF·윙·측미·공미)", ["ST", "CF", "W", "SM", "CAM"]),
+        ("중앙 미드 (CM·CDM)", ["CM", "CDM"]),
+        ("수비 (CB·풀백)", ["CB", "FB"]),
+    ];
+
+    /// <summary>
+    /// The average price premium of each key new trait per position family: the groups' estimates combined by their
+    /// precision (inverse variance on the log scale), so a group with many such cards counts more. [추정: 시장 회귀]
+    /// </summary>
+    /// <param name="minOvr">Only the playable market (OVR at the grade), or null for all cards.</param>
+    public IReadOnlyList<TraitValue> TraitValues(int grade = 8, int? minOvr = null)
+    {
+        var result = new List<TraitValue>();
+        foreach (var (scope, groups) in TraitScopes)
+        {
+            var factors = groups
+                .Select(g => (Group: g, Model: minOvr is { } lo ? ModelAbove(g, grade, lo) : Model(g, grade)))
+                .Where(x => x.Model is not null)
+                .SelectMany(x => x.Model!.Factors().Where(f => f.Kind == FactorKind.Trait && f.IsCore).Select(f => (x.Group, Factor: f)))
+                .ToList();
+            foreach (var trait in factors.GroupBy(f => f.Factor.Key))
+            {
+                double sumW = 0, sumB = 0, sumOvr = 0;
+                foreach (var (_, f) in trait)
+                {
+                    var b = Math.Log(1 + f.Percent / 100);
+                    var se = (Math.Log(1 + f.High / 100) - Math.Log(1 + f.Low / 100)) / (2 * 1.96);
+                    var w = 1 / Math.Max(se * se, 1e-6);
+                    sumW += w;
+                    sumB += w * b;
+                    sumOvr += w * f.OvrEquivalent;
+                }
+                var mean = sumB / sumW;
+                var half = 1.96 / Math.Sqrt(sumW);
+                result.Add(new TraitValue(trait.Key[6..], scope, (Math.Exp(mean) - 1) * 100, (Math.Exp(mean - half) - 1) * 100,
+                    (Math.Exp(mean + half) - 1) * 100, sumOvr / sumW, trait.Sum(t => t.Factor.Cards ?? 0),
+                    trait.Select(t => (t.Group, t.Factor)).ToList()));
+            }
+        }
+        return result;
+    }
+
+    /// <summary>The model a search uses: the playable market around its OVR floor, else the whole group.</summary>
+    public PriceModel? ModelFor(ValueQuery q) =>
+        (q.Filter.MinOvr is { } lo ? ModelAbove(q.Group, q.Grade, lo - 5) : null) ?? Model(q.Group, q.Grade);
+
     public IReadOnlyList<ValuePick> FindValue(ValueQuery q)
     {
         var snap = store.LatestFinished();
-        var model = Model(q.Group, q.Grade);
+        var model = ModelFor(q);
         return snap is null || model is null ? [] : ValueFinder.Find(model, Cards(snap.Id, q.Group), q);
     }
 

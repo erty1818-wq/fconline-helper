@@ -7,7 +7,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -35,6 +35,17 @@ internal static class SquadCommands
                 case "squad": return await Squad(squads, option, rankFrom, rankTo);
                 case "value": return await Value(squads, option);
                 case "factors": return await Factors(squads, option);
+                case "traits":
+                    await squads.RankerTeamColorMembersAsync();
+                    var tgrade = Math.Clamp(Int(option("grade"), 8), 1, 13);
+                    foreach (var minOvr in new int?[] { null, option("minovr") is { } mo ? Int(mo, 135) : 135 })
+                    {
+                        Console.WriteLine($"\n■ 신특 평균 값어치 · +{tgrade} · {(minOvr is { } m ? $"OVR {m}+ 카드만" : "전체 카드")} [추정]");
+                        foreach (var t in squads.Market.TraitValues(tgrade, minOvr))
+                            Console.WriteLine($"  {t.Scope,-22} {t.Trait,-10} {t.Percent,7:+0;-0}% ({t.Low:+0;-0}~{t.High:+0;-0}%) OVR {t.OvrEquivalent:+0.0;-0.0} · {t.Cards}장{(t.Clear ? "" : " (불확실)")}"
+                                + "  [" + string.Join(", ", t.ByGroup.Select(g => $"{g.Group} {g.Factor.Percent:+0;-0}%")) + "]");
+                    }
+                    return 0;
                 case "picks":
                     foreach (var h in (await squads.HiddenRankerPicksAsync(option("pos"), await Filter(squads, option, 0),
                                  Int(option("users"), 10), rankFrom, rankTo)).Take(Int(option("top"), 15)))
@@ -124,8 +135,8 @@ internal static class SquadCommands
     {
         var group = MarketGroups.Get(GroupKey(option));
         var grade = Math.Clamp(Int(option("grade"), 8), 1, 13);
-        if (squads.Market.Model(group.Key, grade) is not { } model) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
         var filter = await Filter(squads, option, group.Key == "GK" ? 140 : 135);
+        if (squads.Market.ModelFor(new ValueQuery { Group = group.Key, Grade = grade, Filter = filter }) is not { } model) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
         var picks = squads.Market.FindValue(new ValueQuery { Group = group.Key, Grade = grade, Filter = filter });
         Console.WriteLine($"{group.Name} +{grade} · {picks.Count}장 · OVR {filter.MinOvr}+{(filter.Members is null ? "" : " · 랭커 팀컬러 20")} · R² {model.R2:0.00} (카드 {model.Cards}장)");
         foreach (var p in picks.Take(Int(option("top"), 15)))
@@ -145,8 +156,11 @@ internal static class SquadCommands
         var grade = Math.Clamp(Int(option("grade"), 8), 1, 13);
         // Membership of the rankers' 20 team colours is priced too (members fetched once a week).
         if (option("tc") is not ("no" or "0")) await squads.RankerTeamColorMembersAsync();
-        if (squads.Market.Model(group.Key, grade) is not { } model) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
-        Console.WriteLine($"{group.Name} +{grade} · 카드 {model.Cards}장 (호날두·호나우두·굴리트 제외) · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}");
+        // --minovr 135: only the playable market (OVR at the grade), where the video's rules are about.
+        var minOvr = option("minovr") is { } m ? Int(m, 0) : 0;
+        var model = minOvr > 0 ? squads.Market.ModelAbove(group.Key, grade, minOvr) : squads.Market.Model(group.Key, grade);
+        if (model is null) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
+        Console.WriteLine($"{group.Name} +{grade}{(minOvr > 0 ? $" · OVR {minOvr}+" : "")} · 카드 {model.Cards}장 (호날두·호나우두·굴리트 제외) · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}");
         var factors = model.Factors();
         void Print(string title, IEnumerable<PriceFactor> list)
         {

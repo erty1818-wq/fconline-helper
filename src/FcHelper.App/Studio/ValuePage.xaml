@@ -18,7 +18,8 @@
                     <StackPanel Margin="0,0,14,6"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" MinWidth="70" /></StackPanel>
                     <StackPanel Margin="0,0,14,6" VerticalAlignment="Bottom" Orientation="Horizontal">
                         <ToggleButton x:Name="CardsView" Style="{StaticResource Chip}" Content="가성비 카드" IsChecked="True" Click="OnView" />
-                        <ToggleButton x:Name="FactorsView" Style="{StaticResource Chip}" Content="가격 요인 (능력치·신특 값어치)" Click="OnView" />
+                        <ToggleButton x:Name="FactorsView" Style="{StaticResource Chip}" Content="가격 요인 (이 포지션)" Click="OnView" />
+                        <ToggleButton x:Name="TraitsView" Style="{StaticResource Chip}" Content="신특 평균 값어치" Click="OnView" />
                     </StackPanel>
                 </WrapPanel>
                 <studio:FilterPanel x:Name="Filters" />

@@ -110,5 +110,8 @@ public partial class FilterPanel : UserControl
         return string.Join(" · ", parts);
     }
 
+    /// <summary>The OVR floor as typed (for the factor view).</summary>
+    public string MinOvrText => MinOvrBox.Text.Trim();
+
     private static int? Int(TextBox box) => int.TryParse(box.Text.Trim(), out var v) ? v : null;
 }
