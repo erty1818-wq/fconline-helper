@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Windows;
 using FcHelper.Core;
 using FcHelper.Data;
+using FcHelper.Market;
 using FcHelper.NexonApi;
 using FcHelper.Services;
 using FcHelper.Vision;
@@ -26,6 +27,10 @@ public partial class App : Application
     private GlobalHotkey? _captureHotkey;
     private ScreenReader? _reader;
     private bool _recognizing;
+    private MarketService? _market;
+    private ValueWindow? _valueWindow;
+    private readonly CancellationTokenSource _exit = new();
+    private static readonly Uri SeasonListUrl = new("https://open.api.nexon.com/static/fconline/meta/seasonid.json");
     private SearchWindow? _search;
     private VoiceBriefing? _voice;
     private RateLimiter? _limiter;
@@ -55,6 +60,11 @@ public partial class App : Application
         if (!_hotkey.IsRegistered) Notify("단축키 Ctrl+Alt+S를 등록하지 못했습니다. 다른 프로그램이 쓰고 있을 수 있습니다.");
 
         ApplySettings();
+        // Market data needs no API key: the data center and the season list are public.
+        _market = new MarketService(new DataCenterListClient(_http, new RateLimiter(0.5)), new MarketStore(AppPaths.DatabasePath),
+            ct => _http.GetStringAsync(SeasonListUrl, ct));
+        _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
+        _ = KeepMarketFreshAsync(_exit.Token);
         if (Service is null)
         {
             // First run: ask for the API key, then go straight to the search window.
@@ -199,6 +209,68 @@ public partial class App : Application
             $"{l.X:0.000} {l.Y:0.000} {l.Width:0.000} {l.Height:0.000}  {l.Text}")));
     }
 
+    // ── market data ────────────────────────────────────────────────────────
+
+    /// <summary>How often the season list is checked, so new cards are picked up within hours, not a day.</summary>
+    private static readonly TimeSpan SeasonCheck = TimeSpan.FromHours(3);
+
+    /// <summary>
+    /// Refreshes market prices when they are a day old and at once for a new season. No polling: it sleeps until the
+    /// next due time (at most <see cref="SeasonCheck"/>), and while the game runs it waits for the game to exit.
+    /// </summary>
+    private async Task KeepMarketFreshAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(1), ct); // let start-up work finish first
+            while (!ct.IsCancellationRequested)
+            {
+                if (Settings.MarketAutoRefresh)
+                {
+                    await WaitForGameToCloseAsync(ct);
+                    await _market!.RefreshIfDueAsync(ct: ct);
+                }
+                var due = _market!.NextDue ?? DateTime.UtcNow;
+                var wait = due - DateTime.UtcNow;
+                await Task.Delay(wait < TimeSpan.FromMinutes(5) ? TimeSpan.FromMinutes(5) : wait > SeasonCheck ? SeasonCheck : wait, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>Waits on the process exit event: no checking in a loop, nothing sent to the game.</summary>
+    private static async Task WaitForGameToCloseAsync(CancellationToken ct)
+    {
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName(GameWindow.DefaultProcessName))
+        {
+            using (p)
+            {
+                await p.WaitForExitAsync(ct);
+            }
+        }
+    }
+
+    public void ShowValueWindow()
+    {
+        if (_valueWindow is null)
+        {
+            _valueWindow = new ValueWindow(_market!);
+            _valueWindow.Closed += (_, _) => _valueWindow = null;
+            _valueWindow.Show();
+        }
+        if (_valueWindow.WindowState == WindowState.Minimized) _valueWindow.WindowState = WindowState.Normal;
+        _valueWindow.Activate();
+    }
+
+    private void UpdateTrayText()
+    {
+        if (_tray is null || _market is null) return;
+        // NotifyIcon text is limited to 63 characters.
+        _tray.Text = _market.Status.Running is { } r ? $"FC Online Helper · 시세 갱신 중 {r.Done}/{r.Total}" : "FC Online Helper";
+    }
+
     /// <summary>Opens (or reuses) the card next to the game window without activating it.</summary>
     private SearchWindow ShowSearchBeside(Drawing.Rectangle gamePixels)
     {
@@ -251,6 +323,7 @@ public partial class App : Application
     {
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("상대 검색  (Ctrl+Alt+S)", null, (_, _) => ShowSearch());
+        menu.Items.Add("가성비 찾기", null, (_, _) => ShowValueWindow());
         menu.Items.Add("내 경기 동기화", null, (_, _) => SyncMine());
         menu.Items.Add("설정", null, (_, _) => ShowSettings());
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -291,6 +364,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Stops a refresh in progress; it resumes from the same step next time.
+        _exit.Cancel();
         _hotkey?.Dispose();
         _captureHotkey?.Dispose();
         _voice?.Dispose();

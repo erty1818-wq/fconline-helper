@@ -29,6 +29,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FcHelper.Services\FcHelper.Services.csproj" />
     <ProjectReference Include="..\FcHelper.Vision\FcHelper.Vision.csproj" />
+    <ProjectReference Include="..\FcHelper.Market\FcHelper.Market.csproj" />
   </ItemGroup>
 
 </Project>

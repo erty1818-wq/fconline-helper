@@ -1,0 +1,107 @@
+<Window x:Class="FcHelper.App.ValueWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="가성비 찾기 · FC Online Helper" Width="1080" Height="720" MinWidth="820" MinHeight="420"
+        Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen" FontFamily="Malgun Gothic, Segoe UI">
+    <Window.Resources>
+        <Style TargetType="ComboBox">
+            <Setter Property="Margin" Value="0,0,10,0" />
+            <Setter Property="MinWidth" Value="90" />
+        </Style>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="0,0,0,3" />
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{StaticResource Panel}" />
+            <Setter Property="Foreground" Value="{StaticResource Muted}" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridCell">
+                        <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#26384A" />
+                    <Setter Property="Foreground" Value="{StaticResource Text}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Right" TargetType="TextBlock">
+            <Setter Property="HorizontalAlignment" Value="Right" />
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="14">
+        <!-- Filters -->
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Label}" Text="포지션" />
+                <ComboBox x:Name="GroupBox" DisplayMemberPath="Name" SelectionChanged="OnGroupChanged" MinWidth="130" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Style="{StaticResource Label}" Text="강화" />
+                <ComboBox x:Name="GradeBox" MinWidth="60" />
+            </StackPanel>
+            <StackPanel Margin="0,0,10,0">
+                <TextBlock Style="{StaticResource Label}" Text="최소 가격 (예: 1억)" />
+                <TextBox x:Name="MinBox" Width="110" />
+            </StackPanel>
+            <StackPanel Margin="0,0,10,0">
+                <TextBlock Style="{StaticResource Label}" Text="최대 가격 (예: 30억)" />
+                <TextBox x:Name="MaxBox" Width="110" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Style="{StaticResource Label}" Text="약발" />
+                <ComboBox x:Name="FootBox" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Style="{StaticResource Label}" Text="특성" />
+                <ComboBox x:Name="TraitBox" MinWidth="140" />
+            </StackPanel>
+            <StackPanel VerticalAlignment="Bottom" Margin="0,0,10,4">
+                <CheckBox x:Name="SkillBox" Content="개인기 5성 이상" />
+            </StackPanel>
+            <Button x:Name="SearchButton" Content="찾기" IsDefault="True" Click="OnSearch" VerticalAlignment="Bottom" Padding="18,5" />
+        </WrapPanel>
+
+        <!-- Status and refresh -->
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <Button x:Name="RefreshButton" DockPanel.Dock="Right" Content="지금 갱신" Click="OnRefresh" />
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Bottom" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,8,0,0"
+                   Text="예상가 = 같은 OVR·약발·급여·능력치·특성·개인기·시즌 카드들의 오늘 시세로 계산한 값 [추정]. 예상가보다 싸다고 정답은 아닙니다: 체감, 팀컬러, 수집하지 않은 능력치는 반영되지 않습니다. 시세 출처: FC온라인 데이터센터." />
+        <TextBlock x:Name="SummaryText" DockPanel.Dock="Top" Margin="0,0,0,6" />
+
+        <DataGrid x:Name="Results" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="{StaticResource Line}"
+                  Background="{StaticResource Bg}" RowBackground="{StaticResource Bg}" AlternatingRowBackground="{StaticResource Panel}"
+                  Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line}" CanUserResizeRows="False" SelectionMode="Single">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="140" />
+                <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="80" />
+                <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="50" />
+                <DataGridTextColumn Header="약발" Binding="{Binding WeakFoot}" Width="45" />
+                <DataGridTextColumn Header="급여" Binding="{Binding Pay}" Width="45" />
+                <DataGridTextColumn Header="핵심 능력치" Binding="{Binding Stats}" Width="*" />
+                <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="80" ElementStyle="{StaticResource Right}" />
+                <DataGridTextColumn Header="예상가" Binding="{Binding Expected}" Width="80" ElementStyle="{StaticResource Right}" />
+                <DataGridTextColumn Header="차이" Binding="{Binding Diff}" Width="60" ElementStyle="{StaticResource Right}" SortMemberPath="Discount" />
+                <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="200" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

@@ -21,6 +21,7 @@ public partial class SettingsWindow : Window
         (settings.Detection == DetectionMode.Manual ? ManualModeBox : HotkeyModeBox).IsChecked = true;
         SaveCapturesBox.IsChecked = settings.SaveCaptures;
         MarketBox.IsChecked = settings.ShowMarket;
+        MarketRefreshBox.IsChecked = settings.MarketAutoRefresh;
     }
 
     private void OnSaveClick(object sender, RoutedEventArgs e)
@@ -46,6 +47,7 @@ public partial class SettingsWindow : Window
         _settings.Detection = ManualModeBox.IsChecked == true ? DetectionMode.Manual : DetectionMode.Hotkey;
         _settings.SaveCaptures = SaveCapturesBox.IsChecked == true;
         _settings.ShowMarket = MarketBox.IsChecked == true;
+        _settings.MarketAutoRefresh = MarketRefreshBox.IsChecked == true;
         _settings.Save();
         DialogResult = true;
     }

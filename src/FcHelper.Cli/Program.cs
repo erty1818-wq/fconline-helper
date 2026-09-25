@@ -1,5 +1,6 @@
 using System.Text;
 using FcHelper.Data;
+using FcHelper.Market;
 using FcHelper.NexonApi;
 using FcHelper.Services;
 
@@ -23,6 +24,13 @@ for (var i = 1; i < args.Length; i++)
     else positional.Add(args[i]);
 }
 string? Option(string name) => named.GetValueOrDefault(name);
+
+if (command == "value")
+{
+    // Market data needs no API key.
+    return Value(Option("pos") ?? "ST", int.TryParse(Option("grade"), out var vg) ? Math.Clamp(vg, 1, 13) : 8, Option("min"), Option("max"),
+        int.TryParse(Option("top"), out var vt) ? vt : 15, Option("db") ?? AppPaths.DatabasePath);
+}
 
 var apiKey = Option("key") ?? Environment.GetEnvironmentVariable("FCH_API_KEY");
 if (string.IsNullOrWhiteSpace(apiKey))
@@ -122,6 +130,40 @@ static async Task<int> Dump(FcOnlineApi api, string nickname, int count, string 
     return 0;
 }
 
+static int Value(string group, int grade, string? min, string? max, int top, string dbPath)
+{
+    if (MarketGroups.All.All(g => g.Key != group))
+    {
+        Console.Error.WriteLine($"포지션은 {string.Join(", ", MarketGroups.All.Select(g => g.Key))} 중 하나입니다.");
+        return 1;
+    }
+    long lo = 0, hi = long.MaxValue;
+    if (min is not null && !Bp.TryParse(min, out lo) || max is not null && !Bp.TryParse(max, out hi))
+    {
+        Console.Error.WriteLine("가격은 1억, 5000만, 1.5조처럼 입력하세요.");
+        return 1;
+    }
+    var market = new MarketService(new DataCenterListClient(new HttpClient(), new RateLimiter(0.5)), new MarketStore(dbPath),
+        _ => Task.FromResult("[]"));
+    var model = market.Model(group, grade);
+    if (model is null)
+    {
+        Console.Error.WriteLine("시세 데이터가 없습니다. 앱을 켜 두면 자동으로 받습니다.");
+        return 3;
+    }
+    var g = MarketGroups.Get(group);
+    var picks = market.FindValue(new ValueQuery { Group = group, Grade = grade, MinPrice = lo, MaxPrice = hi });
+    Console.WriteLine($"{g.Name} +{grade} · {Bp.Format(lo)} ~ {(hi == long.MaxValue ? "상한 없음" : Bp.Format(hi))} · {picks.Count}장 · R² {model.R2:0.00} (카드 {model.Cards}장)");
+    foreach (var p in picks.Take(top))
+    {
+        var c = p.Card;
+        Console.WriteLine($"  {c.Name,-10} {c.Season,-8} OVR {c.OvrAt(grade)} 약발{c.WeakFoot} 급여{c.Pay,2} · 시세 {Bp.Format(p.Price),7} · 예상 {Bp.Format(p.Expected),7} · {p.Discount * 100:+0;-0}%  "
+            + string.Join(" ", c.Tags.Order().Select(MarketGroups.TagLabel)));
+    }
+    Console.WriteLine("예상가 = 같은 스펙 카드들의 오늘 시세로 계산한 값 [추정]. 시세 출처: FC온라인 데이터센터.");
+    return 0;
+}
+
 static void PrintUsage() => Console.Error.WriteLine("""
     FC Online Helper CLI
 
@@ -131,6 +173,8 @@ static void PrintUsage() => Console.Error.WriteLine("""
           위험 선수의 능력치·시세는 FC온라인 데이터센터에서 조회합니다 (--market off로 끔).
       fch sync --me <내 닉네임>
           내 최근 경기 100건을 캐시에 저장합니다.
+      fch value [--pos W] [--grade 8] [--min 1억] [--max 30억] [--top 15]
+          같은 스펙 대비 싸게 거래되는 선수 (API 키 불필요, 앱이 받아 둔 시세 사용).
       fch dump <닉네임> [--count 3] [--out docs/samples]
           match-detail 원본 JSON을 저장합니다 (필드 검증용).
 
