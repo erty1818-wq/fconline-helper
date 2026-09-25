@@ -18,7 +18,7 @@ public static class Skin
     public static readonly string[] Keys =
     [
         "logo", "pitch", "hero", "empty", "player",
-        "nav-squad", "nav-picks", "nav-value", "nav-grade", "nav-salary", "nav-trends", "nav-mysquad", "nav-opponent", "nav-teamcolor",
+        "nav-squad", "nav-picks", "nav-value", "nav-grade", "nav-salary", "nav-trends", "nav-mysquad", "nav-opponent", "nav-teamcolor", "home-search", "home-squad",
     ];
 
     private static readonly Dictionary<string, ImageSource?> Cache = [];

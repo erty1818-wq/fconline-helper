@@ -92,8 +92,8 @@ public partial class SearchWindow : Window
         var service = _app.Service;
         if (service is null)
         {
-            StatusText.Text = "먼저 설정에서 NEXON Open API 키를 입력하세요.";
-            _app.ShowSettings();
+            StatusText.Text = "먼저 홈 화면에서 NEXON Open API 키를 입력하세요.";
+            _app.ShowHome();
             return;
         }
 
@@ -157,8 +157,7 @@ public partial class SearchWindow : Window
         _view = new ReportView(report);
         Card.DataContext = _view;
         Card.Visibility = Visibility.Visible;
-        CopyButton.IsEnabled = true;
-        TailorButton.IsEnabled = true;
+        TailorButton.Visibility = Visibility.Visible;
     }
 
     private void OnTailorClick(object sender, RoutedEventArgs e)
@@ -173,20 +172,5 @@ public partial class SearchWindow : Window
         if (_view is null || _app.Service is null) return;
         _app.Service.SaveMemo(_view.Report.Ouid, _view.MemoText, _view.Tags.Where(t => t.IsChecked).Select(t => t.Name));
         StatusText.Text = "메모를 저장했습니다.";
-    }
-
-    private void OnCopyClick(object sender, RoutedEventArgs e)
-    {
-        if (_view is null) return;
-        try
-        {
-            Clipboard.SetText(ReportText.Card(_view.Report));
-            StatusText.Text = "카드를 클립보드에 복사했습니다.";
-        }
-        catch (System.Runtime.InteropServices.COMException)
-        {
-            // Another program holds the clipboard open.
-            StatusText.Text = "클립보드를 쓸 수 없습니다. 잠시 후 다시 시도하세요.";
-        }
     }
 }

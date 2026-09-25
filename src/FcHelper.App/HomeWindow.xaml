@@ -1,0 +1,94 @@
+<Window x:Class="FcHelper.App.HomeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="clr-namespace:FcHelper.App"
+        Title="FC Online Helper" Width="620" SizeToContent="Height" ResizeMode="CanMinimize"
+        Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen" FontFamily="Malgun Gothic, Segoe UI">
+    <Window.Resources>
+        <!-- One big entry card: icon, title, one line of what it does. -->
+        <Style x:Key="EntryCard" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Frame" Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                                CornerRadius="10" Padding="20,18">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource Accent}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource Accent}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Frame" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="22,20,22,18">
+        <!-- Header: logo and who is signed in -->
+        <DockPanel Margin="0,0,0,18">
+            <Button x:Name="SettingsButton" DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="설정" Click="OnSettings" VerticalAlignment="Center" />
+            <StackPanel Orientation="Horizontal">
+                <Image Source="{app:Skin logo}" Width="40" Height="40" />
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="FC Online Helper" FontSize="19" FontWeight="SemiBold" />
+                    <TextBlock x:Name="Who" Style="{StaticResource Hint}" />
+                </StackPanel>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- First run: the API key and my nickname, checked against the API at once. -->
+        <Border x:Name="Setup" Style="{StaticResource CardPanel}" Margin="0,0,0,14" Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock Text="처음 한 번만 설정합니다" Style="{StaticResource H2}" />
+                <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,2,0,10"
+                           Text="로그인이 아닙니다. 내 NEXON Open API 키로 공식 데이터를 읽고, 내 닉네임은 재대결 전적과 내 스쿼드 분석에 씁니다. 키는 Windows 계정 암호화로 이 PC에만 저장되고 다른 곳으로 보내지 않습니다." />
+                <TextBlock Text="NEXON Open API 키" Style="{StaticResource FieldLabel}" />
+                <PasswordBox x:Name="KeyBox" />
+                <TextBlock Style="{StaticResource Hint}" Margin="0,3,0,8">
+                    <Hyperlink NavigateUri="https://openapi.nexon.com/ko/" RequestNavigate="OnOpenLink" Foreground="{StaticResource Info}">openapi.nexon.com</Hyperlink>
+                    <Run Text="→ 로그인 → 애플리케이션 등록(FC온라인) → 발급된 키를 붙여 넣기" />
+                </TextBlock>
+                <TextBlock Text="내 닉네임" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="NicknameBox" />
+                <DockPanel Margin="0,12,0,0">
+                    <Button x:Name="StartButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="시작하기" Click="OnStart" IsDefault="True" />
+                    <TextBlock x:Name="SetupStatus" Style="{StaticResource Hint}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0" />
+                </DockPanel>
+            </StackPanel>
+        </Border>
+
+        <UniformGrid Columns="2">
+            <Button x:Name="SearchEntry" Style="{StaticResource EntryCard}" Margin="0,0,7,0" Click="OnSearch">
+                <StackPanel>
+                    <ContentControl x:Name="SearchIcon" Height="44" HorizontalAlignment="Left" Focusable="False" />
+                    <TextBlock Text="구단주 검색" FontSize="20" FontWeight="SemiBold" Margin="0,12,0,4" />
+                    <TextBlock x:Name="SearchHint" Style="{StaticResource Hint}" TextWrapping="Wrap"
+                               Text="상대 닉네임으로 최근 공식경기 분석: 득점·실점 패턴, 위험 선수, 약점, 나와의 전적" />
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0" Foreground="{StaticResource Info}" Text="게임 중: Ctrl + Alt + S · 매칭 화면 캡처 Ctrl + Alt + F" TextWrapping="Wrap" />
+                </StackPanel>
+            </Button>
+            <Button x:Name="SquadEntry" Style="{StaticResource EntryCard}" Margin="7,0,0,0" Click="OnSquad">
+                <StackPanel>
+                    <ContentControl x:Name="SquadIcon" Height="44" HorizontalAlignment="Left" Focusable="False" />
+                    <TextBlock Text="스쿼드 도우미" FontSize="20" FontWeight="SemiBold" Margin="0,12,0,4" />
+                    <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
+                               Text="예산·급여·팀컬러로 스쿼드 짜기, 가성비·숨은 랭커픽, 강화·급여 효율, 시세 추이, 내 스쿼드 업그레이드" />
+                    <TextBlock x:Name="MarketLine" Style="{StaticResource Hint}" Margin="0,10,0,0" Foreground="{StaticResource Info}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Button>
+        </UniformGrid>
+
+        <TextBlock Style="{StaticResource Hint}" Margin="0,16,0,0" TextWrapping="Wrap"
+                   Text="창을 닫아도 트레이에서 계속 실행됩니다. 트레이 아이콘을 누르면 이 화면이 다시 열립니다. Data based on NEXON Open API." />
+    </StackPanel>
+</Window>

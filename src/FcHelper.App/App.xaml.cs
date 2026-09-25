@@ -33,6 +33,7 @@ public partial class App : Application
     private readonly CancellationTokenSource _exit = new();
     private static readonly Uri SeasonListUrl = new("https://open.api.nexon.com/static/fconline/meta/seasonid.json");
     private SearchWindow? _search;
+    private HomeWindow? _home;
     private VoiceBriefing? _voice;
     private RateLimiter? _limiter;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
@@ -89,20 +90,9 @@ public partial class App : Application
             salaryCap: new SalaryCapCache(marketStore, new SalaryCapSource(_http, dataCenter)));
         _market.Changed += () => Dispatcher.BeginInvoke(UpdateTrayText);
         _ = KeepMarketFreshAsync(_exit.Token);
-        if (Service is null)
-        {
-            // First run: ask for the API key, then go straight to the search window.
-            ShowSettings();
-            if (Service is not null) ShowSearch();
-        }
-        else if (e.Args.Contains("--studio"))
-        {
-            ShowStudio();
-        }
-        else if (!e.Args.Contains("--tray"))
-        {
-            ShowSearch();
-        }
+        // The home screen asks for the key on first run; the squad helper works without one.
+        if (e.Args.Contains("--studio")) ShowStudio();
+        else if (!e.Args.Contains("--tray") || Service is null) ShowHome();
     }
 
     /// <summary>Rebuilds the API client and service after the settings change.</summary>
@@ -152,6 +142,28 @@ public partial class App : Application
         {
             // Offline or under maintenance: searches will report it; the cache still works.
         }
+    }
+
+    /// <summary>The first screen: 구단주 검색 or 스쿼드 도우미 (and the key on first run).</summary>
+    public void ShowHome()
+    {
+        if (_home is null)
+        {
+            _home = new HomeWindow(this);
+            _home.Closed += (_, _) => _home = null;
+            _home.Show();
+        }
+        if (_home.WindowState == WindowState.Minimized) _home.WindowState = WindowState.Normal;
+        _home.Activate();
+    }
+
+    /// <summary>Saves the API key and my nickname from the home screen (null key = forget it) and reconnects.</summary>
+    public void UpdateAccount(string? apiKey, string? nickname)
+    {
+        Settings.ApiKey = apiKey;
+        Settings.MyNickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim();
+        Settings.Save();
+        ApplySettings();
     }
 
     public void ShowSearch()
@@ -344,6 +356,7 @@ public partial class App : Application
         {
             ApplySettings();
             if (_search is not null) _search.Topmost = Settings.KeepCardOnTop;
+            _home?.Refresh();
         }
     }
 
@@ -371,8 +384,9 @@ public partial class App : Application
     private void CreateTray()
     {
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("상대 검색  (Ctrl+Alt+S)", null, (_, _) => ShowSearch());
-        menu.Items.Add("스쿼드·시세", null, (_, _) => ShowStudio("squad"));
+        menu.Items.Add("홈", null, (_, _) => ShowHome());
+        menu.Items.Add("구단주 검색  (Ctrl+Alt+S)", null, (_, _) => ShowSearch());
+        menu.Items.Add("스쿼드 도우미", null, (_, _) => ShowStudio("squad"));
         menu.Items.Add("가성비 찾기", null, (_, _) => ShowStudio("value"));
         menu.Items.Add("내 경기 동기화", null, (_, _) => SyncMine());
         menu.Items.Add("설정", null, (_, _) => ShowSettings());
@@ -388,7 +402,7 @@ public partial class App : Application
         };
         _tray.MouseClick += (_, args) =>
         {
-            if (args.Button == Forms.MouseButtons.Left) ShowSearch();
+            if (args.Button == Forms.MouseButtons.Left) ShowHome();
         };
     }
 
