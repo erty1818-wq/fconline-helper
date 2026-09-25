@@ -12,6 +12,8 @@
     <Version>0.6.0</Version>
     <RootNamespace>FcHelper.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The exe's icon in Explorer and the taskbar; windows and the tray use the same file. -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <!-- Keep the resident footprint small: no background GC thread, give memory back when idle. -->
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <ServerGarbageCollection>false</ServerGarbageCollection>
@@ -31,6 +33,7 @@
   <ItemGroup>
     <!-- Screenshots of the official pages for the first-run API key guide. -->
     <Resource Include="Assets\ApiGuide\*.png" />
+    <Resource Include="Assets\app.ico" />
     <!-- The default artwork (docs/SKIN_ASSETS.md) ships inside the exe, so every PC and every update gets it; a PNG in
          the skin folder still replaces it. -->
     <!-- Icons are vectors (Icons.xaml) by default: the old one-colour icon PNGs are not built in. -->

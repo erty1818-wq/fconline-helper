@@ -523,9 +523,14 @@ public partial class App : Application
 
     private void Notify(string message) => _tray?.ShowBalloonTip(3000, "FC Online Helper", message, Forms.ToolTipIcon.Info);
 
-    /// <summary>Draws the tray icon at runtime so the repo needs no binary .ico file.</summary>
+    /// <summary>The app icon (Assets/app.ico) at the tray's size; drawn at runtime only if the resource is missing.</summary>
     private static Drawing.Icon CreateTrayIcon()
     {
+        if (GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico")) is { } info)
+        {
+            using var stream = info.Stream;
+            return new Drawing.Icon(stream, Forms.SystemInformation.SmallIconSize);
+        }
         using var bmp = new Drawing.Bitmap(32, 32);
         using (var g = Drawing.Graphics.FromImage(bmp))
         {
