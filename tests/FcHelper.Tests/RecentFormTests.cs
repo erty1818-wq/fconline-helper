@@ -58,3 +58,20 @@ public class RecentFormTests
     [Fact]
     public void Unknown_division_has_no_emblem() => Assert.Null(DivisionIcon.Url(1500));
 }
+
+/// <summary>The 스쿼드 tab reads the starters of the opponent's latest match (OS-04).</summary>
+public class OpponentSquadTests
+{
+    [Fact]
+    public void Starters_leave_out_the_bench_and_keep_grade_and_position()
+    {
+        // 0 = GK, 25 = ST, 28 = substitute (spposition meta).
+        var side = new MatchBuilder("opp", "me").A(s => s.Player(101, 0).Player(102, 25).Player(103, 28)).Build().SideOf("opp")!;
+
+        var starters = SquadContext.StartersOf(side);
+
+        Assert.Equal([101L, 102L], starters.Select(c => c.SpId));
+        Assert.Equal(["GK", "ST"], starters.Select(c => c.Position));
+        Assert.All(starters, c => Assert.Equal(5, c.Grade));
+    }
+}

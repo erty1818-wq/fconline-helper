@@ -1,5 +1,6 @@
 using FcHelper.Analysis;
 using FcHelper.Core;
+using FcHelper.Core.Models;
 using FcHelper.Data;
 using FcHelper.Market;
 
@@ -14,9 +15,16 @@ public static class SquadContext
     public static IReadOnlyList<OwnedCard> MyCurrentCards(FcDatabase db, string myOuid, int matchType = 50)
     {
         var latest = db.GetMatches(db.GetCachedMatchIds(myOuid, matchType, 1)).FirstOrDefault()?.SideOf(myOuid);
-        return latest is null ? [] : latest.Player.Where(p => !p.IsSubstitute)
-            .Select(p => new OwnedCard(p.SpId, Math.Max(1, p.SpGrade), Positions.Label(p.SpPosition))).ToList();
+        return latest is null ? [] : StartersOf(latest);
     }
+
+    /// <summary>The eleven who started for one side of a match, with their grades and positions.</summary>
+    public static IReadOnlyList<OwnedCard> StartersOf(MatchInfo side) => side.Player.Where(p => !p.IsSubstitute)
+        .Select(p => new OwnedCard(p.SpId, Math.Max(1, p.SpGrade), Positions.Label(p.SpPosition))).ToList();
+
+    /// <summary>Formation of one side, from its starters' positions [추정].</summary>
+    public static string? FormationOf(MatchInfo side) =>
+        Advisors.EstimateFormation(side.Player.Where(p => !p.IsSubstitute).Select(p => p.SpPosition));
 
     /// <summary>
     /// The opponent's most frequent formation over their cached matches, estimated from starters' positions [추정].

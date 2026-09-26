@@ -18,6 +18,7 @@ public partial class SearchWindow : Window
     /// <summary>The tabs after a search: key, label, panel. 내 전적 only shows for the user's own account (OS-18).</summary>
     private readonly List<(string Key, string Label, ScrollViewer Panel, ToggleButton Chip)> _tabs = [];
     private string _tab = "summary";
+    private OpponentReport? _report;
     /// <summary>Width the deeper tabs open at, so the pitch and charts have room (the 요약 card stays narrow).</summary>
     private const double WideWidth = 760;
 
@@ -183,6 +184,7 @@ public partial class SearchWindow : Window
 
     private void Show(OpponentReport report)
     {
+        _report = report;
         _shown = report.Nickname;
         UpdateFavoriteButton();
         _view = new ReportView(report);
@@ -351,6 +353,16 @@ public partial class SearchWindow : Window
         TabBar.Children.Add(back);
     }
 
+    /// <summary>The deeper tabs are filled only when opened (and again when a newer report arrives while open).</summary>
+    private async void OnTabShown(string key)
+    {
+        if (_report is not { } r || StartPanel.Visibility == Visibility.Visible) return;
+        switch (key)
+        {
+            case "squad": await ShowSquadAsync(r); break;
+        }
+    }
+
     private TextBlock Placeholder(string label) => new()
     {
         Text = $"{label} 탭은 준비 중입니다 (docs/opponent-search/PLAN.md).", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
@@ -365,6 +377,7 @@ public partial class SearchWindow : Window
             t.Panel.Visibility = t.Key == key ? Visibility.Visible : Visibility.Collapsed;
             t.Chip.IsChecked = t.Key == key;
         }
+        OnTabShown(key);
         if (!widen || key == "summary" || WindowState != WindowState.Normal || ActualWidth >= WideWidth - 1) return;
         var area = SystemParameters.WorkArea;
         var width = Math.Min(WideWidth, area.Width - 20);
