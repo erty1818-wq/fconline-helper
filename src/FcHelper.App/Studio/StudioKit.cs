@@ -74,6 +74,8 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
 {
     /// <summary>🐝 when the card is a 꿀선수 and is known to trade.</summary>
     public string Honey { get; init; } = "";
+    /// <summary>The card, for its mini face in the grid.</summary>
+    public long SpId { get; init; }
 
     public static ValueRow From(ValuePick p, MarketGroup g, CardLiquidity? liquidity = null)
     {
@@ -87,6 +89,7 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
             Bp.Format(p.Price), Bp.Format(p.Expected), StudioKit.Pct(p.Discount), p.Discount, StudioKit.Tags(c))
         {
             Honey = liquidity is { Tradable: true } && FcHelper.Market.Honey.IsHoney(p.Discount) ? FcHelper.Market.Honey.Mark : "",
+            SpId = c.SpId,
         };
     }
 }

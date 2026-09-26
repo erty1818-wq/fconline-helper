@@ -53,8 +53,22 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
-                <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="80" />
+                <DataGridTemplateColumn Header="" Width="42">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate><Image Width="34" Height="34" studio:Pictures.FaceOf="{Binding SpId}" RenderOptions.BitmapScalingMode="HighQuality" /></DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="130" />
+                <DataGridTemplateColumn Header="시즌" Width="105" SortMemberPath="Season">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <Image Width="22" Height="22" studio:Pictures.SeasonOf="{Binding Season}" RenderOptions.BitmapScalingMode="HighQuality" />
+                                <TextBlock Text="{Binding Season}" Margin="4,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="강화" Binding="{Binding Grade}" Width="50" />
                 <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="50" />
                 <DataGridTextColumn Header="코어" Binding="{Binding Core}" Width="50" ElementStyle="{StaticResource Num}" />
@@ -64,7 +78,7 @@
                 <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="90" ElementStyle="{StaticResource Num}" />
                 <DataGridTextColumn Header="예상가 [추정]" Binding="{Binding Expected}" Width="100" ElementStyle="{StaticResource Num}" />
                 <DataGridTextColumn Header="차이" Binding="{Binding Diff}" Width="70" ElementStyle="{StaticResource Good}" />
-                <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="190" />
+                <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="*" />
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>

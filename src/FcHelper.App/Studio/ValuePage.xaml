@@ -51,8 +51,22 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="" Width="42">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate><Image Width="34" Height="34" studio:Pictures.FaceOf="{Binding SpId}" RenderOptions.BitmapScalingMode="HighQuality" /></DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="130" />
-                    <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="70" />
+                    <DataGridTemplateColumn Header="시즌" Width="100" SortMemberPath="Season">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Image Width="22" Height="22" studio:Pictures.SeasonOf="{Binding Season}" RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <TextBlock Text="{Binding Season}" Margin="4,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="45" />
                     <DataGridTextColumn Header="코어" Binding="{Binding Core}" Width="50" ElementStyle="{StaticResource Num}" SortMemberPath="CoreValue" />
                     <DataGridTextColumn Header="약발" Binding="{Binding WeakFoot}" Width="40" />
