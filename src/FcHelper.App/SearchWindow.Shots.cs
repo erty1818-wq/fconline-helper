@@ -57,7 +57,68 @@ public partial class SearchWindow
         var names = _app.Db?.GetPlayerNames(map.Dots.Select(d => d.SpId).Concat(leaders.All.Select(l => l.SpId)).Distinct()) ?? [];
         var pitch = new Viewbox { Child = ShotPitch(map, names), MaxWidth = 520, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center };
         SetTab(ShotsContent, switcher, summary, legend, pitch);
+        AddShotTypes(map);
         AddRecentSummary(report, leaders, names);
+    }
+
+    /// <summary>OS-07: attempts and success by shot type, and goals against expected goals [추정].</summary>
+    private void AddShotTypes(ShotMap map)
+    {
+        ShotsContent.Children.Add(SectionTitle(_shotsConceded ? "허용한 슛 종류" : "슛 종류별 성공률"));
+        var diff = map.Goals - map.Xg;
+        ShotsContent.Children.Add(new TextBlock
+        {
+            Text = $"기대득점(xG) [추정] {map.Xg:0.0} · 실제 골 {map.Goals} · "
+                + (_shotsConceded
+                    ? (diff >= 0 ? $"기대보다 {diff:0.0}골 더 먹힘" : $"기대보다 {-diff:0.0}골 덜 먹힘")
+                    : (diff >= 0 ? $"기대보다 {diff:0.0}골 더 넣음" : $"기대보다 {-diff:0.0}골 덜 넣음")),
+            FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap,
+            ToolTip = "xG: 슛 위치(거리·골문 각도)와 헤더 여부로 계산한 골 확률의 합입니다. FC 온라인 공식경기 슛 4천여 개로 맞춘 모델이라 [추정]입니다.",
+        });
+
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+        foreach (var w in new[] { 2.2, 1, 1, 1, 1.2, 1 }) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w, GridUnitType.Star) });
+        var row = 0;
+        void Cell(string text, int col, bool head = false, Brush? color = null)
+        {
+            var t = new TextBlock
+            {
+                Text = text, Margin = new Thickness(0, 2, 0, 2), FontSize = head ? 11 : 13,
+                Foreground = head ? Res<Brush>("Muted") : color ?? Res<Brush>("Text"),
+                TextAlignment = col == 0 ? TextAlignment.Left : TextAlignment.Right,
+            };
+            Grid.SetRow(t, row);
+            Grid.SetColumn(t, col);
+            grid.Children.Add(t);
+        }
+        void NextRow() { grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); row = grid.RowDefinitions.Count - 1; }
+
+        NextRow();
+        string[] heads = ["종류", "시도", "유효", "골", "성공률", "xG [추정]"];
+        for (var i = 0; i < heads.Length; i++) Cell(heads[i], i, head: true);
+        foreach (var l in ShotTypeLine.Of(map))
+        {
+            NextRow();
+            Cell(ShotTypes.Label(l.Type), 0);
+            Cell($"{l.Shots}", 1);
+            Cell($"{l.OnTarget}", 2);
+            Cell($"{l.Goals}", 3);
+            // Only call a rate good or bad with enough attempts behind it.
+            // Green is good for the searched manager: scoring above xG, or letting in fewer than xG.
+            var above = l.Goals > l.Xg + 1;
+            var below = l.Goals < l.Xg - 1;
+            var rateColor = l.Shots < 5 ? Res<Brush>("Muted")
+                : (_shotsConceded ? below : above) ? Res<Brush>("Accent")
+                : (_shotsConceded ? above : below) ? Res<Brush>("Warn") : null;
+            Cell($"{l.Conversion * 100:0}%", 4, color: rateColor);
+            Cell($"{l.Xg:0.0}", 5, color: Res<Brush>("Muted"));
+        }
+        ShotsContent.Children.Add(grid);
+        ShotsContent.Children.Add(new TextBlock
+        {
+            Text = "성공률 색: 기대득점과 1골 넘게 차이 나는 종류 (5번 이상 찬 것만). 초록은 이 구단주에게 좋은 쪽, 주황은 나쁜 쪽입니다. 기타(13)·기타(14)는 공식 문서에 없는 코드입니다.",
+            Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap,
+        });
     }
 
     /// <summary>OS-06: how the opponent scores (goal types) and who carries their team, under the map.</summary>
