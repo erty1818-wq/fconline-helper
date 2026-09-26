@@ -2,6 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:market="clr-namespace:FcHelper.Market;assembly=FcHelper.Market"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource SearchableComboBox}" />
+    </UserControl.Resources>
     <!-- Detailed card search shared by 가성비 찾기 and 숨은 랭커픽. -->
     <StackPanel>
         <WrapPanel>
@@ -35,8 +38,11 @@
             <StackPanel Margin="0,0,14,6"><TextBlock Text="이름" Style="{StaticResource FieldLabel}" /><TextBox x:Name="NameBox" Width="100" /></StackPanel>
         </WrapPanel>
         <WrapPanel>
-            <StackPanel Margin="0,0,14,6"><TextBlock Text="특성 1" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait1Box" MinWidth="130" /></StackPanel>
-            <StackPanel Margin="0,0,14,6"><TextBlock Text="특성 2" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait2Box" MinWidth="130" /></StackPanel>
+            <StackPanel Margin="0,0,14,6"><TextBlock Text="소속 팀컬러" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="AffiliationColorBox" MinWidth="180" SelectionChanged="OnTeamColorChanged" /></StackPanel>
+            <StackPanel Margin="0,0,14,6"><TextBlock Text="특성 팀컬러" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="FeatureColorBox" MinWidth="180" SelectionChanged="OnTeamColorChanged" /></StackPanel>
+            <StackPanel Margin="0,0,14,6"><TextBlock Text="선수 특성 1" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait1Box" MinWidth="130" /></StackPanel>
+            <StackPanel Margin="0,0,14,6"><TextBlock Text="선수 특성 2" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait2Box" MinWidth="130" /></StackPanel>
+            <StackPanel Margin="0,0,14,6"><TextBlock Text="선수 특성 3" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait3Box" MinWidth="130" /></StackPanel>
             <StackPanel Margin="0,0,14,6">
                 <TextBlock Text="능력치 조건 (이상, +1 기준)" Style="{StaticResource FieldLabel}" />
                 <StackPanel Orientation="Horizontal">
@@ -56,7 +62,7 @@
             <Button x:Name="ExcludedSeasonsButton" Content="시즌 제외: 없음" Style="{StaticResource Ghost}" Padding="8,2" Margin="0,0,16,0" Click="OnExcludedSeasons"
                     ToolTip="거래가 안 되거나 구하기 힘든 시즌을 뺍니다. 고른 시즌은 기억해 두었다가 다음에도 뺍니다." />
             <CheckBox x:Name="SkillBox" Content="개인기 5성 이상" Margin="0,2,16,0" />
-            <CheckBox x:Name="TeamColorBox" Content="랭커 주요 팀컬러 20개 선수만" IsChecked="True" Margin="0,2,16,0"
+            <CheckBox x:Name="RankerTeamColorBox" Content="랭커 주요 팀컬러 20개 선수만" IsChecked="True" Margin="0,2,16,0"
                       ToolTip="어제 랭커가 가장 많이 쓴 소속 팀컬러 20개 중 하나라도 해당되는 카드만 (처음에는 팀컬러 멤버를 받느라 2분쯤 걸립니다)" />
             <Button Content="조건 초기화" Style="{StaticResource Ghost}" Padding="8,2" Click="OnReset" />
         </WrapPanel>

@@ -1,4 +1,5 @@
 using FcHelper.Market;
+using FcHelper.NexonApi;
 
 namespace FcHelper.Tests;
 
@@ -64,4 +65,46 @@ public class PlayerSearchTests
     [Fact]
     public void Option_search_rejects_a_missing_term() =>
         Assert.False(OptionSearch.Matches("TSV 1860 뮌헨", "바이에른 뮌헨"));
+
+    [Fact]
+    public async Task More_than_three_stat_conditions_are_searched_in_batches_and_intersected()
+    {
+        var handler = new StatBatchHandler();
+        var client = new PlayerSearchClient(new HttpClient(handler), new RateLimiter(1000));
+        var query = new PlayerSearchQuery
+        {
+            Stats = [("sprintspeed", 100, 200), ("acceleration", 100, 200), ("strength", 100, 200), ("stamina", 100, 200)],
+        };
+
+        var (rows, truncated) = await client.SearchAsync(query);
+
+        Assert.False(truncated);
+        Assert.Equal(2, handler.Forms.Count);
+        Assert.Contains("strAbility3=strength", handler.Forms[0]);
+        Assert.Contains("strAbility1=stamina", handler.Forms[1]);
+        Assert.Equal(2, Assert.Single(rows).SpId);
+    }
+
+    private sealed class StatBatchHandler : HttpMessageHandler
+    {
+        public List<string> Forms { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var form = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Forms.Add(form);
+            var ids = form.Contains("strAbility1=stamina", StringComparison.Ordinal) ? new[] { 2L, 3L } : new[] { 1L, 2L };
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(string.Concat(ids.Select(Row))),
+            };
+        }
+
+        private static string Row(long id) => $"""
+            <div id="area_playerunit_{id}">
+              <img src="/season/test.png"><div class="name">선수 {id}</div><span class="pay">20</span>
+              <span class="txt">ST</span><span class="skillData_1">120</span>
+            </div>
+            """;
+    }
 }

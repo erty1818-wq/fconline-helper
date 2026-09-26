@@ -38,18 +38,20 @@ public sealed class SearchRow(long spId, int grade, string name, string season, 
 /// <summary>
 /// 선수 검색: every condition of the data center's player search — name (initials, several names), seasons, positions,
 /// league/club, continent/nation, team colour, grade/적응도/team colour level, OVR, 급여, price, skill moves, reputation,
-/// three detailed stats, traits to have or not, foot, height/weight, body, birth, rating, order and the four stat
+/// any number of detailed stats, traits to have or not, foot, height/weight, body, birth, rating, order and the four stat
 /// columns. Results come straight from the data center; a full answer (200) is split by OVR and asked again.
 /// </summary>
 public partial class PlayerSearchPage : UserControl
 {
+    private sealed record StatFilterRow(StackPanel Host, TextBlock Label, ComboBox Stat, TextBox Min, TextBox Max);
+
     private const string Any = "상관없음";
     private SearchOptions? _options;
     private readonly List<ToggleButton> _seasons = [];
     private readonly Dictionary<ToggleButton, SearchSeason> _seasonOptions = [];
     private readonly List<(ToggleButton Button, string Group, string Ids)> _positions = [];
     private readonly List<(ToggleButton Button, string Ids)> _bodies = [];
-    private readonly List<(ComboBox Stat, TextBox Min, TextBox Max)> _stats = [];
+    private readonly List<StatFilterRow> _stats = [];
 
     public PlayerSearchPage()
     {
@@ -82,22 +84,7 @@ public partial class PlayerSearchPage : UserControl
         BirthMonthBox.ItemsSource = new[] { "월" }.Concat(Enumerable.Range(1, 12).Select(i => $"{i}월")).ToList();
         BirthDayBox.ItemsSource = new[] { "일" }.Concat(Enumerable.Range(1, 31).Select(i => $"{i}일")).ToList();
         OrderDirBox.ItemsSource = new[] { "높은 순", "낮은 순" };
-        for (var i = 0; i < 3; i++)
-        {
-            var stat = new ComboBox { Width = 110, Margin = new Thickness(0, 0, 4, 0) };
-            var min = new TextBox { Width = 45, ToolTip = "이상 (+1 기준)" };
-            var max = new TextBox { Width = 45, ToolTip = "이하" };
-            _stats.Add((stat, min, max));
-            StatRows.Children.Add(new StackPanel
-            {
-                Margin = new Thickness(0, 0, 12, 6),
-                Children =
-                {
-                    new TextBlock { Text = $"세부 능력치 {i + 1}", Style = (Style)FindResource("FieldLabel") },
-                    new StackPanel { Orientation = Orientation.Horizontal, Children = { stat, min, new TextBlock { Text = "~", Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center }, max } },
-                },
-            });
-        }
+        for (var i = 0; i < 3; i++) AddStatRow(removable: false);
         BuildColumns();
         Reset();
         NameBox.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) OnSearch(this, e); };
@@ -141,11 +128,11 @@ public partial class PlayerSearchPage : UserControl
             box.SelectedIndex = 0;
         }
         var abilities = new[] { new SearchPick("", Any) }.Concat(_options.Abilities).ToList();
-        foreach (var (stat, _, _) in _stats)
+        foreach (var row in _stats)
         {
-            stat.ItemsSource = abilities;
-            stat.DisplayMemberPath = nameof(SearchPick.Name);
-            stat.SelectedIndex = 0;
+            row.Stat.ItemsSource = abilities;
+            row.Stat.DisplayMemberPath = nameof(SearchPick.Name);
+            row.Stat.SelectedIndex = 0;
         }
         var columns = _options.Columns.ToList();
         foreach (var (box, key) in new[] { (Col1, "sprintspeed"), (Col2, "acceleration"), (Col3, "strength"), (Col4, "stamina") })
@@ -239,8 +226,68 @@ public partial class PlayerSearchPage : UserControl
 
     private void OnReset(object sender, RoutedEventArgs e) => Reset();
 
+    private void OnAddStat(object sender, RoutedEventArgs e) => AddStatRow(removable: true);
+
+    private void AddStatRow(bool removable)
+    {
+        var stat = new ComboBox { Width = 110, Margin = new Thickness(0, 0, 4, 0) };
+        var min = new TextBox { Width = 45, ToolTip = "이상 (+1 기준)" };
+        var max = new TextBox { Width = 45, ToolTip = "이하" };
+        if (_options is { } options)
+        {
+            stat.ItemsSource = new[] { new SearchPick("", Any) }.Concat(options.Abilities).ToList();
+            stat.DisplayMemberPath = nameof(SearchPick.Name);
+            stat.SelectedIndex = 0;
+        }
+        var inputs = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Children =
+            {
+                stat, min,
+                new TextBlock { Text = "~", Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center },
+                max,
+            },
+        };
+        var label = new TextBlock { Style = (Style)FindResource("FieldLabel") };
+        var host = new StackPanel { Margin = new Thickness(0, 0, 12, 6), Children = { label, inputs } };
+        var row = new StatFilterRow(host, label, stat, min, max);
+        if (removable)
+        {
+            var remove = new Button
+            {
+                Content = "×", Style = (Style)FindResource("Ghost"), Padding = new Thickness(7, 1, 7, 1),
+                Margin = new Thickness(4, 0, 0, 0), ToolTip = "이 능력치 조건 삭제",
+            };
+            remove.Click += (_, _) => RemoveStatRow(row);
+            inputs.Children.Add(remove);
+        }
+        _stats.Add(row);
+        StatRows.Children.Add(host);
+        UpdateStatLabels();
+        if (removable) stat.IsDropDownOpen = true;
+    }
+
+    private void RemoveStatRow(StatFilterRow row)
+    {
+        _stats.Remove(row);
+        StatRows.Children.Remove(row.Host);
+        UpdateStatLabels();
+    }
+
+    private void UpdateStatLabels()
+    {
+        for (var i = 0; i < _stats.Count; i++) _stats[i].Label.Text = $"세부 능력치 {i + 1}";
+    }
+
     private void Reset()
     {
+        while (_stats.Count > 3)
+        {
+            StatRows.Children.Remove(_stats[^1].Host);
+            _stats.RemoveAt(_stats.Count - 1);
+        }
+        UpdateStatLabels();
         NameBox.Text = "";
         SeasonSearchBox.Text = "";
         foreach (var s in _seasons) s.IsChecked = false;
@@ -249,7 +296,7 @@ public partial class PlayerSearchPage : UserControl
         foreach (var box in new[] { LeagueBox, ConfedBox, TeamColorBox, Trait1, Trait2, Trait3, NoTrait1, NoTrait2, NoTrait3, SkillBox, RepBox, FootBox, WeakBox,
                      BirthMonthBox, BirthDayBox, OrderBox, OrderDirBox, GradeBox, GrowBox, ColorLevelBox })
             if (box.Items.Count > 0) box.SelectedIndex = 0;
-        foreach (var (stat, min, max) in _stats) { if (stat.Items.Count > 0) stat.SelectedIndex = 0; min.Text = max.Text = ""; }
+        foreach (var row in _stats) { if (row.Stat.Items.Count > 0) row.Stat.SelectedIndex = 0; row.Min.Text = row.Max.Text = ""; }
         foreach (var box in new[] { OvrMinBox, OvrMaxBox, PayMinBox, PayMaxBox, PriceMinBox, PriceMaxBox, HeightMinBox, HeightMaxBox, WeightMinBox, WeightMaxBox,
                      BirthMinBox, BirthMaxBox, RatingMinBox, RatingMaxBox })
             box.Text = "";

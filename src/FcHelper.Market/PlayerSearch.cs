@@ -125,6 +125,11 @@ public static partial class SearchOptionsParser
 /// <summary>The data center's player search (personal use, the shared two-second limiter).</summary>
 public sealed class PlayerSearchClient(HttpClient http, RateLimiter limiter)
 {
+    private sealed class PrefixProgress(IProgress<string> inner, string prefix) : IProgress<string>
+    {
+        public void Report(string value) => inner.Report(prefix + value);
+    }
+
     private static readonly Uri ListUrl = new("https://fconline.nexon.com/datacenter/PlayerList");
     private static readonly Uri PageUrl = new("https://fconline.nexon.com/datacenter");
 
@@ -144,6 +149,33 @@ public sealed class PlayerSearchClient(HttpClient http, RateLimiter limiter)
     /// </summary>
     public async Task<(IReadOnlyList<ListRow> Rows, bool Truncated)> SearchAsync(PlayerSearchQuery q, int maxRows = 800,
         IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        if (q.Stats.Count <= 3) return await SearchSingleAsync(q, maxRows, progress, ct);
+
+        // The official form has only three detailed-stat slots. Run one search per group of three and intersect the
+        // spids, which gives the same AND semantics while keeping every other condition identical.
+        var batches = q.Stats.Chunk(3).Select(s => s.ToList()).ToList();
+        IReadOnlyList<ListRow> rows = [];
+        var truncated = false;
+        for (var i = 0; i < batches.Count; i++)
+        {
+            var batch = i + 1;
+            var batchProgress = progress is null ? null : new PrefixProgress(progress, $"세부 능력치 조건 {batch}/{batches.Count} · ");
+            var found = await SearchSingleAsync(q with { Stats = batches[i] }, maxRows, batchProgress, ct);
+            truncated |= found.Truncated;
+            if (i == 0) rows = found.Rows;
+            else
+            {
+                var ids = found.Rows.Select(r => r.SpId).ToHashSet();
+                rows = rows.Where(r => ids.Contains(r.SpId)).ToList();
+            }
+            if (rows.Count == 0) break;
+        }
+        return (rows, truncated);
+    }
+
+    private async Task<(IReadOnlyList<ListRow> Rows, bool Truncated)> SearchSingleAsync(PlayerSearchQuery q, int maxRows,
+        IProgress<string>? progress, CancellationToken ct)
     {
         var rows = new List<ListRow>();
         var truncated = false;

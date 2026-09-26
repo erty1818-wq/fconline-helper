@@ -76,6 +76,11 @@
                         </WrapPanel>
                         <!-- Detailed stats and traits -->
                         <WrapPanel x:Name="StatRows" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button Content="+ 능력치 조건" Style="{StaticResource Ghost}" Padding="9,3" Click="OnAddStat" />
+                            <TextBlock Text="4개부터는 공식 검색을 나눠 실행한 뒤 모든 조건에 맞는 선수만 합칩니다."
+                                       Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                        </StackPanel>
                         <WrapPanel>
                             <StackPanel Margin="0,0,12,6">
                                 <TextBlock Text="포함할 특성 (모두 보유)" Style="{StaticResource FieldLabel}" />
