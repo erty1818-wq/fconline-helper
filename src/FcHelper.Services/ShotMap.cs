@@ -10,7 +10,7 @@ public enum ShotResult { OnTarget = 1, OffTarget = 2, Goal = 3 }
 /// One shot on the half-pitch picture: <see cref="Across"/> 0 = the shooter's left touchline … 1 = right,
 /// <see cref="Down"/> 0 = the goal line being attacked … 1 = halfway line.
 /// </summary>
-public sealed record ShotDot(double Across, double Down, ShotResult Result, int Type, int SpId, int Minute, string MatchId, bool InBox, double Xg);
+public sealed record ShotDot(double Across, double Down, ShotResult Result, int Type, int SpId, int Minute, string MatchId, bool InBox, double Xg, double? Clock);
 
 /// <summary>
 /// The shots a manager took (or allowed) over their matches, for the 슈팅 tab. Straight from shootDetail (직접);
@@ -40,7 +40,7 @@ public sealed record ShotMap(IReadOnlyList<ShotDot> Dots, int Matches)
             {
                 if (s.Result is < 1 or > 3) continue;
                 var (across, down) = ToHalfPitch(s.X, s.Y);
-                dots.Add(new ShotDot(across, down, (ShotResult)s.Result, s.Type, s.SpId, GoalTime.ToMinute(s.GoalTime), m.MatchId, Pitch.IsInBox(s.X, s.Y), ExpectedGoals.Of(s.X, s.Y, s.Type)));
+                dots.Add(new ShotDot(across, down, (ShotResult)s.Result, s.Type, s.SpId, GoalTime.ToMinute(s.GoalTime), m.MatchId, Pitch.IsInBox(s.X, s.Y), ExpectedGoals.Of(s.X, s.Y, s.Type), MatchClock.Place(s.GoalTime)));
             }
         }
         return new ShotMap(dots, played);

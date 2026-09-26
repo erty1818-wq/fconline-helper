@@ -18,6 +18,7 @@ public partial class SearchWindow : Window
     /// <summary>The tabs after a search: key, label, panel. 내 전적 only shows for the user's own account (OS-18).</summary>
     private readonly List<(string Key, string Label, ScrollViewer Panel, ToggleButton Chip)> _tabs = [];
     private string _tab = "summary";
+    private bool _selectingTab;
     private OpponentReport? _report;
     /// <summary>Width the deeper tabs open at, so the pitch and charts have room (the 요약 card stays narrow).</summary>
     private const double WideWidth = 760;
@@ -341,7 +342,9 @@ public partial class SearchWindow : Window
                  })
         {
             var chip = new ToggleButton { Content = label, Style = (Style)FindResource("Chip"), Margin = new Thickness(0, 0, 6, 4) };
-            chip.Click += (_, _) => SelectTab(key, widen: true);
+            // Checked rather than Click, so the keyboard and UI Automation switch tabs too.
+            chip.Checked += (_, _) => { if (!_selectingTab) SelectTab(key, widen: true); };
+            chip.Unchecked += (_, _) => { if (!_selectingTab && _tab == key) chip.IsChecked = true; };
             _tabs.Add((key, label, panel, chip));
             TabBar.Children.Add(chip);
             if (key != "summary") (panel.Content as StackPanel)?.Children.Add(Placeholder(label));
@@ -361,6 +364,7 @@ public partial class SearchWindow : Window
         {
             case "squad": await ShowSquadAsync(r); break;
             case "shots": ShowShots(r); break;
+            case "flow": ShowFlow(r); break;
         }
     }
 
@@ -373,11 +377,13 @@ public partial class SearchWindow : Window
     private void SelectTab(string key, bool widen)
     {
         _tab = key;
+        _selectingTab = true;
         foreach (var t in _tabs)
         {
             t.Panel.Visibility = t.Key == key ? Visibility.Visible : Visibility.Collapsed;
             t.Chip.IsChecked = t.Key == key;
         }
+        _selectingTab = false;
         OnTabShown(key);
         if (!widen || key == "summary" || WindowState != WindowState.Normal || ActualWidth >= WideWidth - 1) return;
         var area = SystemParameters.WorkArea;
