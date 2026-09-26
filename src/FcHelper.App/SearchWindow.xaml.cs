@@ -192,6 +192,10 @@ public partial class SearchWindow : Window
         Card.DataContext = _view;
         StartPanel.Visibility = Visibility.Collapsed;
         TabRow.Visibility = Visibility.Visible;
+        // 내 전적 (OS-18) is only for the user's own account.
+        var own = MyOuid() == report.Ouid;
+        _tabs.First(t => t.Key == "mine").Chip.Visibility = own ? Visibility.Visible : Visibility.Collapsed;
+        if (!own && _tab == "mine") _tab = "summary";
         CheckedText.Text = report.CheckedAt is { } at ? $"{Ago(at)} 갱신" : "갱신 안 됨";
         CheckedText.ToolTip = report.CheckedAt is { } t ? $"새 경기 확인: {t.ToLocalTime():M월 d일 HH:mm}" : "새 경기 확인을 끝내지 못했습니다. [갱신]을 눌러 다시 확인하세요.";
         TailorButton.Visibility = Visibility.Visible;
@@ -349,7 +353,7 @@ public partial class SearchWindow : Window
             TabBar.Children.Add(chip);
             if (key != "summary") ((panel as ScrollViewer)?.Content as StackPanel)?.Children.Add(Placeholder(label));
         }
-        // 내 전적 is for the user's own account; it appears when OS-18 fills it.
+        // 내 전적 is for the user's own account; Show() reveals it then.
         _tabs.First(t => t.Key == "mine").Chip.Visibility = Visibility.Collapsed;
         var back = new Button { Content = "처음 화면", Style = (Style)FindResource("Ghost"), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 0, 4), ToolTip = "즐겨찾기 · 최근 검색 · 최근 상대" };
         back.Click += (_, _) => ShowStart();
@@ -367,6 +371,7 @@ public partial class SearchWindow : Window
             case "flow": ShowFlow(r); break;
             case "compare": ShowCompare(r); break;
             case "players": ShowPlayers(r); break;
+            case "mine": ShowMine(r); break;
         }
     }
 
