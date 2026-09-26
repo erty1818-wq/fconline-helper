@@ -75,6 +75,11 @@
             <!-- OS-03: when the match list was last checked, and a button to check again now. -->
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
                 <TextBlock x:Name="CheckedText" Foreground="{StaticResource Muted}" FontSize="11" VerticalAlignment="Center" Margin="6,0,6,0" />
+                <!-- OS-19: the open tab as a picture. -->
+                <Button x:Name="SaveImageButton" Style="{StaticResource Ghost}" Padding="6,2" Margin="0,0,4,0" Click="OnSaveImageClick" ToolTip="지금 탭을 이미지로 저장 (사진\FcHelper)">
+                    <Image Source="{app:Icon Image}" Width="14" Height="14" />
+                </Button>
+                <Button x:Name="CopyImageButton" Style="{StaticResource Ghost}" Padding="6,2" Margin="0,0,4,0" Click="OnCopyImageClick" Content="복사" ToolTip="지금 탭을 이미지로 클립보드에 복사" />
                 <Button x:Name="RefreshButton" Style="{StaticResource Ghost}" Padding="6,2" Click="OnRefreshClick"
                         ToolTip="새 경기가 있는지 지금 NEXON Open API로 확인합니다. 같은 상대를 10분 안에 다시 열면 저장된 기록으로 바로 보여 줍니다.">
                     <StackPanel Orientation="Horizontal">
