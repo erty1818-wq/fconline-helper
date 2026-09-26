@@ -79,6 +79,19 @@ public partial class SearchWindow
             if (Stale()) return;
             if (detected.Count > 0) Describe(withColors, " (인게임 추정 · 카드에 마우스를 올리면 계산 과정)");
             ShowWeakSpots(withColors, squads, pitch, weak);
+
+            // Each card's real stats (data center, cached after the first time) make the 세부 팀컬러 and 집중훈련 steps exact
+            // instead of rounded down: checked 2026-09-26, 8 of 11 cards then matched the game exactly and 3 were 1 off.
+            var missing = withColors.Where(x => squads.KnownAbility(x.Card.SpId) is null).ToList();
+            if (missing.Count == 0) return;
+            var note = colors.Text;
+            colors.Text = note + $" · 선수 능력치 확인 중 ({missing.Count}명)…";
+            foreach (var x in missing) await squads.AbilityAsync(x.Card.SpId);
+            if (Stale()) return;
+            colors.Text = note;
+            var exact = Theirs(squads.WithInGameOvr(squads.CurrentSquad(owned, await squads.OpponentTargetsAsync(active))));
+            Describe(exact, " (인게임 추정 · 카드에 마우스를 올리면 계산 과정)");
+            ShowWeakSpots(exact, squads, pitch, weak);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {

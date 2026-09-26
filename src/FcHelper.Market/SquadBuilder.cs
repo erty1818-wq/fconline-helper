@@ -430,62 +430,66 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
             _squadTotal = _gain.Select(levels => levels.Select(g => g.Sum()).ToArray()).ToArray();
         }
 
-        /// <summary>Of the 강화 colours (grade-based, squad-wide) only the best reached one applies, as in the game.</summary>
         private bool IsEnhance(int t) => _r.TeamColors[t].Color.Category == TeamColorCategory.Enhance;
+
+        /// <summary>
+        /// The 강화 colour for one card: of the grade tiers the card is in (its member bits) whose squad count reaches a
+        /// level, the one that adds the most at this slot. A +10 card gets 금빛 물결 even when +11 cards reach 백금빛 물결.
+        /// </summary>
+        public (int Colour, int Level)? EnhanceFor(int slot, Candidate c, int[] members)
+        {
+            (int, int)? best = null;
+            var bestGain = 0.0;
+            for (var t = 0; t < members.Length; t++)
+            {
+                if (!IsEnhance(t) || (c.Members & (1 << t)) == 0) continue;
+                var level = _r.TeamColors[t].Color.LevelIndexFor(members[t]);
+                if (level < 0 || _gain[t][level][slot] <= bestGain) continue;
+                best = (t, level);
+                bestGain = _gain[t][level][slot];
+            }
+            return best;
+        }
 
         public double Total(Candidate?[] picks, int[] members)
         {
-            double total = 0, enhance = 0;
+            double total = 0;
             for (var t = 0; t < members.Length; t++)
             {
                 var level = _r.TeamColors[t].Color.LevelIndexFor(members[t]);
-                if (level < 0) continue;
-                if (IsEnhance(t)) { enhance = Math.Max(enhance, _squadTotal[t][level]); continue; }
+                if (level < 0 || IsEnhance(t)) continue;
                 if (_r.TeamColors[t].Color.AppliesToSquad) { total += _squadTotal[t][level]; continue; }
                 for (var i = 0; i < picks.Length; i++)
                     if (picks[i] is { } c && (c.Members & (1 << t)) != 0) total += _gain[t][level][i];
             }
-            return total + enhance;
-        }
-
-        /// <summary>The 강화 colour in effect: the one whose reached level adds the most (index into the request's colours).</summary>
-        public int? BestEnhance(int[] members)
-        {
-            int? best = null;
-            double bestTotal = 0;
-            for (var t = 0; t < members.Length; t++)
-            {
-                var level = _r.TeamColors[t].Color.LevelIndexFor(members[t]);
-                if (!IsEnhance(t) || level < 0 || _squadTotal[t][level] <= bestTotal) continue;
-                best = t;
-                bestTotal = _squadTotal[t][level];
-            }
-            return best;
+            for (var i = 0; i < picks.Length; i++)
+                if (picks[i] is { } c && EnhanceFor(i, c, members) is var (e, el)) total += _gain[e][el][i];
+            return total;
         }
 
         public double At(int slot, Candidate c, int[] members)
         {
             var total = 0.0;
-            var enhance = BestEnhance(members);
             for (var t = 0; t < members.Length; t++)
             {
-                if (IsEnhance(t) && t != enhance) continue;
+                if (IsEnhance(t)) continue;
                 var level = _r.TeamColors[t].Color.LevelIndexFor(members[t]);
                 if (level >= 0 && (_r.TeamColors[t].Color.AppliesToSquad || (c.Members & (1 << t)) != 0)) total += _gain[t][level][slot];
             }
+            if (EnhanceFor(slot, c, members) is var (e, el)) total += _gain[e][el][slot];
             return total;
         }
 
         /// <summary>The levels that reach the card at this slot (for its in-game OVR), with the same rules as <see cref="At"/>.</summary>
-        public IReadOnlyList<TeamColorLevel> Levels(Candidate c, int[] members)
+        public IReadOnlyList<TeamColorLevel> Levels(int slot, Candidate c, int[] members)
         {
             var result = new List<TeamColorLevel>();
-            var enhance = BestEnhance(members);
             for (var t = 0; t < members.Length; t++)
             {
-                if (IsEnhance(t) && t != enhance) continue;
+                if (IsEnhance(t)) continue;
                 if (_r.TeamColors[t].Color.LevelFor(members[t]) is { } level && (_r.TeamColors[t].Color.AppliesToSquad || (c.Members & (1 << t)) != 0)) result.Add(level);
             }
+            if (EnhanceFor(slot, c, members) is var (e, el)) result.Add(_r.TeamColors[e].Color.Levels[el]);
             return result;
         }
     }
@@ -496,10 +500,11 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
     private static SquadPlan ToPlan(SquadRequest r, State s, TeamColorBonus bonus)
     {
         var slots = s.Picks.Select((c, i) => new SquadSlot(i, r.Formation.Slots[i], c.Card, c.Grade, c.Ovr, c.Premium, bonus.At(i, c, s.Members),
-            c.Price, c.Expected, c.Card.Pay, c.RankerUsers, c.RankerShare, c.Locked, c.Owned) { ColorLevels = bonus.Levels(c, s.Members) }).ToList();
-        var enhance = bonus.BestEnhance(s.Members);
+            c.Price, c.Expected, c.Card.Pay, c.RankerUsers, c.RankerShare, c.Locked, c.Owned) { ColorLevels = bonus.Levels(i, c, s.Members) }).ToList();
+        // 강화 colours show when they are some card's colour (+11 cards on 백금빛, a +9 on 금빛 …).
+        var enhanceUsed = s.Picks.Select((c, i) => bonus.EnhanceFor(i, c, s.Members)?.Colour).Where(t => t is not null).ToHashSet();
         var colors = r.TeamColors.Select((t, i) => (t, i))
-            .Where(x => x.t.Color.Category != TeamColorCategory.Enhance || x.i == enhance)
+            .Where(x => x.t.Color.Category != TeamColorCategory.Enhance || enhanceUsed.Contains(x.i))
             .Select(x => new AppliedTeamColor(x.t.Color, s.Members[x.i], x.t.Color.LevelFor(s.Members[x.i]))).ToList();
         return new SquadPlan("", r.Mode, r.Formation, slots, colors);
     }

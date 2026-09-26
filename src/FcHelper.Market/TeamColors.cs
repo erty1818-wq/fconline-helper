@@ -52,7 +52,12 @@ public sealed record TeamColor(int Id, string Name, TeamColorCategory Category, 
     /// 소속 (and 강화) bonuses reach every starter once the level is met; 특성 bonuses only the member cards: with
     /// "2026 프랑스" 8명 and "프랑스" 11명, the 2026 cards get both and everyone else the 프랑스 bonus only.
     /// </summary>
-    public bool AppliesToSquad => Category != TeamColorCategory.Feature;
+    /// <summary>
+    /// Only 소속 colours reach the whole eleven. 특성 colours reach their member cards, and 강화 colours reach the cards of
+    /// their grade tier: the data center says "백금빛 물결: 11강 이상의 선수들로 구성된 팀컬러" (checked 2026-09-26), so a
+    /// +10 card beside ten +11 cards gets 금빛 물결 +4, not 백금빛 물결 +5.
+    /// </summary>
+    public bool AppliesToSquad => Category == TeamColorCategory.Affiliation;
 
     /// <summary>The highest level reached with this many members in the squad, or null.</summary>
     public TeamColorLevel? LevelFor(int members) => LevelIndexFor(members) is var i and >= 0 ? Levels[i] : null;

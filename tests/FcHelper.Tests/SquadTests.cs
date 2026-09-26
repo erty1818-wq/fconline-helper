@@ -261,19 +261,24 @@ public class SquadBuilderTests
     }
 
     [Fact]
-    public void Enhance_colour_counts_cards_by_grade_and_only_the_best_one_applies()
+    public void Enhance_colour_goes_to_the_cards_of_its_grade_tier_and_each_card_takes_its_best()
     {
+        // Data center: "백금빛 물결: 11강 이상의 선수들로 구성된 팀컬러", "금빛 물결: 8강 이상 …" (checked 2026-09-26). The user
+        // confirmed: a +10 card beside +11 cards gets 금빛 물결 +4, only +11 and above get 백금빛 물결 +5.
         var platinum = new TeamColor(10004, "백금빛 물결", TeamColorCategory.Enhance, 8, [new(1, 5, 4, ["전체 능력치 +4"]), new(2, 8, 5, ["전체 능력치 +5"])]);
         var gold = new TeamColor(10001, "금빛 물결", TeamColorCategory.Enhance, 8, [new(1, 5, 3, ["전체 능력치 +3"]), new(2, 8, 4, ["전체 능력치 +4"])]);
         Assert.Equal(11, platinum.EnhanceMinGrade);
+        Assert.False(platinum.AppliesToSquad);
         var targets = new[] { new TeamColorTarget(platinum, new HashSet<long>()), new TeamColorTarget(gold, new HashSet<long>()) };
         Assert.True(targets[0].Counts(1, 11));
         Assert.False(targets[0].Counts(1, 10));
 
-        // Eight +11 cards: 백금빛 8명 (+5) and 금빛 8명 (+4) both reached; only +5 applies, to every starter.
-        Assert.Equal(5, TeamColorTarget.Gain(targets, [8, 11], _ => true, "ST"));
+        // Ten +11 cards and one +10: 백금빛 reaches 8명, 금빛 11명.
+        int[] counts = [10, 11];
+        Assert.Equal(5, TeamColorTarget.Gain(targets, counts, i => targets[i].Counts(1, 11), "ST"));
+        Assert.Equal(4, TeamColorTarget.Gain(targets, counts, i => targets[i].Counts(1, 10), "ST"));
 
-        // The builder: +11 costs twice +8 here, but +5 for all eleven is worth eight +11 cards.
+        // The builder follows the same rule card by card.
         var cards = Market();
         foreach (var i in Enumerable.Range(0, cards.Count))
             cards[i] = cards[i] with { Prices = new Dictionary<int, long>(cards[i].Prices) { [11] = cards[i].PriceAt(8) * 2 } };
@@ -281,10 +286,14 @@ public class SquadBuilderTests
         {
             Formation = Formations.Find("4-2-2-2")!, Budget = 600_000_000, Grades = [8, 11], TeamColors = targets,
         })[0];
-        Assert.True(plan.Slots.Count(s => s.Grade == 11) >= 8);
-        Assert.Single(plan.TeamColors);
-        Assert.Equal("백금빛 물결", plan.TeamColors[0].Color.Name);
-        Assert.All(plan.Slots, s => Assert.Equal(5, s.TeamColorBonus));
+        var platinumCards = plan.Slots.Count(s => s.Grade >= 11);
+        var goldCards = plan.Slots.Count(s => s.Grade >= 8);
+        foreach (var s in plan.Slots)
+        {
+            var expected = s.Grade >= 11 && platinumCards >= 8 ? 5 : s.Grade >= 11 && platinumCards >= 5 ? 4 : goldCards >= 8 ? 4 : goldCards >= 5 ? 3 : 0;
+            Assert.Equal(expected, s.TeamColorBonus);
+            Assert.True(s.ColorLevels.Count <= 1); // one 강화 colour per card
+        }
     }
 
     [Fact]
