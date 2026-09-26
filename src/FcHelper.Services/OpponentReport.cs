@@ -14,11 +14,17 @@ public sealed record OpponentReport
     public int Level { get; init; }
     /// <summary>Highest division ever reached in the match type (user/maxdivision).</summary>
     public string? MaxDivisionName { get; init; }
+    public int? MaxDivisionId { get; init; }
     /// <summary>
     /// Division recorded on the newest analysed match. The API has no live grade; this is the closest thing,
     /// and it can be hours old (data lags about two hours).
     /// </summary>
     public string? RecentDivisionName { get; init; }
+    public int? RecentDivisionId { get; init; }
+    /// <summary>The analysed matches, newest first. The deeper tabs (squad, shots, flow …) read them.</summary>
+    public IReadOnlyList<MatchDetail> Matches { get; init; } = [];
+    /// <summary>Last results and the current run (최근 20경기 칩, 연승·연패).</summary>
+    public RecentForm Form { get; init; } = new([], MatchOutcome.Unknown, 0);
     public IReadOnlyList<string> PreviousNicknames { get; init; } = [];
     public required UserAnalysis Analysis { get; init; }
     public required string OneLine { get; init; }

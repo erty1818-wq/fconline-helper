@@ -1,12 +1,28 @@
 using FcHelper.Analysis;
 using FcHelper.Core;
+using FcHelper.Core.Models;
 using FcHelper.Services;
+using System.Windows;
+using System.Windows.Media;
 
 namespace FcHelper.App;
 
 public sealed record InsightItem(string Text, string Badge);
 
 public sealed record ShareItem(string Label, double Percent, string Display);
+
+/// <summary>One result in the 최근 경기 row: 승 green, 무 grey, 패 red.</summary>
+public sealed record FormChip(string Letter, Brush Fill)
+{
+    public static FormChip Of(MatchOutcome o) => o switch
+    {
+        MatchOutcome.Win => new("승", Res("Accent")),
+        MatchOutcome.Loss => new("패", Res("Danger")),
+        _ => new("무", Res("Muted")),
+    };
+
+    private static Brush Res(string key) => Application.Current?.TryFindResource(key) as Brush ?? Brushes.Gray;
+}
 
 public sealed class TagOption(string name, bool isChecked)
 {
@@ -32,10 +48,17 @@ public sealed class ReportView
             : "";
 
         var rec = a.Record;
-        Record = ReportText.DivisionPrefix(r)
+        // The best division has its own emblem line now (OS-02); the record line keeps the recent one.
+        Record = (r.RecentDivisionName is null ? "" : $"최근경기 등급 {r.RecentDivisionName} · ")
             + $"최근 {rec.Matches}경기 {rec.Wins}승 {rec.Draws}무 {rec.Losses}패 ({rec.WinRate * 100:0}%)";
         Averages = $"평균 득점 {a.AvgGoalsFor:0.00} · 실점 {a.AvgGoalsAgainst:0.00} · 점유율 {a.AvgPossession:0.#}%";
         OneLine = r.OneLine;
+
+        DivisionIconUrl = r.MaxDivisionId is { } d ? DivisionIcon.Url(d) : null;
+        DivisionLabel = r.MaxDivisionName is null ? "" : $"공식경기 최고 {r.MaxDivisionName}";
+        Form = r.Form.Results.Select(FormChip.Of).ToList();
+        Streak = r.Form.StreakText;
+        FormTip = $"최근 {r.Form.Results.Count}경기 결과 (왼쪽이 최신)";
 
         Threats = a.Threats.Take(ReportText.CardThreats).Select(Item).ToList();
         Weakness = a.Weaknesses.Take(1).Select(Item).ToList();
@@ -82,6 +105,12 @@ public sealed class ReportView
     public string Record { get; }
     public string Averages { get; }
     public string OneLine { get; }
+    /// <summary>Emblem of the best division in official matches (null when unknown: only the name shows).</summary>
+    public string? DivisionIconUrl { get; }
+    public string DivisionLabel { get; }
+    public IReadOnlyList<FormChip> Form { get; }
+    public string Streak { get; }
+    public string FormTip { get; }
     public IReadOnlyList<InsightItem> Threats { get; }
     public IReadOnlyList<InsightItem> Weakness { get; }
     public IReadOnlyList<InsightItem> Matchups { get; }

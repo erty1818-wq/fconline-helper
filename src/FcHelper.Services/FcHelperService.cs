@@ -137,7 +137,7 @@ public sealed class FcHelperService(
 
     private OpponentReport BuildReport(CachedUser user, IReadOnlyList<string> matchIds, int requested, LookupContext context)
     {
-        var matches = db.GetMatches(matchIds);
+        var matches = db.GetMatches(matchIds).OrderByDescending(m => m.MatchDate).ToList();
         var analysis = UserAnalyzer.Analyze(matches, user.Ouid, context.Baseline,
             id => db.GetPlayerNames([id]).GetValueOrDefault(id) ?? $"#{id}");
 
@@ -149,7 +149,7 @@ public sealed class FcHelperService(
 
         var divisions = db.GetMaxDivisions(user.Ouid).Divisions;
         var division = divisions.FirstOrDefault(d => d.MatchType == Options.MatchType);
-        var recentDivision = matches.OrderByDescending(m => m.MatchDate)
+        var recentDivision = matches
             .Select(m => m.SideOf(user.Ouid)?.Division ?? 0)
             .FirstOrDefault(d => d > 0);
         var history = db.GetNicknameHistory(user.Ouid).Where(n => n != user.Nickname).ToList();
@@ -161,6 +161,10 @@ public sealed class FcHelperService(
             Level = user.Level,
             MaxDivisionName = division is null ? null : db.GetDivisionName(division.Division) ?? $"등급 {division.Division}",
             RecentDivisionName = recentDivision == 0 ? null : db.GetDivisionName(recentDivision) ?? $"등급 {recentDivision}",
+            MaxDivisionId = division?.Division,
+            RecentDivisionId = recentDivision == 0 ? null : recentDivision,
+            Matches = matches,
+            Form = RecentForm.Of(matches, user.Ouid),
             PreviousNicknames = history,
             Analysis = analysis,
             OneLine = Summary.OneLine(analysis),
