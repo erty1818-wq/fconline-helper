@@ -201,6 +201,7 @@ public sealed class FcHelperService(
             RecentDivisionId = recentDivision == 0 ? null : recentDivision,
             Matches = matches,
             Form = RecentForm.Of(matches, user.Ouid),
+            Baseline = context.Baseline is { IsUsable: true } b ? b : null,
             PreviousNicknames = history,
             Analysis = analysis,
             OneLine = Summary.OneLine(analysis),

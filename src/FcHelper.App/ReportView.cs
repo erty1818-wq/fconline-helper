@@ -60,13 +60,17 @@ public sealed class ReportView
         Streak = r.Form.StreakText;
         FormTip = $"최근 {r.Form.Results.Count}경기 결과 (왼쪽이 최신)";
 
-        Threats = a.Threats.Take(ReportText.CardThreats).Select(Item).ToList();
-        Weakness = a.Weaknesses.Take(1).Select(Item).ToList();
+        // Plain-language comments against the average (ScoutNotes); the older insight lines only when there are none.
+        Notes = ScoutNotes.Of(r);
+        List<InsightItem> NotesOf(NoteKind kind) => Notes.Where(n => n.Kind == kind).Take(4).Select(n => new InsightItem(n.Text, n.Badge)).ToList();
+        Threats = NotesOf(NoteKind.Danger) is { Count: > 0 } danger ? danger : a.Threats.Take(ReportText.CardThreats).Select(Item).ToList();
+        Weakness = NotesOf(NoteKind.Weakness) is { Count: > 0 } weak ? weak : a.Weaknesses.Take(1).Select(Item).ToList();
         Matchups = r.MatchupAlerts.Take(2).Select(m => new InsightItem(m.Text, "상성")).ToList();
         Signature = a.Signature is { } s ? $"시그니처 골: {ReportText.SignatureText(r, s)}" : "";
         DangerPlayers = a.Players.Take(2).Select(p => $"{r.PlayerName(p.SpId)}  {p.Goals}골 {p.Assists}도움"
             + (r.Market.ContainsKey(p.SpId) ? ReportText.MarketSuffix(r, p.SpId) : $" · 강화 {p.TopGrade}")).ToList();
-        Traits = a.Traits.Where(t => t.Key != "controller").Take(3).Select(Item).ToList();
+        // The possession style is already a comment; the other traits (through balls, pauses …) follow it.
+        Traits = NotesOf(NoteKind.Trait).Concat(a.Traits.Where(t => t.Key != "controller" && !t.Key.StartsWith("style.")).Select(Item)).Take(4).ToList();
 
         MemoText = r.Memo?.Text ?? "";
         Tags = QuickTags.Concat(r.Memo?.Tags.Except(QuickTags) ?? [])
@@ -111,6 +115,7 @@ public sealed class ReportView
     public IReadOnlyList<FormChip> Form { get; }
     public string Streak { get; }
     public string FormTip { get; }
+    public IReadOnlyList<ScoutNote> Notes { get; }
     public IReadOnlyList<InsightItem> Threats { get; }
     public IReadOnlyList<InsightItem> Weakness { get; }
     public IReadOnlyList<InsightItem> Matchups { get; }

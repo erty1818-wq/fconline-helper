@@ -39,6 +39,26 @@ public sealed class SquadService(
     public IReadOnlyList<MarketCard> Pool() => EnsurePool().Cards;
 
     /// <summary>
+    /// Checked on one data-center squad (2026-09-26, 기린마드리드, 11 cards): grade, 적응도 ⑤ (+4 over the data center's ①
+    /// figure), team colours and 집중훈련 still left each card 4-6 under the game's figure (mean 5.4). The cause is not
+    /// confirmed: the user thinks 적응도 counts for more; 훈련 코치 or 클럽 하우스 may add too. So 5 is added [추정].
+    /// </summary>
+    public const int AssumedAccountBonus = 5;
+
+    /// <summary>
+    /// The OVR the game would show for someone else's eleven [추정]: grade, 적응도 at its maximum (5), the team colour
+    /// levels already on the slots, 집중훈련 on the usual stats (as the squad maker works it out) and
+    /// <see cref="AssumedAccountBonus"/>. Within about 1-2 of the game on the one squad it was checked against.
+    /// </summary>
+    public IReadOnlyList<SquadSlot> WithInGameOvr(IReadOnlyList<SquadSlot> slots) =>
+        slots.Select(s =>
+        {
+            var f = FinalOvrMath.Compute(s.Card, KnownAbility(s.Card.SpId), s.Position, s.Grade, FinalOvrMath.MaxAdaptability, s.ColorLevels,
+                FinalOvrMath.Training(s.Position, s.Grade).AsBonus);
+            return s with { Final = f with { Account = AssumedAccountBonus, Value = f.Value + AssumedAccountBonus } };
+        }).ToList();
+
+    /// <summary>
     /// Where the card's salary ranks among market cards of its group (GK, FB, …): 0 = cheapest, 1 = dearest.
     /// Null when the group has no cards in the market data.
     /// </summary>

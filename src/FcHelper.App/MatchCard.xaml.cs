@@ -154,6 +154,16 @@ public partial class MatchCard : Window
             Style = (Style)FindResource("CardPanel"), Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 5, 0, 0),
             Child = Line(r.OneLine, bold: true),
         });
+        // 위험 / 약점 comments against the average: always shown, they are the point of the card.
+        foreach (var (kind, title, brush) in new[] { (NoteKind.Danger, "위험", "Danger"), (NoteKind.Weakness, "약점", "Accent") })
+        {
+            var notes = view.Notes.Where(n => n.Kind == kind).Take(3).ToList();
+            if (notes.Count == 0) continue;
+            var heading = Heading(title);
+            heading.Foreground = Res(brush);
+            Body.Children.Add(heading);
+            foreach (var n in notes) Body.Children.Add(Line($"• {n.Text}", size: 12));
+        }
         if (_on.Contains("danger") && view.DangerPlayers.Count > 0)
         {
             Body.Children.Add(Heading("위험 선수 [직접]"));
@@ -172,15 +182,15 @@ public partial class MatchCard : Window
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { }
         if (_nickname is null || !IsLoaded && !IsVisible) return;
         host.Children.Clear();
-        var slots = squads.CurrentSquad(owned);
+        var slots = squads.WithInGameOvr(squads.CurrentSquad(owned));
         if (slots.Count == 0) return;
 
         if (_on.Contains("value"))
         {
             host.Children.Add(Heading("구단가치 [계산]"));
             var formation = SquadContext.FormationOf(side);
-            host.Children.Add(Line($"선발 시세 합 {Bp.Format(slots.Sum(s => s.Price))} · 평균 OVR {slots.Average(s => s.Ovr):0.0}" + (formation is null ? "" : $" · {formation} [추정]"), bold: true));
-            host.Children.Add(Line($"급여 합 {slots.Sum(s => s.Pay)} · 팀컬러 보너스 제외", "Muted", 11));
+            host.Children.Add(Line($"선발 시세 합 {Bp.Format(slots.Sum(s => s.Price))} · 평균 OVR {slots.Average(s => s.ShownOvr):0.0}" + (formation is null ? "" : $" · {formation} [추정]"), bold: true));
+            host.Children.Add(Line($"급여 합 {slots.Sum(s => s.Pay)} · OVR은 인게임 추정 [추정] · 팀컬러는 빼고 계산", "Muted", 11));
         }
         var money = SquadMoney.Of(slots);
         if (_on.Contains("pay")) AddShareBars(host, "급여 배분 [계산]", money, l => l.PayShare, l => $"{l.Pay}");
@@ -230,7 +240,7 @@ public partial class MatchCard : Window
             pos.Width = 40;
             var season = new Image { Width = 20, Height = 20, Margin = new Thickness(0, 0, 6, 0), ToolTip = s.Card.Season };
             Pictures.SetSeasonOf(season, s.Card.Season);
-            var ovr = Line($"+{s.Grade} · {s.Ovr}", size: 12);
+            var ovr = Line($"+{s.Grade} · {s.ShownOvr:0}", size: 12);
             ovr.Width = 70;
             ovr.TextAlignment = TextAlignment.Right;
             foreach (var e in new FrameworkElement[] { pos, season }) { DockPanel.SetDock(e, Dock.Left); row.Children.Add(e); }

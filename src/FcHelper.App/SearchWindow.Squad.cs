@@ -54,7 +54,7 @@ public partial class SearchWindow
             value.Text = "카드 정보 불러오는 중…";
             var unread = await squads.LoadOffMarketAsync(owned.Select(o => o.SpId));
             if (Stale()) return;
-            var slots = Theirs(squads.CurrentSquad(owned));
+            var slots = Theirs(squads.WithInGameOvr(squads.CurrentSquad(owned)));
             ShowWeakSpots(slots, squads, pitch, weak);
             void Describe(IReadOnlyList<SquadSlot> shown, string ovrNote)
             {
@@ -63,7 +63,7 @@ public partial class SearchWindow
                     + (untraded > 0 ? $" · {untraded}명은 시세 없음(합에서 빠짐)" : "")
                     + (unread > 0 ? $" · {unread}명은 카드 정보를 받지 못함" : "");
             }
-            Describe(slots, "");
+            Describe(slots, " (인게임 추정, 팀컬러 확인 전)");
 
             colors.Text = "팀컬러 확인 중… (처음에는 30초쯤 걸립니다)";
             var detected = await squads.DetectTeamColorsAsync(owned);
@@ -74,9 +74,9 @@ public partial class SearchWindow
                 : "팀컬러 [계산]: " + string.Join(" · ", detected.Where(d => active.Contains(d.Color.Id))
                     .Select(d => $"{TeamColor.CategoryLabel(d.Color.Category)} {d.Color.Name} {d.Owned}명 {d.Level.Level}단계"));
             // Draw again with the bonuses the squad plays with.
-            var withColors = Theirs(squads.CurrentSquad(owned, await squads.TargetsAsync(active)));
+            var withColors = Theirs(squads.WithInGameOvr(squads.CurrentSquad(owned, await squads.TargetsAsync(active))));
             if (Stale()) return;
-            if (detected.Count > 0) Describe(withColors, " (팀컬러 포함)");
+            if (detected.Count > 0) Describe(withColors, " (인게임 추정 · 카드에 마우스를 올리면 계산 과정)");
             ShowWeakSpots(withColors, squads, pitch, weak);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or InvalidOperationException)
@@ -94,11 +94,13 @@ public partial class SearchWindow
     {
         var (average, spots) = SquadWeakSpots.Of(slots, squads.PayRank);
         pitch.Highlighted = spots.Select(s => s.Index).ToHashSet();
+        pitch.Tags = spots.ToDictionary(s => s.Index, s => s.Gap <= -SquadWeakSpots.WeakGap ? $"약점 {s.Gap:0.0}" : "약점 저급여");
         pitch.Show(slots);
         host.Children.Clear();
         host.Children.Add(new TextBlock
         {
-            Text = spots.Count == 0 ? $"약점 [계산]: 평균 OVR {average:0.0}보다 {SquadWeakSpots.WeakGap:0} 이상 낮은 자리가 없습니다." : "약점 [계산] · 피치에 주황 테두리",
+            Text = spots.Count == 0 ? $"약점 [계산]: 평균 OVR {average:0.0}보다 {SquadWeakSpots.WeakGap:0} 이상 낮은 자리가 없습니다."
+                : $"약점 [계산] · 팀 평균 OVR {average:0.0}보다 낮은 자리 (피치에 주황 \"약점\" 표시)",
             FontWeight = FontWeights.SemiBold, Foreground = Res<System.Windows.Media.Brush>(spots.Count == 0 ? "Muted" : "Warn"), Margin = new Thickness(0, 2, 0, 2),
         });
         foreach (var s in spots)

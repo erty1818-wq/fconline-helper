@@ -46,6 +46,8 @@ public sealed class PitchView : Viewbox
 
     /// <summary>Slot indices to outline (e.g. the ones an upgrade would change).</summary>
     public IReadOnlySet<int> Highlighted { get; set; } = new HashSet<int>();
+    /// <summary>A short tag written on a card (e.g. "약점 −7.8" in 구단주 검색), so an outline is never left unexplained.</summary>
+    public IReadOnlyDictionary<int, string> Tags { get; set; } = new Dictionary<int, string>();
     public int? Selected { get; private set; }
 
     public PitchView()
@@ -288,6 +290,16 @@ public sealed class PitchView : Viewbox
                 ToolTip = "고정됨 (AI가 바꾸지 않음)",
             };
             cardGrid.Children.Add(lockBadge);
+        }
+
+        if (Tags.TryGetValue(s.Index, out var tagText))
+        {
+            cardGrid.Children.Add(new Border
+            {
+                Background = warn, CornerRadius = new CornerRadius(5), Padding = new Thickness(5, 0, 5, 1),
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, -2, 0, 0),
+                Child = new TextBlock { Text = tagText, FontSize = 10.5, FontWeight = FontWeights.Bold, Foreground = (Brush)res["Bg"] },
+            });
         }
 
         var outline = s.Index == Selected ? accent : Highlighted.Contains(s.Index) ? warn : (Brush)res["Line"];

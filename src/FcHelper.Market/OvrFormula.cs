@@ -54,9 +54,16 @@ public static class OvrFormula
 public sealed record FinalOvr(int Listed, int Grade, int Adaptability, int AllStats, int Detail, int Training, int Value, bool Exact,
     int? PointsToNext, IReadOnlyDictionary<string, int>? Stats)
 {
+    /// <summary>
+    /// A correction for others' squads, fitted on one data-center squad [추정]: what the game adds beyond the steps above.
+    /// The cause is not confirmed (more 적응도 than assumed, 훈련 코치, 클럽 하우스 …).
+    /// </summary>
+    public int Account { get; init; }
+
     public string Breakdown =>
         $"+1 기준 {Listed} · 강화 +{Grade} · 적응도 +{Adaptability}" + (AllStats > 0 ? $" · 팀컬러 전체 +{AllStats}" : "")
-        + (Detail > 0 ? $" · 팀컬러 세부 +{Detail}" : "") + (Training > 0 ? $" · 집중훈련 +{Training}" : "") + $" = {Value}"
+        + (Detail > 0 ? $" · 팀컬러 세부 +{Detail}" : "") + (Training > 0 ? $" · 집중훈련 +{Training}" : "")
+        + (Account > 0 ? $" · 보정 +{Account} [추정, 원인 미확인]" : "") + $" = {Value}"
         + (Exact ? "" : " [추정: 세부 스탯 보너스는 내림, 실제는 1 높을 수 있음]");
 }
 

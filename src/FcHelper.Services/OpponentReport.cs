@@ -23,6 +23,8 @@ public sealed record OpponentReport
     public int? RecentDivisionId { get; init; }
     /// <summary>The analysed matches, newest first. The deeper tabs (squad, shots, flow …) read them.</summary>
     public IReadOnlyList<MatchDetail> Matches { get; init; } = [];
+    /// <summary>The population the opponent is compared with ("평균"): every match side in the local cache.</summary>
+    public Baseline? Baseline { get; init; }
     /// <summary>Last results and the current run (최근 20경기 칩, 연승·연패).</summary>
     public RecentForm Form { get; init; } = new([], MatchOutcome.Unknown, 0);
     public IReadOnlyList<string> PreviousNicknames { get; init; } = [];

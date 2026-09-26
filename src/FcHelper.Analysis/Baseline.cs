@@ -23,6 +23,14 @@ public sealed class Baseline
     public int Goals { get; init; }
     public double AvgPossession { get; init; }
     public double AvgShots { get; init; }
+    /// <summary>Per match with records: goals scored (own goals count for the other side), interceptions.</summary>
+    public double AvgGoals { get; init; }
+    public double AvgIntercepts { get; init; }
+    /// <summary>Pooled rates: shots on target / shots, goals / shots, passes completed, tackles won.</summary>
+    public double ShotAccuracy { get; init; }
+    public double Conversion { get; init; }
+    public double PassAccuracy { get; init; }
+    public double TackleRate { get; init; }
 
     public bool IsUsable => Goals >= MinGoalsForComparison;
 
@@ -32,7 +40,7 @@ public sealed class Baseline
     {
         var rates = new Dictionary<string, Proportion>();
         int sides = 0, played = 0, goals = 0;
-        double possession = 0, shots = 0;
+        double possession = 0, shots = 0, goalsFor = 0, onTarget = 0, intercepts = 0, passTry = 0, passOk = 0, tackleTry = 0, tackleOk = 0;
 
         foreach (var match in matches)
         {
@@ -49,6 +57,13 @@ public sealed class Baseline
                 played++;
                 possession += side.MatchDetail.Possession;
                 shots += side.Shoot.ShootTotal;
+                goalsFor += side.Shoot.GoalTotal + opponent.Shoot.OwnGoal;
+                onTarget += side.Shoot.EffectiveShootTotal;
+                intercepts += side.Player.Sum(p => p.Status.Intercept);
+                passTry += side.Pass.PassTry;
+                passOk += side.Pass.PassSuccess;
+                tackleTry += side.Defence.TackleTry;
+                tackleOk += side.Defence.TackleSuccess;
             }
         }
 
@@ -59,6 +74,12 @@ public sealed class Baseline
             Goals = goals,
             AvgPossession = played == 0 ? 0 : possession / played,
             AvgShots = played == 0 ? 0 : shots / played,
+            AvgGoals = played == 0 ? 0 : goalsFor / played,
+            AvgIntercepts = played == 0 ? 0 : intercepts / played,
+            ShotAccuracy = shots == 0 ? 0 : onTarget / shots,
+            Conversion = shots == 0 ? 0 : goalsFor / shots,
+            PassAccuracy = passTry == 0 ? 0 : passOk / passTry,
+            TackleRate = tackleTry == 0 ? 0 : tackleOk / tackleTry,
         };
     }
 }
