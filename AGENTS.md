@@ -84,7 +84,16 @@ dotnet publish src/FcHelper.App -c Release -r win-x64 -o "C:\Projects\fc helper\
 
 - **릴리스:** `git tag vX.Y.Z && git push origin vX.Y.Z`를 하면 `.github/workflows/release.yml`이 exe를 빌드해 GitHub Releases에 올린다. 친구들 앱은 이걸 보고 업데이트한다.
   - **사용자가 "배포해줘"라고 할 때만 한다.**
-  - 새 태그는 직전 태그보다 높아야 한다(현재 최신 v0.6.0).
+  - 새 태그는 직전 태그보다 높아야 한다. 최신 태그는 `git fetch --tags && git tag --sort=-v:refname | head -1`로 확인한다(2026-09-26 기준 v0.7.1). 새 기능이면 가운데 숫자, 고친 것만이면 끝 숫자를 올린다.
+  - 순서:
+    1. 빌드·테스트 통과, `git status`가 깨끗한지 확인한다.
+    2. 브랜치를 푸시해 HEAD와 `origin/claude/folder-permissions-check-1pee7k`가 같은지 확인한다.
+    3. 태그를 만들고 푸시한다.
+    4. 끝났는지 확인한다. `gh`가 설치되어 있지 않으니 공개 API를 쓴다.
+       `curl -s https://api.github.com/repos/erty1818-wq/fconline-helper/releases/latest`에서 `tag_name`이 새 태그이고 `assets`에 `FcHelper.exe`(약 200MB)가 있으면 성공이다. 빌드는 몇 분 걸린다.
+  - 친구에게 줄 것은 `FcHelper.exe` 하나뿐이다(단일 파일, .NET 포함). `.pdb`와 `skin` 폴더는 필요 없다. 릴리스 페이지 링크를 보내는 것이 가장 좋다. 한 번 받으면 이후 버전은 앱이 GitHub Releases를 보고 알아서 업데이트한다.
+  - 친구에게 알릴 것: 서명 안 된 exe라 처음에 "Windows의 PC 보호"가 뜨면 [추가 정보] → [실행]. NEXON Open API 키는 각자 발급한다(첫 실행 안내 창).
+  - 이 PC 바탕화면 바로가기가 옛 아이콘으로 보이면 exe 문제가 아니라 Windows 아이콘 캐시다. 바로가기 아이콘을 `app-latest\FcHelper-emblem.ico`(= `Assets/app.ico` 복사본)로 지정해 두었다.
 - 브랜치는 `claude/folder-permissions-check-1pee7k`다. 작은 단위로 커밋하고 푸시한다.
   - 커밋 전 `git status`로 `*.local.json`, 키, `powershell.cmd`가 없는지 확인한다.
 
