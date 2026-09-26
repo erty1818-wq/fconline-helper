@@ -6,7 +6,11 @@
 
 ## 지금 하는 중
 
-- (없음. 다음은 OS-01)
+- 작업: OS-01 첫 화면 (최근 검색·즐겨찾기·최근 상대·자동완성)
+- 담당: Claude (2026-09-26)
+- 시작한 것: `FcHelper.Services/SearchHistory.cs`(kv `search.recent`·`search.favorites`, JSON 배열), `FcDatabase.RecentOpponents`·`SuggestNicknames`, SearchWindow `StartContent`에 세 목록과 자동완성 목록.
+- 내 ouid는 API를 부르지 않고 `users` 캐시에서 `Settings.MyNickname`으로 찾는다. 없으면 최근 상대 대신 안내를 보인다.
+- 다음 단계: 코드 → 테스트(SearchHistory, RecentOpponents, SuggestNicknames) → 커밋
 
 ## 상태 표
 
@@ -14,8 +18,8 @@
 
 | ID | 작업 | 상태 | 커밋 | 메모 |
 |---|---|---|---|---|
-| OS-00 | 탭 구조와 창 크기 | 완료 | (OS-00 커밋) | 칩 탭 7개, 요약 = 기존 카드. 내 전적 칩은 OS-18 전까지 숨김. 다른 탭은 "준비 중" 안내. 화면 확인 미완(사용자 앱 실행 중) |
-| OS-01 | 첫 화면 (최근 검색·즐겨찾기·최근 상대·자동완성) | 대기 | | |
+| OS-00 | 탭 구조와 창 크기 | 완료 | 992e99f | 칩 탭 7개, 요약 = 기존 카드. 내 전적 칩은 OS-18 전까지 숨김. 다른 탭은 "준비 중" 안내. 화면 확인 미완(사용자 앱 실행 중) |
+| OS-01 | 첫 화면 (최근 검색·즐겨찾기·최근 상대·자동완성) | 진행 중 | | |
 | OS-02 | 머리 부분 강화 (등급 아이콘·승무패 칩·연승연패) | 대기 | | |
 | OS-03 | 빠른 재조회와 갱신 버튼 | 대기 | | |
 | OS-04 | 상대 스쿼드 피치 | 대기 | | |
