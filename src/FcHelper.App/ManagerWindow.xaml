@@ -4,6 +4,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:FcHelper.App"
         Title="감독모드 · FC Online Helper" Width="1280" Height="840" MinWidth="980" MinHeight="600"
+        Icon="pack://application:,,,/Assets/app.ico"
         Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen">
     <DockPanel Margin="20,16,20,10">
         <!-- Header: title and the two views -->

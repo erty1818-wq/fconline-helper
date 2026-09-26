@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:FcHelper.App"
         Title="FC Online Helper" Width="900" SizeToContent="Height" ResizeMode="CanMinimize"
+        Icon="pack://application:,,,/Assets/app.ico"
         Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <!-- One big entry card: icon, title, one line of what it does. -->

@@ -139,11 +139,12 @@ public static class Skin
     private static Drawing LogoDrawing()
     {
         var g = new DrawingGroup();
-        g.Children.Add(new GeometryDrawing(Accent, null, new EllipseGeometry(new Point(32, 32), 32, 32)));
-        var text = new FormattedText("FC", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal), 24,
-            Frozen(Color.FromRgb(0x15, 0x18, 0x1D)), 1.0);
-        g.Children.Add(new GeometryDrawing(Frozen(Color.FromRgb(0x15, 0x18, 0x1D)), null, text.BuildGeometry(new Point(32 - text.Width / 2, 32 - text.Height / 2))));
+        // 5-sided pentagon shield fallback with gold accent
+        var gold = Frozen(Color.FromRgb(0xD4, 0xAF, 0x37));
+        var dark = Frozen(Color.FromRgb(0x1E, 0x22, 0x29));
+        g.Children.Add(new GeometryDrawing(gold, null, Geometry.Parse("M32,4 L58,22 L48,58 L16,58 L6,22 Z")));
+        g.Children.Add(new GeometryDrawing(dark, null, Geometry.Parse("M32,8 L54,24 L45,54 L19,54 L10,24 Z")));
+        g.Children.Add(new GeometryDrawing(gold, null, Geometry.Parse("M20,38 L24,26 L32,32 L40,26 L44,38 Z")));
         return g;
     }
 

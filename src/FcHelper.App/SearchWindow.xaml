@@ -4,6 +4,7 @@
         xmlns:app="clr-namespace:FcHelper.App"
         xmlns:studio="clr-namespace:FcHelper.App.Studio"
         Title="구단주 검색 · FC Online Helper" Width="440" Height="720" MinWidth="360" MinHeight="300"
+        Icon="pack://application:,,,/Assets/app.ico"
         Background="{StaticResource Bg}" ShowInTaskbar="True" WindowStartupLocation="Manual">
     <Window.Resources>
         <!-- One line of the card: text followed by the evidence badge (직접/계산/추정). -->

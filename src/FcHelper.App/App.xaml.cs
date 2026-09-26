@@ -560,22 +560,47 @@ public partial class App : Application
     /// <summary>The app icon (Assets/app.ico) at the tray's size; drawn at runtime only if the resource is missing.</summary>
     private static Drawing.Icon CreateTrayIcon()
     {
-        if (GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico")) is { } info)
+        try
         {
-            using var stream = info.Stream;
-            return new Drawing.Icon(stream, Forms.SystemInformation.SmallIconSize);
+            if (GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico")) is { } info)
+            {
+                using var stream = info.Stream;
+                return new Drawing.Icon(stream, Forms.SystemInformation.SmallIconSize);
+            }
         }
+        catch { }
+
+        foreach (var dir in new[] { Skin.UserFolder, Path.Combine(AppContext.BaseDirectory, "skin"), Path.Combine(AppContext.BaseDirectory, "Assets") })
+        {
+            var ico = Path.Combine(dir, "app.ico");
+            if (File.Exists(ico))
+            {
+                try { return new Drawing.Icon(ico, Forms.SystemInformation.SmallIconSize); } catch { }
+            }
+            var png = Path.Combine(dir, "logo.png");
+            if (File.Exists(png))
+            {
+                try
+                {
+                    using var b = new Drawing.Bitmap(png);
+                    using var scaled = new Drawing.Bitmap(b, Forms.SystemInformation.SmallIconSize);
+                    return Drawing.Icon.FromHandle(scaled.GetHicon());
+                }
+                catch { }
+            }
+        }
+
+        if (AppIcons.ToWinFormsBitmap("logo", Forms.SystemInformation.SmallIconSize.Width) is { } appBmp)
+        {
+            return Drawing.Icon.FromHandle(appBmp.GetHicon());
+        }
+
         using var bmp = new Drawing.Bitmap(32, 32);
         using (var g = Drawing.Graphics.FromImage(bmp))
         {
             g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.TextRenderingHint = Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             using var fill = new Drawing.SolidBrush(Drawing.Color.FromArgb(0x3D, 0xDC, 0x97));
-            g.FillEllipse(fill, 1, 1, 30, 30);
-            using var font = new Drawing.Font("Segoe UI", 11, Drawing.FontStyle.Bold, Drawing.GraphicsUnit.Pixel);
-            using var text = new Drawing.SolidBrush(Drawing.Color.FromArgb(0x15, 0x18, 0x1D));
-            var size = g.MeasureString("FC", font);
-            g.DrawString("FC", font, text, (32 - size.Width) / 2, (32 - size.Height) / 2);
+            g.FillPolygon(fill, new[] { new Drawing.Point(16, 2), new Drawing.Point(30, 12), new Drawing.Point(25, 29), new Drawing.Point(7, 29), new Drawing.Point(2, 12) });
         }
         return Drawing.Icon.FromHandle(bmp.GetHicon());
     }
