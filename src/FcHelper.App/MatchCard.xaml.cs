@@ -182,7 +182,7 @@ public partial class MatchCard : Window
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { }
         if (_nickname is null || !IsLoaded && !IsVisible) return;
         host.Children.Clear();
-        var slots = squads.WithInGameOvr(squads.CurrentSquad(owned));
+        var slots = squads.WithInGameOvr(squads.CurrentSquad(owned, await squads.OpponentTargetsAsync([])));
         if (slots.Count == 0) return;
 
         if (_on.Contains("value"))
@@ -190,7 +190,7 @@ public partial class MatchCard : Window
             host.Children.Add(Heading("구단가치 [계산]"));
             var formation = SquadContext.FormationOf(side);
             host.Children.Add(Line($"선발 시세 합 {Bp.Format(slots.Sum(s => s.Price))} · 평균 OVR {slots.Average(s => s.ShownOvr):0.0}" + (formation is null ? "" : $" · {formation} [추정]"), bold: true));
-            host.Children.Add(Line($"급여 합 {slots.Sum(s => s.Pay)} · OVR은 인게임 추정 [추정] · 팀컬러는 빼고 계산", "Muted", 11));
+            host.Children.Add(Line($"급여 합 {slots.Sum(s => s.Pay)} · OVR은 인게임 추정 [추정] · 강화 팀컬러 포함, 소속·특성 팀컬러는 구단주 검색의 스쿼드 탭에서", "Muted", 11));
         }
         var money = SquadMoney.Of(slots);
         if (_on.Contains("pay")) AddShareBars(host, "급여 배분 [계산]", money, l => l.PayShare, l => $"{l.Pay}");

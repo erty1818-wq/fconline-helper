@@ -54,7 +54,8 @@ public partial class SearchWindow
             value.Text = "카드 정보 불러오는 중…";
             var unread = await squads.LoadOffMarketAsync(owned.Select(o => o.SpId));
             if (Stale()) return;
-            var slots = Theirs(squads.WithInGameOvr(squads.CurrentSquad(owned)));
+            // 강화 colours follow from the grades alone, so they are in from the first drawing.
+            var slots = Theirs(squads.WithInGameOvr(squads.CurrentSquad(owned, await squads.OpponentTargetsAsync([]))));
             ShowWeakSpots(slots, squads, pitch, weak);
             void Describe(IReadOnlyList<SquadSlot> shown, string ovrNote)
             {
@@ -74,7 +75,7 @@ public partial class SearchWindow
                 : "팀컬러 [계산]: " + string.Join(" · ", detected.Where(d => active.Contains(d.Color.Id))
                     .Select(d => $"{TeamColor.CategoryLabel(d.Color.Category)} {d.Color.Name} {d.Owned}명 {d.Level.Level}단계"));
             // Draw again with the bonuses the squad plays with.
-            var withColors = Theirs(squads.WithInGameOvr(squads.CurrentSquad(owned, await squads.TargetsAsync(active))));
+            var withColors = Theirs(squads.WithInGameOvr(squads.CurrentSquad(owned, await squads.OpponentTargetsAsync(active))));
             if (Stale()) return;
             if (detected.Count > 0) Describe(withColors, " (인게임 추정 · 카드에 마우스를 올리면 계산 과정)");
             ShowWeakSpots(withColors, squads, pitch, weak);
