@@ -22,6 +22,61 @@ public partial class SearchWindow
 
         SetTab(CompareContent, SectionTitle("나 vs 상대"));
         AddMeVersus(report);
+
+        CompareContent.Children.Add(SectionTitle("패드 / 키보드 [직접]"));
+        CompareContent.Children.Add(SplitTable(Splits.ByController(report.Matches, report.Ouid), "컨트롤러"));
+        CompareContent.Children.Add(SectionTitle("포메이션별 성적 [추정]"));
+        CompareContent.Children.Add(SplitTable(Splits.ByFormation(report.Matches, report.Ouid), "포메이션"));
+        CompareContent.Children.Add(new TextBlock
+        {
+            Text = "포메이션은 게임이 알려 주지 않아 선발 11명의 포지션으로 가장 가까운 것을 고릅니다.",
+            Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap,
+        });
+    }
+
+    /// <summary>OS-12 / OS-13: one row per group with matches, W-D-L, win rate and goals per match.</summary>
+    private Grid SplitTable(IReadOnlyList<SplitLine> lines, string keyTitle)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 2, 0, 4) };
+        foreach (var w in new[] { 1.6, 0.7, 1.3, 1.8, 0.8, 0.8 }) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w, GridUnitType.Star) });
+        void Put(UIElement e, int row, int col)
+        {
+            while (grid.RowDefinitions.Count <= row) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetRow(e, row);
+            Grid.SetColumn(e, col);
+            grid.Children.Add(e);
+        }
+        TextBlock Cell(string text, bool head = false, bool right = true, FontWeight? weight = null) => new()
+        {
+            Text = text, Margin = new Thickness(0, 2, 6, 2), FontSize = head ? 11 : 13, Foreground = head ? Res<Brush>("Muted") : Res<Brush>("Text"),
+            TextAlignment = right ? TextAlignment.Right : TextAlignment.Left, FontWeight = weight ?? FontWeights.Normal, VerticalAlignment = VerticalAlignment.Center,
+        };
+        string[] heads = [keyTitle, "경기", "승무패", "승률", "득점", "실점"];
+        for (var i = 0; i < heads.Length; i++) Put(Cell(heads[i], head: true, right: i != 0 && i != 3), 0, i);
+        // The most used group stands out; a group of one or two matches says little.
+        var main = lines.FirstOrDefault(l => l.Key != Splits.Unknown);
+        for (var r = 0; r < lines.Count; r++)
+        {
+            var l = lines[r];
+            var bold = ReferenceEquals(l, main) ? FontWeights.SemiBold : FontWeights.Normal;
+            Put(Cell(l.Key, right: false, weight: bold), r + 1, 0);
+            Put(Cell($"{l.Matches}"), r + 1, 1);
+            Put(Cell($"{l.Wins}-{l.Draws}-{l.Losses}"), r + 1, 2);
+            var rate = new DockPanel { Margin = new Thickness(0, 2, 8, 2) };
+            var pct = new TextBlock { Text = $"{l.WinRate * 100:0}%", Width = 38, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            DockPanel.SetDock(pct, Dock.Right);
+            rate.Children.Add(pct);
+            rate.Children.Add(new ProgressBar
+            {
+                Maximum = 1, Value = l.WinRate, Height = 6, VerticalAlignment = VerticalAlignment.Center, BorderThickness = new Thickness(0),
+                Background = Res<Brush>("Panel"), Foreground = Res<Brush>(l.WinRate >= 0.5 ? "Accent" : "Warn"), Opacity = l.Matches < 3 ? 0.5 : 1,
+            });
+            Put(rate, r + 1, 3);
+            Put(Cell($"{l.GoalsFor:0.0}"), r + 1, 4);
+            Put(Cell($"{l.GoalsAgainst:0.0}"), r + 1, 5);
+        }
+        if (lines.Count == 0) Put(Cell("경기 없음", right: false), 1, 0);
+        return grid;
     }
 
     /// <summary>OS-11: my per-match averages (my synced official matches) next to theirs.</summary>
