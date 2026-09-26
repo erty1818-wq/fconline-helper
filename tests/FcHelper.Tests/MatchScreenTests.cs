@@ -63,6 +63,39 @@ public class MatchScreenTests
         Assert.False(MatchScreen.LooksLikeMatchScreen([new("메시지를 입력하세요.", 0.7, 0.9, 0.2, 0.02)]));
     }
 
+    /// <summary>Other text the user saw picked up as nicknames: buttons, extra time, the manager card and division labels.</summary>
+    private static List<OcrLine> NoisyScreen() =>
+    [
+        .. TeamInfoScreen(),
+        new("준비", 0.80, 0.40, 0.08, 0.05),
+        new("연장전", 0.62, 0.30, 0.06, 0.04),
+        new("감독", 0.70, 0.62, 0.04, 0.025),
+        new("셰틸 크누첸", 0.68, 0.655, 0.09, 0.03),
+        new("챌린저 2부", 0.60, 0.20, 0.08, 0.045),
+        new("월드클래스1", 0.85, 0.25, 0.09, 0.05),
+    ];
+
+    [Fact]
+    public void Screen_labels_manager_names_and_divisions_are_not_candidates()
+    {
+        foreach (var me in new[] { "킹마카이", null })
+        {
+            var candidates = MatchScreen.OpponentCandidates(NoisyScreen(), me);
+            Assert.Equal("류춘", candidates[0]);
+            Assert.DoesNotContain(candidates, c => c is "준비" or "연장전" or "셰틸크누첸" or "셰틸" or "크누첸" or "챌린저2부" or "월드클래스1");
+        }
+    }
+
+    [Theory]
+    [InlineData("준비된자")]
+    [InlineData("프로류춘")]
+    [InlineData("전반전킹")]
+    public void Nicknames_that_merely_contain_a_label_word_still_count(string nickname)
+    {
+        var lines = TeamInfoScreen().Select(l => l.Text == "류춘 3" ? l with { Text = nickname } : l).ToList();
+        Assert.Equal(nickname, MatchScreen.OpponentCandidates(lines, "킹마카이")[0]);
+    }
+
     [Theory]
     [InlineData("폭탄먼지벌레", new[] { "폭탄먼지벌레" })]
     [InlineData("폭탄 먼지벌레", new[] { "폭탄먼지벌레", "먼지벌레", "폭탄" })]

@@ -16,8 +16,17 @@ public static class MatchScreen
 {
     public const int MaxCandidates = 4;
 
-    // Labels that share the screen with the nicknames.
-    private static readonly string[] UiWords = ["팀정보", "유니폼", "선택", "감독", "공식경기", "준비완료", "경기가시작"];
+    // Labels that share the screen with the nicknames (the user saw 연장전, 준비, 감독 and tier names picked up).
+    private static readonly string[] UiWords =
+        ["팀정보", "유니폼", "선택", "감독", "공식경기", "준비완료", "경기가시작", "연장전", "승부차기", "킥오프", "포메이션"];
+
+    // Short labels dropped only when they are the whole line, so "준비된자" or "전반전킹" stay possible nicknames.
+    private static readonly string[] WholeWords = ["준비", "준비중", "전반", "후반", "전술", "매칭", "채팅"];
+
+    // A division label on its own ("챌린저 2부", "월드클래스1", "슈퍼챔피언스"); matched whole so a nickname that merely
+    // contains such a word ("프로류춘") still counts.
+    private static readonly System.Text.RegularExpressions.Regex TierLabel = new(
+        @"^(슈퍼)?(챔피언스|챌린지|챌린저|월드클래스|세미프로|프로|유망주|엘리트|아마추어)\d*(부)?(감독)?$");
 
     /// <summary>True when the OCR text looks like the matchmaking screen.</summary>
     public static bool LooksLikeMatchScreen(IReadOnlyList<OcrLine> lines) =>
@@ -43,8 +52,9 @@ public static class MatchScreen
             ordered = lines.Where(l => l.CenterX > 0.5).OrderByDescending(l => l.Height);
         }
 
+        var managerNames = UnderManagerLabel(lines);
         return ordered
-            .Where(l => !IsUiText(l.Text))
+            .Where(l => !IsUiText(l.Text) && !managerNames.Contains(l))
             .SelectMany(l => CandidatesFrom(l.Text))
             .Where(c => myNickname is null || !string.Equals(c, Compact(myNickname), StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -80,7 +90,23 @@ public static class MatchScreen
     private static bool IsUiText(string text)
     {
         var c = Compact(text);
-        return c.Length < 2 || c is "VS" or "vs" || c.EndsWith('점') || UiWords.Any(c.Contains) || c.All(char.IsDigit);
+        return c.Length < 2 || c is "VS" or "vs" || c.EndsWith('점') || UiWords.Any(c.Contains) || WholeWords.Contains(c) || c.All(char.IsDigit) || TierLabel.IsMatch(c);
+    }
+
+    /// <summary>
+    /// The manager card shows a "감독" label with the manager's name (a real football coach, e.g. "셰틸 크누첸") right
+    /// under it; those names are not nicknames.
+    /// </summary>
+    private static HashSet<OcrLine> UnderManagerLabel(IReadOnlyList<OcrLine> lines)
+    {
+        var names = new HashSet<OcrLine>(ReferenceEqualityComparer.Instance);
+        foreach (var label in lines.Where(l => Compact(l.Text) == "감독"))
+            foreach (var l in lines)
+                if (!ReferenceEquals(l, label)
+                    && l.CenterY > label.CenterY && l.CenterY - label.CenterY <= 3 * Math.Max(label.Height, l.Height)
+                    && l.X < label.X + label.Width + label.Width && l.X + l.Width > label.X - label.Width)
+                    names.Add(l);
+        return names;
     }
 
     private static string Compact(string s) => string.Concat(s.Where(ch => !char.IsWhiteSpace(ch)));
