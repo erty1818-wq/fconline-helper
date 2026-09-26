@@ -23,6 +23,10 @@ public static class MatchScreen
     // Short labels dropped only when they are the whole line, so "준비된자" or "전반전킹" stay possible nicknames.
     private static readonly string[] WholeWords = ["준비", "준비중", "전반", "후반", "전술", "매칭", "채팅"];
 
+    // The game's own name on screen ("EA SPORTS FC ONLINE"): "ONLINE" once went through as a search because such a
+    // user exists.
+    private static readonly string[] BrandWords = ["ONLINE", "FCONLINE", "EASPORTS", "EASPORTSFC", "NEXON", "FC"];
+
     // A division label on its own ("챌린저 2부", "월드클래스1", "슈퍼챔피언스"); matched whole so a nickname that merely
     // contains such a word ("프로류춘") still counts.
     private static readonly System.Text.RegularExpressions.Regex TierLabel = new(
@@ -90,7 +94,7 @@ public static class MatchScreen
     internal static bool IsUiText(string text)
     {
         var c = Compact(text);
-        return c.Length < 2 || c is "VS" or "vs" || c.EndsWith('점') || UiWords.Any(c.Contains) || WholeWords.Contains(c) || c.All(char.IsDigit) || TierLabel.IsMatch(c) || LooksLikeTier(c);
+        return c.Length < 2 || c is "VS" or "vs" || c.EndsWith('점') || UiWords.Any(c.Contains) || WholeWords.Contains(c) || BrandWords.Contains(c, StringComparer.OrdinalIgnoreCase) || c.All(char.IsDigit) || TierLabel.IsMatch(c) || LooksLikeTier(c);
     }
 
     private static readonly string[] TierWords = ["챔피언스", "챌린지", "챌린저", "월드클래스", "세미프로", "유망주", "엘리트", "아마추어"];
