@@ -33,12 +33,16 @@
 
         <TextBlock Style="{StaticResource Section}" Text="상대 인식 방식" />
         <RadioButton x:Name="HotkeyModeBox" GroupName="Detection" Foreground="{StaticResource Text}" Margin="0,2"
-                     Content="단축키 캡처: 매칭 화면(팀 정보)에서 Ctrl + Alt + F" />
+                     Content="단축키 캡처 (Ctrl + Alt + F): 매칭 화면 · 경기 점수판" />
         <RadioButton x:Name="ManualModeBox" GroupName="Detection" Foreground="{StaticResource Text}" Margin="0,2"
                      Content="수동 검색: 닉네임을 직접 입력 (Ctrl + Alt + S)" />
-        <RadioButton x:Name="AutoModeBox" GroupName="Detection" Foreground="{StaticResource Muted}" Margin="0,2"
-                     Content="완전 자동 (준비 중)" IsEnabled="False" />
+        <RadioButton x:Name="AutoModeBox" GroupName="Detection" Foreground="{StaticResource Text}" Margin="0,2"
+                     Content="완전 자동: 매칭 카드 · 종료 카드가 저절로 뜸" />
+        <TextBlock Foreground="{StaticResource Muted}" FontSize="11" Margin="20,0,0,4" TextWrapping="Wrap"
+                   Text="게임 창이 앞에 있을 때만 2초마다 점수판 부분을 읽습니다(게임 파일·메모리에는 손대지 않음). Ctrl + Alt + F도 그대로 쓸 수 있습니다." />
         <CheckBox x:Name="SaveCapturesBox" Content="인식한 화면을 저장 (개발용, 인식 개선에 사용)" />
+        <TextBlock Style="{StaticResource Section}" Text="매칭 카드에 보일 정보 (창 크기는 자동)" />
+        <WrapPanel x:Name="CardSectionsPanel" />
 
         <CheckBox x:Name="MarketBox" Content="위험 선수의 능력치·시세 표시 (FC온라인 데이터센터에서 조회)" Margin="0,12,0,4" />
         <CheckBox x:Name="MarketRefreshBox" Content="가성비 찾기 시세 자동 갱신 (하루 1번 · 새 시즌은 바로 · 게임 중에는 미룸)" />

@@ -128,6 +128,10 @@ public partial class App : Application
         _voice = Settings.VoiceBriefing ? new VoiceBriefing() : null;
         if (_voice is { HasKoreanVoice: false }) Notify("한국어 음성이 설치되어 있지 않아 기본 음성으로 읽습니다.");
 
+        // 완전 자동 watches the game window only in that mode (docs/auto-mode).
+        _watcher?.Dispose();
+        _watcher = Settings.Detection == DetectionMode.Auto ? new AutoWatcher(this) : null;
+
         // The capture shortcut exists only in hotkey mode, so manual mode leaves Ctrl+Alt+F to other programs.
         _captureHotkey?.Dispose();
         _captureHotkey = null;
@@ -203,6 +207,44 @@ public partial class App : Application
         Settings.MyNickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim();
         Settings.Save();
         ApplySettings();
+    }
+
+    /// <summary>구단주 검색 opened on one nickname (the 매칭 카드's [자세히]).</summary>
+    public void OpenSearch(string nickname)
+    {
+        ShowSearch();
+        _search?.Search(nickname);
+    }
+
+    private MatchCard? _card;
+    private AutoWatcher? _watcher;
+
+    /// <summary>The 종료 카드 after a match seen by the auto watcher (AM-04).</summary>
+    public void ShowEndCard(string opponent, int? lastMinute, Drawing.Rectangle gamePixels)
+    {
+        ShowMatchCard(opponent, gamePixels, end: lastMinute ?? 0);
+    }
+
+    /// <summary>The 매칭 카드 for an opponent, beside the game, without taking the game's focus (AM-03).</summary>
+    public void ShowMatchCard(string nickname, Drawing.Rectangle gamePixels, int? end = null)
+    {
+        // Screen pixels → WPF units on the primary monitor.
+        var scale = Forms.Screen.PrimaryScreen!.Bounds.Width / SystemParameters.PrimaryScreenWidth;
+        ShowMatchCard(nickname, new Rect(gamePixels.X / scale, gamePixels.Y / scale, gamePixels.Width / scale, gamePixels.Height / scale), end);
+    }
+
+    /// <param name="beside">The window (in WPF units) the card opens next to: the game, or 구단주 검색 for a preview.</param>
+    public void ShowMatchCard(string nickname, Rect beside, int? end = null)
+    {
+        if (_card is null)
+        {
+            _card = new MatchCard(this);
+            _card.Closed += (_, _) => _card = null;
+            _card.PlaceBeside(beside);
+            _card.Show();
+        }
+        else if (_card.WindowState == WindowState.Minimized) _card.WindowState = WindowState.Normal;
+        _ = _card.ShowForAsync(nickname, end);
     }
 
     public void ShowSearch()
@@ -624,6 +666,7 @@ public partial class App : Application
         // Stops a refresh in progress; it resumes from the same step next time.
         _exit.Cancel();
         _hotkey?.Dispose();
+        _watcher?.Dispose();
         _captureHotkey?.Dispose();
         _voice?.Dispose();
         if (_tray is not null)

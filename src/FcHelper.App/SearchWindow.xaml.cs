@@ -117,6 +117,11 @@ public partial class SearchWindow : Window
         RunSearch(_shown, refresh: false);
     }
 
+    private void OnCardClick(object sender, RoutedEventArgs e)
+    {
+        if (_shown is not null) _app.ShowMatchCard(_shown, new Rect(Left, Top, ActualWidth, ActualHeight));
+    }
+
     private void OnRefreshClick(object sender, RoutedEventArgs e)
     {
         if (_shown is not null) RunSearch(_shown, refresh: true);

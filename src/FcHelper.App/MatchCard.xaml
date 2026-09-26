@@ -1,0 +1,11 @@
+<Window x:Class="FcHelper.App.MatchCard"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="매칭 카드 · FC Online Helper" SizeToContent="WidthAndHeight" ResizeMode="CanMinimize"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Background="{StaticResource Bg}" ShowInTaskbar="True" ShowActivated="False" WindowStartupLocation="Manual">
+    <!-- Never Topmost: it would cover the game (AGENTS.md rule 4). It opens beside the game without taking focus. -->
+    <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="Body" Margin="12" />
+    </ScrollViewer>
+</Window>

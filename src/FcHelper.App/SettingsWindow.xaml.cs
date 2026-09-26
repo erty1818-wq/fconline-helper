@@ -17,7 +17,12 @@ public partial class SettingsWindow : Window
         RateBox.Text = settings.RequestsPerSecond.ToString(CultureInfo.InvariantCulture);
         VoiceBox.IsChecked = settings.VoiceBriefing;
         StartupBox.IsChecked = settings.StartWithWindows;
-        (settings.Detection == DetectionMode.Manual ? ManualModeBox : HotkeyModeBox).IsChecked = true;
+        (settings.Detection switch { DetectionMode.Manual => ManualModeBox, DetectionMode.Auto => AutoModeBox, _ => HotkeyModeBox }).IsChecked = true;
+        foreach (var (key, label) in MatchCardSections.All)
+            CardSectionsPanel.Children.Add(new System.Windows.Controls.CheckBox
+            {
+                Content = label, Tag = key, IsChecked = settings.CardSections.Contains(key), Margin = new Thickness(0, 2, 12, 2),
+            });
         SaveCapturesBox.IsChecked = settings.SaveCaptures;
         MarketBox.IsChecked = settings.ShowMarket;
         MarketRefreshBox.IsChecked = settings.MarketAutoRefresh;
@@ -43,7 +48,10 @@ public partial class SettingsWindow : Window
         _settings.RequestsPerSecond = rate;
         _settings.VoiceBriefing = VoiceBox.IsChecked == true;
         _settings.StartWithWindows = StartupBox.IsChecked == true;
-        _settings.Detection = ManualModeBox.IsChecked == true ? DetectionMode.Manual : DetectionMode.Hotkey;
+        _settings.Detection = ManualModeBox.IsChecked == true ? DetectionMode.Manual
+            : AutoModeBox.IsChecked == true ? DetectionMode.Auto : DetectionMode.Hotkey;
+        _settings.CardSections = CardSectionsPanel.Children.OfType<System.Windows.Controls.CheckBox>()
+            .Where(b => b.IsChecked == true).Select(b => (string)b.Tag).ToList();
         _settings.SaveCaptures = SaveCapturesBox.IsChecked == true;
         _settings.ShowMarket = MarketBox.IsChecked == true;
         _settings.MarketAutoRefresh = MarketRefreshBox.IsChecked == true;

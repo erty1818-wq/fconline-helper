@@ -14,7 +14,7 @@ public enum DetectionMode
     Hotkey,
     /// <summary>Only the search window (Ctrl+Alt+S).</summary>
     Manual,
-    /// <summary>Watches for the matchmaking screen while the game is in front. Not implemented yet.</summary>
+    /// <summary>Watches the game window while it is in front: opponent card on a match, end card after it (docs/auto-mode).</summary>
     Auto,
 }
 
@@ -38,6 +38,8 @@ public sealed class AppSettings
     public bool ApiGuideShown { get; set; }
     /// <summary>Download new versions in the background and switch to them on the next start (the notice still shows).</summary>
     public bool AutoUpdate { get; set; } = true;
+    /// <summary>Which sections the 매칭 카드 shows besides the basics (keys of <see cref="MatchCardSections"/>).</summary>
+    public List<string> CardSections { get; set; } = [.. MatchCardSections.Defaults];
     /// <summary>The 구단주 검색 window's size as the user left it (null = the default card size).</summary>
     public double? SearchWidth { get; set; }
     public double? SearchHeight { get; set; }
