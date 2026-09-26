@@ -29,9 +29,10 @@ public sealed class FcHelperService(
     // ── lookup ─────────────────────────────────────────────────────────────
 
     /// <param name="refresh">Ask the API for new matches even when the last check is recent (the [갱신] button).</param>
+    /// <param name="matches">How many recent matches to analyse (default <see cref="FcHelperOptions.MatchWindow"/>; the API gives at most 100).</param>
     /// <returns>The report, or null when no user has that nickname.</returns>
     public async Task<OpponentReport?> LookupAsync(
-        string nickname, IProgress<LookupProgress>? progress = null, CancellationToken ct = default, bool refresh = false)
+        string nickname, IProgress<LookupProgress>? progress = null, CancellationToken ct = default, bool refresh = false, int? matches = null)
     {
         nickname = nickname.Trim();
         if (nickname.Length == 0) return null;
@@ -40,12 +41,14 @@ public sealed class FcHelperService(
         var user = await ResolveUserAsync(nickname, ct);
         if (user is null) return null;
 
-        var window = Options.MatchWindow;
+        var window = Math.Clamp(matches ?? Options.MatchWindow, 1, 100);
         var context = await PrepareContextAsync(user.Ouid, ct);
 
         var cachedIds = db.GetCachedMatchIds(user.Ouid, Options.MatchType, window);
-        var checkedAt = LastChecked(user.Ouid);
-        if (!refresh && cachedIds.Count > 0 && checkedAt is { } at && Now - at < Options.RecheckAfter)
+        var last = LastChecked(user.Ouid);
+        var checkedAt = last?.At;
+        // A recent check covers this lookup only if it looked at at least as many matches.
+        if (!refresh && cachedIds.Count > 0 && last is { } l && l.Window >= window && Now - l.At < Options.RecheckAfter && l.At is var at)
         {
             // Seen a moment ago: no API call at all, the cache is as fresh as the API would be.
             var again = await Task.Run(() => BuildReport(user, cachedIds, cachedIds.Count, context) with { CheckedAt = at }, ct);
@@ -85,7 +88,7 @@ public sealed class FcHelperService(
         if (fetched == toFetch.Count)
         {
             checkedAt = Now;
-            db.SetValue(CheckedKey(user.Ouid), checkedAt.Value.ToString("O"));
+            db.SetValue(CheckedKey(user.Ouid), $"{checkedAt.Value:O}|{window}");
         }
         var report = await Task.Run(() => BuildReport(user, ids, ids.Count, context) with { CheckedAt = checkedAt }, ct);
         return await FinishAsync(report, fetched, toFetch.Count, progress, ct);
@@ -108,9 +111,15 @@ public sealed class FcHelperService(
 
     private static string CheckedKey(string ouid) => $"lookup.checked.{ouid}";
 
-    private DateTime? LastChecked(string ouid) =>
-        db.GetValue(CheckedKey(ouid)) is { } v
-        && DateTime.TryParse(v.Value, null, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t.ToUniversalTime() : null;
+    /// <summary>When the match list was last checked in full and over how many matches ("time|count"; older values are time only).</summary>
+    private (DateTime At, int Window)? LastChecked(string ouid)
+    {
+        if (db.GetValue(CheckedKey(ouid)) is not { } v) return null;
+        var parts = v.Value.Split('|');
+        if (!DateTime.TryParse(parts[0], null, System.Globalization.DateTimeStyles.RoundtripKind, out var t)) return null;
+        var window = parts.Length > 1 && int.TryParse(parts[1], out var w) ? w : Options.MatchWindow;
+        return (t.ToUniversalTime(), window);
+    }
 
     private async Task<OpponentReport> AddMarketAsync(OpponentReport report, CancellationToken ct)
     {

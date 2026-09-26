@@ -109,6 +109,14 @@ public partial class SearchWindow : Window
 
     private void OnSearchClick(object sender, RoutedEventArgs e) => RunSearch(NicknameBox.Text.Trim(), refresh: false);
 
+    private int MatchCount() => MatchCountBox?.SelectedItem is ComboBoxItem { Tag: string t } && int.TryParse(t, out var n) ? n : 30;
+
+    private void OnMatchCountChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _shown is null) return; // the first selection happens while the window is built
+        RunSearch(_shown, refresh: false);
+    }
+
     private void OnRefreshClick(object sender, RoutedEventArgs e)
     {
         if (_shown is not null) RunSearch(_shown, refresh: true);
@@ -148,7 +156,7 @@ public partial class SearchWindow : Window
 
         try
         {
-            var report = await service.LookupAsync(nickname, progress, cts.Token, refresh);
+            var report = await service.LookupAsync(nickname, progress, cts.Token, refresh, MatchCount());
             if (cts.IsCancellationRequested) return;
             if (report is null)
             {

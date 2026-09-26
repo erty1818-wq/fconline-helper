@@ -74,6 +74,13 @@
         <DockPanel x:Name="TabRow" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed">
             <!-- OS-03: when the match list was last checked, and a button to check again now. -->
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                <!-- How many recent matches to analyse; more costs one API call per match not yet saved. -->
+                <ComboBox x:Name="MatchCountBox" Width="84" Margin="6,0,0,0" VerticalAlignment="Center" SelectionChanged="OnMatchCountChanged"
+                          ToolTip="분석할 최근 경기 수. 늘리면 저장 안 된 경기마다 NEXON Open API를 1회씩 부릅니다.">
+                    <ComboBoxItem Content="30경기" Tag="30" IsSelected="True" />
+                    <ComboBoxItem Content="50경기" Tag="50" />
+                    <ComboBoxItem Content="100경기" Tag="100" />
+                </ComboBox>
                 <TextBlock x:Name="CheckedText" Foreground="{StaticResource Muted}" FontSize="11" VerticalAlignment="Center" Margin="6,0,6,0" />
                 <!-- OS-19: the open tab as a picture. -->
                 <Button x:Name="SaveImageButton" Style="{StaticResource Ghost}" Padding="6,2" Margin="0,0,4,0" Click="OnSaveImageClick" ToolTip="지금 탭을 이미지로 저장 (사진\FcHelper)">

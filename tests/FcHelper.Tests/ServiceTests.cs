@@ -188,6 +188,25 @@ public class FcHelperServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_recent_check_is_reused_only_for_as_many_matches_or_fewer()
+    {
+        SeedOpponent(12);
+        var svc = Service();
+        var few = await svc.LookupAsync("FC고인물123", matches: 5);
+        Assert.Equal(5, few!.Analysis.Record.Matches);
+        _api.Calls.Clear();
+
+        var more = await svc.LookupAsync("FC고인물123");   // 30: more than the last check looked at
+        Assert.Equal(1, _api.CallsTo("match"));
+        Assert.Equal(12, more!.Analysis.Record.Matches);
+        _api.Calls.Clear();
+
+        var again = await svc.LookupAsync("FC고인물123", matches: 5);
+        Assert.Empty(_api.Calls);
+        Assert.Equal(5, again!.Analysis.Record.Matches);
+    }
+
+    [Fact]
     public async Task A_stopped_fetch_is_not_remembered_as_checked()
     {
         SeedOpponent(8);
