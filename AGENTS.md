@@ -5,6 +5,7 @@
 ## 지금 진행 중인 작업
 
 - **구단주 검색 강화** — 계획: `docs/opponent-search/PLAN.md`, 진행 기록: `docs/opponent-search/PROGRESS.md`
+- **완전 자동 모드와 인게임 캡처** — 계획: `docs/auto-mode/PLAN.md`, 진행 기록: `docs/auto-mode/PROGRESS.md` (구단주 검색 강화는 끝남)
 - 이어받았으면 PROGRESS.md의 "지금 하는 중"부터 확인하고, 거기 적힌 작업을 이어서 끝낸 뒤 다음 작업으로 간다.
 
 ## 프로젝트 한 줄 요약
