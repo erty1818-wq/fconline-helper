@@ -11,7 +11,8 @@ public sealed record StatLine(int Matches, double Rating, double Goals, double A
 {
     public static StatLine Of(IEnumerable<MatchDetail> matches, string ouid)
     {
-        var sides = matches.Select(m => m.SideOf(ouid)).Where(s => s is { HasStats: true }).Cast<MatchInfo>().ToList();
+        var games = matches.Where(m => m.SideOf(ouid) is { HasStats: true }).ToList();
+        var sides = games.Select(m => m.SideOf(ouid)!).ToList();
         if (sides.Count == 0) return new StatLine(0, 0, 0, 0, 0, 0, 0);
         var shots = sides.Sum(s => s.Shoot.ShootTotal);
         var passes = sides.Sum(s => s.Pass.PassTry);
@@ -19,7 +20,8 @@ public sealed record StatLine(int Matches, double Rating, double Goals, double A
             sides.Count,
             // matchDetail.averageRating is not the players' average (real values sit near 4); the players' own ratings are.
             sides.Average(s => s.Player.Where(p => p.Status.SpRating > 0).Select(p => p.Status.SpRating).DefaultIfEmpty(0).Average()),
-            sides.Average(s => s.Shoot.GoalTotal),
+            // Same rule as the summary card: own goals count for the other side.
+            games.Average(m => m.SideOf(ouid)!.Shoot.GoalTotal + (m.OpponentOf(ouid)?.Shoot.OwnGoal ?? 0)),
             sides.Average(s => s.Player.Sum(p => p.Status.Assist)),
             sides.Average(s => s.MatchDetail.Possession),
             shots == 0 ? 0 : (double)sides.Sum(s => s.Shoot.EffectiveShootTotal) / shots,

@@ -365,6 +365,7 @@ public partial class SearchWindow : Window
             case "squad": await ShowSquadAsync(r); break;
             case "shots": ShowShots(r); break;
             case "flow": ShowFlow(r); break;
+            case "compare": ShowCompare(r); break;
         }
     }
 
