@@ -37,6 +37,67 @@ public partial class SearchWindow
         CompareContent.Children.Add(lineups);
         _ = AddFormationLineupsAsync(report, key, lineups);
         AddTeams(report);
+        AddRival(report, key);
+    }
+
+    /// <summary>OS-16: another manager next to this one, and their games against each other if the cache has any.</summary>
+    private void AddRival(OpponentReport report, string key)
+    {
+        CompareContent.Children.Add(SectionTitle("라이벌 매치 · 다른 구단주와 비교"));
+        var box = new TextBox { Name = "RivalBox", MinWidth = 240, ToolTip = "비교할 구단주 닉네임 (Enter)" };
+        var go = new Button { Name = "RivalButton", Content = "비교", Margin = new Thickness(6, 0, 0, 0) };
+        var bar = new DockPanel { MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left };
+        DockPanel.SetDock(go, Dock.Right);
+        bar.Children.Add(go);
+        bar.Children.Add(box);
+        var result = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+        CompareContent.Children.Add(bar);
+        CompareContent.Children.Add(result);
+
+        async void Run()
+        {
+            var nick = box.Text.Trim();
+            if (nick.Length == 0) return;
+            if (_app.Service is not { } service || _app.Db is not { } db)
+            {
+                SetTab(result, TabHint("먼저 홈 화면에서 NEXON Open API 키를 입력하세요."));
+                return;
+            }
+            go.IsEnabled = false;
+            SetTab(result, TabHint($"'{nick}' 불러오는 중… (처음이면 경기마다 API 1회)"));
+            try
+            {
+                var other = await service.LookupAsync(nick);
+                if (_compareFor != key) return;
+                if (other is null) { SetTab(result, TabHint($"'{nick}' 닉네임을 찾지 못했습니다.")); return; }
+                if (other.Ouid == report.Ouid) { SetTab(result, TabHint("같은 구단주입니다.")); return; }
+
+                var rival = Rivalry.Of(db.GetMatches(db.GetHeadToHead(report.Ouid, other.Ouid, service.Options.MatchType).Select(r => r.MatchId)), report.Ouid, other.Ouid);
+                var h2h = new TextBlock { FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
+                h2h.Text = rival.Matches == 0
+                    ? $"저장된 경기 중에는 {report.Nickname} 님과 {other.Nickname} 님이 맞붙은 기록이 없습니다."
+                    : $"맞대결 [직접] {report.Nickname} 기준 {rival.Matches}전 {rival.Wins}승 {rival.Draws}무 {rival.Losses}패"
+                        + $" · 득실 {rival.GoalsFor}:{rival.GoalsAgainst} ({rival.GoalDifference:+0;-0;0}) · 마지막 {rival.Last!.Value.ToLocalTime():M월 d일}";
+                SetTab(result, h2h, ProfileTable(
+                    $"{report.Nickname} ({Profile.Of(report.Matches, report.Ouid).Matches}경기)", Profile.Of(report.Matches, report.Ouid),
+                    $"{other.Nickname} ({Profile.Of(other.Matches, other.Ouid).Matches}경기)", Profile.Of(other.Matches, other.Ouid)));
+                result.Children.Add(new TextBlock
+                {
+                    Text = "맞대결은 이 PC에 저장된 경기에서만 찾습니다. 두 사람 모두 최근 경기를 불러온 범위 안에서입니다.",
+                    Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+                });
+            }
+            catch (Exception e) when (e is NexonApi.NexonApiException or System.Net.Http.HttpRequestException or TaskCanceledException)
+            {
+                if (_compareFor == key) SetTab(result, TabHint("불러오지 못했습니다. 연결 상태나 API 한도를 확인하세요."));
+            }
+            finally
+            {
+                go.IsEnabled = true;
+            }
+        }
+        go.Click += (_, _) => Run();
+        box.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) { e.Handled = true; Run(); } };
     }
 
     /// <summary>OS-15: the squads they switched between (7+ same starters = one team), with results and key players.</summary>
