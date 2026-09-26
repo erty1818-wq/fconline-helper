@@ -1,7 +1,12 @@
 <UserControl x:Class="FcHelper.App.Studio.PlayerSearchPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:app="clr-namespace:FcHelper.App"
              xmlns:market="clr-namespace:FcHelper.Market;assembly=FcHelper.Market"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <!-- Every selection on this screen opens with a text filter at the top. -->
+        <Style TargetType="ComboBox" BasedOn="{StaticResource SearchableComboBox}" />
+    </UserControl.Resources>
     <!-- Player search on the official data center, with every condition its search takes. -->
     <DockPanel>
         <Border DockPanel.Dock="Top" Style="{StaticResource CardPanel}" Margin="0,0,0,10">
@@ -28,6 +33,10 @@
                             <Button DockPanel.Dock="Right" Style="{StaticResource Ghost}" Content="전체 선택" Click="OnSeasonsAll" Padding="8,2" Margin="0,0,6,0" />
                             <ToggleButton x:Name="SeasonsToggle" DockPanel.Dock="Right" Style="{StaticResource Chip}" Content="클래스 펴기" Click="OnSeasonsToggle" Margin="0,0,6,0" />
                             <TextBlock x:Name="SeasonsLabel" Text="클래스: 전체" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <DockPanel x:Name="SeasonSearchRow" Visibility="Collapsed" Margin="0,0,0,6">
+                            <TextBlock DockPanel.Dock="Left" Text="클래스 검색" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Width="80" />
+                            <TextBox x:Name="SeasonSearchBox" TextChanged="OnSeasonSearchChanged" ToolTip="클래스 코드나 전체 이름 일부를 입력하세요 (예: TOTS, ICON)" />
                         </DockPanel>
                         <WrapPanel x:Name="SeasonGrid" Visibility="Collapsed" Margin="0,0,0,6" />
                         <!-- Positions -->

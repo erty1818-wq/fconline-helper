@@ -10,6 +10,17 @@ public sealed record SearchPick(string Value, string Name);
 public sealed record SearchClub(int Id, string Name, int LeagueId);
 public sealed record SearchNation(int Id, string Name, int ConfederationId);
 
+/// <summary>Human-friendly filtering for the option lists: every space-separated part may occur anywhere in the name.</summary>
+public static class OptionSearch
+{
+    public static bool Matches(string text, string query)
+    {
+        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return terms.All(term => CultureInfo.CurrentCulture.CompareInfo.IndexOf(
+            text, term, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0);
+    }
+}
+
 /// <summary>Everything the data center's player search offers to choose from, read from its search page (kept a week).</summary>
 public sealed record SearchOptions(
     IReadOnlyList<SearchSeason> Seasons, IReadOnlyList<SearchPick> Leagues, IReadOnlyList<SearchClub> Clubs,

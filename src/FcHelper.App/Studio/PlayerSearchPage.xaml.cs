@@ -46,6 +46,7 @@ public partial class PlayerSearchPage : UserControl
     private const string Any = "상관없음";
     private SearchOptions? _options;
     private readonly List<ToggleButton> _seasons = [];
+    private readonly Dictionary<ToggleButton, SearchSeason> _seasonOptions = [];
     private readonly List<(ToggleButton Button, string Group, string Ids)> _positions = [];
     private readonly List<(ToggleButton Button, string Ids)> _bodies = [];
     private readonly List<(ComboBox Stat, TextBox Min, TextBox Max)> _stats = [];
@@ -170,6 +171,7 @@ public partial class PlayerSearchPage : UserControl
             };
             b.Click += (_, _) => UpdateSeasonLabel();
             _seasons.Add(b);
+            _seasonOptions[b] = s;
             SeasonGrid.Children.Add(b);
             _ = LoadIconAsync(icon, s.Icon, s.Code);
         }
@@ -208,8 +210,22 @@ public partial class PlayerSearchPage : UserControl
 
     private void OnSeasonsToggle(object sender, RoutedEventArgs e)
     {
-        SeasonGrid.Visibility = SeasonsToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-        SeasonsToggle.Content = SeasonsToggle.IsChecked == true ? "클래스 접기" : "클래스 펴기";
+        var open = SeasonsToggle.IsChecked == true;
+        SeasonGrid.Visibility = SeasonSearchRow.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        SeasonsToggle.Content = open ? "클래스 접기" : "클래스 펴기";
+        if (open) Dispatcher.BeginInvoke(() => SeasonSearchBox.Focus());
+        else SeasonSearchBox.Text = "";
+    }
+
+    private void OnSeasonSearchChanged(object sender, TextChangedEventArgs e)
+    {
+        var query = SeasonSearchBox.Text.Trim();
+        foreach (var button in _seasons)
+        {
+            var season = _seasonOptions[button];
+            button.Visibility = OptionSearch.Matches($"{season.Code} {season.Name}", query)
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     private void OnSeasonsAll(object sender, RoutedEventArgs e) { foreach (var s in _seasons) s.IsChecked = true; UpdateSeasonLabel(); }
@@ -226,6 +242,7 @@ public partial class PlayerSearchPage : UserControl
     private void Reset()
     {
         NameBox.Text = "";
+        SeasonSearchBox.Text = "";
         foreach (var s in _seasons) s.IsChecked = false;
         foreach (var p in PositionGrid.Children.OfType<ToggleButton>()) p.IsChecked = false;
         foreach (var b in _bodies) b.Button.IsChecked = false;

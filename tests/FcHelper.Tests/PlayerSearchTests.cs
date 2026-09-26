@@ -53,4 +53,15 @@ public class PlayerSearchTests
 
     [Fact]
     public void Whole_letters_are_not_initials() => Assert.False(Initials.IsInitials("메시"));
+
+    [Theory]
+    [InlineData("FC 바이에른 뮌헨", "뮌헨")]
+    [InlineData("FC 바이에른 뮌헨", "바이에른 뮌헨")]
+    [InlineData("26TOTS Team of the Season", "tots")]
+    public void Option_search_matches_every_term_anywhere(string name, string query) =>
+        Assert.True(OptionSearch.Matches(name, query));
+
+    [Fact]
+    public void Option_search_rejects_a_missing_term() =>
+        Assert.False(OptionSearch.Matches("TSV 1860 뮌헨", "바이에른 뮌헨"));
 }
