@@ -60,3 +60,40 @@ public class MatchFlowTests
         return m with { MatchInfo = [s with { Shoot = shoot }, m.OpponentOf(ouid)!] };
     }
 }
+
+/// <summary>흐름 tab: goals per quarter-hour (OS-09).</summary>
+public class TimeBucketTests
+{
+    private const long Period = 1L << 24;
+
+    [Theory]
+    [InlineData(0, 14 * 60 + 59, 0)]
+    [InlineData(0, 44 * 60, 2)]
+    [InlineData(0, 47 * 60, 2)] // first-half stoppage
+    [InlineData(1, 0, 3)]       // 45:00, second-half kickoff
+    [InlineData(1, 44 * 60, 5)] // 89:00
+    [InlineData(1, 46 * 60, 6)] // 91:00
+    [InlineData(3, 60, 6)]      // extra time
+    public void Buckets_follow_the_period(int period, int seconds, int bucket) =>
+        Assert.Equal(bucket, MatchClock.BucketOf(period * Period + seconds));
+
+    [Fact]
+    public void Bucket_totals_are_the_goals_scored_and_conceded()
+    {
+        var matches = new[]
+        {
+            new MatchBuilder("opp", "a").A(s => s.Goal(1, minute: 10).Goal(1, minute: 80).Miss(1, minute: 5)).B(s => s.Goal(2, minute: 50)).Build(),
+            new MatchBuilder("b", "opp").A(s => s.Goal(3, minute: 20)).B(s => s.Goal(4, minute: 70)).Build(),
+        };
+        var taken = ShotMap.Of(matches, "opp", conceded: false);
+        var allowed = ShotMap.Of(matches, "opp", conceded: true);
+
+        var buckets = TimeBuckets.Of(taken, allowed);
+
+        Assert.Equal(7, buckets.Count);
+        Assert.Equal(taken.Goals, buckets.Sum(b => b.For));
+        Assert.Equal(allowed.Goals, buckets.Sum(b => b.Against));
+        Assert.Equal(1, buckets[0].For);
+        Assert.Equal(1, buckets[1].Against);
+    }
+}

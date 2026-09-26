@@ -35,6 +35,49 @@ public partial class SearchWindow
             Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap,
         });
         FlowContent.Children.Add(new Viewbox { Child = Timeline(taken, allowed), Stretch = Stretch.Uniform, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) });
+        AddTimeBuckets(TimeBuckets.Of(taken, allowed));
+    }
+
+    /// <summary>OS-09: goals for and against per quarter-hour, and the busiest ones named.</summary>
+    private void AddTimeBuckets(IReadOnlyList<TimeBucket> buckets)
+    {
+        FlowContent.Children.Add(SectionTitle("시간대별 득점 · 실점 [직접]"));
+        var bestFor = buckets.MaxBy(b => b.For)!;
+        var worstAgainst = buckets.MaxBy(b => b.Against)!;
+        FlowContent.Children.Add(new TextBlock
+        {
+            Text = (bestFor.For > 0 ? $"가장 많이 넣는 때 {bestFor.Label}분 ({bestFor.For}골)" : "득점 없음")
+                + (worstAgainst.Against > 0 ? $" · 가장 많이 먹히는 때 {worstAgainst.Label}분 ({worstAgainst.Against}골)" : ""),
+            FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap,
+        });
+
+        const double barMax = 90;
+        var top = Math.Max(1, buckets.Max(b => Math.Max(b.For, b.Against)));
+        var grid = new UniformGrid { Columns = buckets.Count, Rows = 1, MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 6, 0, 0) };
+        foreach (var b in buckets)
+        {
+            var bars = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Height = barMax + 16 };
+            foreach (var (n, brush, word) in new[] { (b.For, Res<Brush>("Accent"), "득점"), (b.Against, Res<Brush>("Danger"), "실점") })
+            {
+                var column = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(2, 0, 2, 0), ToolTip = $"{b.Label}분 {word} {n}" };
+                column.Children.Add(new TextBlock { Text = $"{n}", FontSize = 11, Foreground = Res<Brush>("Muted"), HorizontalAlignment = HorizontalAlignment.Center });
+                column.Children.Add(new Rectangle { Width = 16, Height = Math.Max(2, n / (double)top * barMax), Fill = brush, RadiusX = 3, RadiusY = 3, Opacity = n == 0 ? 0.3 : 0.9 });
+                bars.Children.Add(column);
+            }
+            var cell = new StackPanel();
+            cell.Children.Add(bars);
+            cell.Children.Add(new TextBlock { Text = b.Label, FontSize = 11, Foreground = Res<Brush>("Muted"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) });
+            grid.Children.Add(cell);
+        }
+        FlowContent.Children.Add(grid);
+        var legend = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        foreach (var (label, brush) in new[] { ("득점", Res<Brush>("Accent")), ("실점", Res<Brush>("Danger")) })
+        {
+            legend.Children.Add(new Rectangle { Width = 10, Height = 10, Fill = brush, RadiusX = 2, RadiusY = 2, Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center });
+            legend.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = Res<Brush>("Muted"), Margin = new Thickness(0, 0, 12, 0) });
+        }
+        legend.Children.Add(new TextBlock { Text = "30-45에는 전반 추가시간, 90+에는 후반 추가시간과 연장이 들어갑니다.", FontSize = 12, Foreground = Res<Brush>("Muted") });
+        FlowContent.Children.Add(legend);
     }
 
     private UniformGrid StatTiles(StatLine l)
