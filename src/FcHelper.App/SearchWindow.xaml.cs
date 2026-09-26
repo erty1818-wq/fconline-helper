@@ -16,7 +16,7 @@ public partial class SearchWindow : Window
     private ReportView? _view;
 
     /// <summary>The tabs after a search: key, label, panel. 내 전적 only shows for the user's own account (OS-18).</summary>
-    private readonly List<(string Key, string Label, ScrollViewer Panel, ToggleButton Chip)> _tabs = [];
+    private readonly List<(string Key, string Label, FrameworkElement Panel, ToggleButton Chip)> _tabs = [];
     private string _tab = "summary";
     private bool _selectingTab;
     private OpponentReport? _report;
@@ -335,7 +335,7 @@ public partial class SearchWindow : Window
 
     private void BuildTabs()
     {
-        foreach (var (key, label, panel) in new (string, string, ScrollViewer)[]
+        foreach (var (key, label, panel) in new (string, string, FrameworkElement)[]
                  {
                      ("summary", "요약", SummaryTab), ("squad", "스쿼드", SquadTab), ("shots", "슈팅", ShotsTab), ("flow", "흐름", FlowTab),
                      ("compare", "비교", CompareTab), ("players", "선수", PlayersTab), ("mine", "내 전적", MineTab),
@@ -347,7 +347,7 @@ public partial class SearchWindow : Window
             chip.Unchecked += (_, _) => { if (!_selectingTab && _tab == key) chip.IsChecked = true; };
             _tabs.Add((key, label, panel, chip));
             TabBar.Children.Add(chip);
-            if (key != "summary") (panel.Content as StackPanel)?.Children.Add(Placeholder(label));
+            if (key != "summary") ((panel as ScrollViewer)?.Content as StackPanel)?.Children.Add(Placeholder(label));
         }
         // 내 전적 is for the user's own account; it appears when OS-18 fills it.
         _tabs.First(t => t.Key == "mine").Chip.Visibility = Visibility.Collapsed;
@@ -366,6 +366,7 @@ public partial class SearchWindow : Window
             case "shots": ShowShots(r); break;
             case "flow": ShowFlow(r); break;
             case "compare": ShowCompare(r); break;
+            case "players": ShowPlayers(r); break;
         }
     }
 

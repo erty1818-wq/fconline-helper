@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:FcHelper.App"
+        xmlns:studio="clr-namespace:FcHelper.App.Studio"
         Title="구단주 검색 · FC Online Helper" Width="440" Height="720" MinWidth="360" MinHeight="300"
         Background="{StaticResource Bg}" ShowInTaskbar="True" WindowStartupLocation="Manual">
     <Window.Resources>
@@ -250,7 +251,32 @@
         <ScrollViewer x:Name="ShotsTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="ShotsContent" /></ScrollViewer>
         <ScrollViewer x:Name="FlowTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="FlowContent" /></ScrollViewer>
         <ScrollViewer x:Name="CompareTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="CompareContent" /></ScrollViewer>
-        <ScrollViewer x:Name="PlayersTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="PlayersContent" /></ScrollViewer>
+        <!-- OS-17: every player they used, sortable; the grid scrolls by itself. -->
+        <DockPanel x:Name="PlayersTab" Visibility="Collapsed">
+            <TextBlock x:Name="PlayersInfo" DockPanel.Dock="Top" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,6" />
+            <DataGrid x:Name="PlayerGrid" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" CanUserResizeRows="False">
+                <DataGrid.Columns>
+                    <DataGridTemplateColumn Header="" Width="40">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate><Image Width="32" Height="32" studio:Pictures.FaceOf="{Binding SpId}" RenderOptions.BitmapScalingMode="HighQuality" /></DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="시즌" Width="46" SortMemberPath="Season">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate><Image Width="22" Height="22" studio:Pictures.SeasonOf="{Binding Season}" ToolTip="{Binding Season}" RenderOptions.BitmapScalingMode="HighQuality" /></DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
+                    <DataGridTextColumn Header="포지션" Binding="{Binding Position}" Width="62" />
+                    <DataGridTextColumn Header="경기" Binding="{Binding Apps}" Width="46" ElementStyle="{StaticResource Num}" />
+                    <DataGridTextColumn Header="골" Binding="{Binding Goals}" Width="36" ElementStyle="{StaticResource Num}" />
+                    <DataGridTextColumn Header="도움" Binding="{Binding Assists}" Width="46" ElementStyle="{StaticResource Num}" />
+                    <DataGridTextColumn Header="평점" Binding="{Binding Rating}" Width="46" ElementStyle="{StaticResource Num}" />
+                    <DataGridTextColumn Header="공격 지수" Binding="{Binding Attack}" Width="80" ElementStyle="{StaticResource Num}" />
+                    <DataGridTextColumn Header="수비 지수" Binding="{Binding Defence}" Width="80" ElementStyle="{StaticResource Num}" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
         <ScrollViewer x:Name="MineTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="MineContent" /></ScrollViewer>
         </Grid>
         </DockPanel>
