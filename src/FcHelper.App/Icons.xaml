@@ -653,4 +653,22 @@
         </DrawingImage.Drawing>
     </DrawingImage>
 
+    <!-- Icon.Star: favourite (outline = not starred, .Active = starred) -->
+    <DrawingImage x:Key="Icon.Star">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="Transparent" Geometry="M0,0 H24 V24 H0 Z" />
+                <GeometryDrawing Pen="{StaticResource PenBaseThin}" Geometry="M12,3.2 L14.6,8.9 L20.8,9.6 L16.2,13.8 L17.5,20 L12,16.9 L6.5,20 L7.8,13.8 L3.2,9.6 L9.4,8.9 Z" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+    <DrawingImage x:Key="Icon.Star.Active">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="Transparent" Geometry="M0,0 H24 V24 H0 Z" />
+                <GeometryDrawing Brush="{StaticResource IconWarn}" Pen="{StaticResource PenWarn}" Geometry="M12,3.2 L14.6,8.9 L20.8,9.6 L16.2,13.8 L17.5,20 L12,16.9 L6.5,20 L7.8,13.8 L3.2,9.6 L9.4,8.9 Z" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
 </ResourceDictionary>

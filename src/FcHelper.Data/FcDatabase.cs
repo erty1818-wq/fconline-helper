@@ -12,6 +12,9 @@ public sealed record Memo(string Ouid, string Text, IReadOnlyList<string> Tags, 
 
 public sealed record MatchSideRow(string MatchId, string Ouid, string Nickname, string Result, DateTime MatchDate, int MatchType);
 
+/// <summary>Someone the user played recently: their latest nickname and the user's own W/D/L against them.</summary>
+public sealed record RecentOpponent(string Ouid, string Nickname, DateTime LastPlayed, int Wins, int Draws, int Losses);
+
 /// <summary>
 /// Local SQLite cache. Finished matches never change, so match details are kept forever (compressed raw JSON);
 /// everything else carries an update time and the caller decides whether it is fresh enough.
@@ -221,6 +224,45 @@ public sealed class FcDatabase
             ORDER BY a.match_date DESC
             """, ("$a", ouid), ("$b", otherOuid), ("$t", matchType));
         return ReadAll(cmd, r => new MatchSideRow(r.GetString(0), r.GetString(1), r.GetString(2), r.GetString(3), ParseDate(r.GetString(4)), r.GetInt32(5)));
+    }
+
+    /// <summary>
+    /// The people <paramref name="myOuid"/> played most recently (from cached matches only), newest first,
+    /// with the user's own result against each. Looks at the last <paramref name="scan"/> matches.
+    /// </summary>
+    public IReadOnlyList<RecentOpponent> RecentOpponents(string myOuid, int limit = 10, int scan = 300)
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, """
+            SELECT b.ouid, b.nickname, a.result, a.match_date
+            FROM match_side a JOIN match_side b ON a.match_id = b.match_id AND b.ouid <> a.ouid
+            WHERE a.ouid = $me
+            ORDER BY a.match_date DESC LIMIT $s
+            """, ("$me", myOuid), ("$s", scan));
+        var rows = ReadAll(cmd, r => (Ouid: r.GetString(0), Nickname: r.GetString(1), Result: r.GetString(2), Date: ParseDate(r.GetString(3))));
+        // Rows are newest first, so the first row of each opponent carries their latest nickname and date.
+        return rows.GroupBy(r => r.Ouid)
+            .Select(g => new RecentOpponent(g.Key, g.First().Nickname, g.First().Date,
+                g.Count(r => r.Result == "승"), g.Count(r => r.Result == "무"), g.Count(r => r.Result == "패")))
+            .Take(limit)
+            .ToList();
+    }
+
+    /// <summary>Known nicknames (looked up before or seen in a cached match) that start with <paramref name="prefix"/>, most recent first.</summary>
+    public IReadOnlyList<string> SuggestNicknames(string prefix, int limit = 8)
+    {
+        var key = NicknameKey(prefix);
+        if (key.Length == 0) return [];
+        var like = key.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_") + "%";
+        using var c = Open();
+        using var cmd = Cmd(c, """
+            SELECT nickname FROM (
+                SELECT nickname, updated_at AS seen FROM users WHERE nickname_key LIKE $p ESCAPE '\'
+                UNION ALL
+                SELECT nickname, match_date AS seen FROM match_side WHERE lower(nickname) LIKE $p ESCAPE '\')
+            GROUP BY lower(nickname) ORDER BY max(seen) DESC LIMIT $l
+            """, ("$p", like), ("$l", limit));
+        return ReadAll(cmd, r => r.GetString(0));
     }
 
     public int CountMatches(int matchType)

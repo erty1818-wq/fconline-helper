@@ -45,7 +45,7 @@
         <DockPanel>
             <Button x:Name="SearchButton" DockPanel.Dock="Right" Content="검색" Margin="6,0,0,0" Click="OnSearchClick" IsDefault="True" />
             <Grid>
-                <TextBox x:Name="NicknameBox" ToolTip="상대 닉네임 (Enter로 검색)" />
+                <TextBox x:Name="NicknameBox" ToolTip="상대 닉네임 (Enter로 검색)" TextChanged="OnNicknameChanged" />
                 <!-- Placeholder while the box is empty -->
                 <TextBlock Text="상대 구단주 닉네임" Foreground="{StaticResource Muted}" Margin="8,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
                     <TextBlock.Style>
@@ -62,7 +62,11 @@
             </Grid>
         </DockPanel>
 
-        <TextBlock x:Name="StatusText" Grid.Row="1" Margin="0,6,0,0" Foreground="{StaticResource Muted}" FontSize="12" />
+        <StackPanel Grid.Row="1">
+            <!-- Autocomplete: nicknames already in the local DB. Inline, not a Popup: popups float above the game. -->
+            <WrapPanel x:Name="SuggestBar" Margin="0,4,0,0" Visibility="Collapsed" />
+            <TextBlock x:Name="StatusText" Margin="0,6,0,0" Foreground="{StaticResource Muted}" FontSize="12" />
+        </StackPanel>
 
         <DockPanel Grid.Row="2" Margin="0,6,0,0">
         <!-- Tabs of the analysis (docs/opponent-search/PLAN.md): 요약 is the light card used in game, the rest go deeper. -->
@@ -71,14 +75,18 @@
         <!-- Before a search: the start screen (OS-01 fills it). -->
         <ScrollViewer x:Name="StartPanel" VerticalScrollBarVisibility="Auto">
             <StackPanel x:Name="StartContent">
-                <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0"
-                           Text="상대 구단주 닉네임을 넣고 [검색]을 누르세요. 게임 중에는 Ctrl + Alt + S로 열고, 매칭 화면에서는 Ctrl + Alt + F로 닉네임을 읽어 옵니다." />
+                <!-- Favourites, recent searches and recent opponents: filled by SearchWindow.RefreshStart. -->
+                <StackPanel x:Name="StartLists" />
+                <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,12,0,0"
+                           Text="상대 구단주 닉네임을 넣고 [검색]을 누르세요. 게임 중에는 Ctrl + Alt + S로 이 창을 열고, 단축키 모드에서는 매칭 화면에서 Ctrl + Alt + F로 상대 닉네임을 읽어 옵니다." />
             </StackPanel>
         </ScrollViewer>
         <ScrollViewer x:Name="SummaryTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
             <StackPanel x:Name="Card">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Right" Text="{Binding Controller}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
+                    <Button x:Name="FavoriteButton" DockPanel.Dock="Left" Style="{StaticResource Ghost}" Padding="2" Margin="0,0,6,0"
+                            VerticalAlignment="Center" Click="OnFavoriteClick" ToolTip="즐겨찾기에 넣기 / 빼기" />
                     <TextBlock Text="{Binding Header}" FontSize="19" FontWeight="Bold" />
                 </DockPanel>
                 <TextBlock Text="{Binding PreviousNicknames}" Foreground="{StaticResource Muted}" FontSize="12" />
