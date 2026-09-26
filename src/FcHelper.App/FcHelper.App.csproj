@@ -8,8 +8,8 @@
     <!-- Only for the tray icon (NotifyIcon). -->
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>FcHelper</AssemblyName>
-    <!-- Compared with the release page's tag (v0.6.0) for updates: raise it with every release. -->
-    <Version>0.6.0</Version>
+    <!-- Compared with the release page's tag for updates: raise it with every release. -->
+    <Version>0.8.0</Version>
     <RootNamespace>FcHelper.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- The exe's icon in Explorer and the taskbar; windows and the tray use the same file. -->
