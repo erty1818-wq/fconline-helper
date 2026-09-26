@@ -86,7 +86,7 @@ dotnet publish src/FcHelper.App -c Release -r win-x64 -o "C:\Projects\fc helper\
 
 - **릴리스:** `git tag vX.Y.Z && git push origin vX.Y.Z`를 하면 `.github/workflows/release.yml`이 exe를 빌드해 GitHub Releases에 올린다. 친구들 앱은 이걸 보고 업데이트한다.
   - **사용자가 "배포해줘"라고 할 때만 한다.**
-  - 새 태그는 직전 태그보다 높아야 한다. 최신 태그는 `git fetch --tags && git tag --sort=-v:refname | head -1`로 확인한다(2026-09-26 기준 v0.9.1). **확인 결과를 본 다음에 번호를 정한다.** 확인과 태그 만들기를 한 명령에 묶지 않는다. 여러 AI와 사용자가 번갈아 배포하므로 기억한 번호는 틀릴 수 있다(2026-09-26에 v0.8.0이 이미 있는 줄 모르고 v0.7.2를 올린 적이 있다. 그래서 같은 커밋을 v0.8.1로 다시 올렸다). 새 기능이면 가운데 숫자, 고친 것만이면 끝 숫자를 올린다.
+  - 새 태그는 직전 태그보다 높아야 한다. 최신 태그는 `git fetch --tags && git tag --sort=-v:refname | head -1`로 확인한다(2026-09-26 기준 v0.10.0). **확인 결과를 본 다음에 번호를 정한다.** 확인과 태그 만들기를 한 명령에 묶지 않는다. 여러 AI와 사용자가 번갈아 배포하므로 기억한 번호는 틀릴 수 있다(2026-09-26에 v0.8.0이 이미 있는 줄 모르고 v0.7.2를 올린 적이 있다. 그래서 같은 커밋을 v0.8.1로 다시 올렸다). 새 기능이면 가운데 숫자, 고친 것만이면 끝 숫자를 올린다.
   - 릴리스한 뒤 `src/FcHelper.App/FcHelper.App.csproj`의 `<Version>`을 새 태그 번호로 맞춘다. 로컬로 만든 app-latest가 낮은 번호면 앱이 스스로 GitHub 릴리스로 "업데이트"해서 로컬 변경이 사라진다(2026-09-26에 실제로 겪음). 개발 빌드(Debug, 또는 옆에 FcHelper.dll이 있는 빌드)는 `Updater.IsDevelopmentBuild`로 스스로 업데이트하지 않는다.
   - 순서:
     1. 빌드·테스트 통과, `git status`가 깨끗한지 확인한다.
