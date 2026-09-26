@@ -80,14 +80,14 @@ public static class MatchScreen
         foreach (var w in words.Where(w => w.Length >= 2).OrderByDescending(w => w.Length)) yield return w;
     }
 
-    private static OcrLine? FindLine(IReadOnlyList<OcrLine> lines, string nickname)
+    internal static OcrLine? FindLine(IReadOnlyList<OcrLine> lines, string nickname)
     {
         var target = Compact(nickname);
         return lines.FirstOrDefault(l => Compact(l.Text).Contains(target, StringComparison.OrdinalIgnoreCase))
             ?? lines.FirstOrDefault(l => EditDistance(Compact(l.Text), target) <= Math.Max(1, target.Length / 4));
     }
 
-    private static bool IsUiText(string text)
+    internal static bool IsUiText(string text)
     {
         var c = Compact(text);
         return c.Length < 2 || c is "VS" or "vs" || c.EndsWith('점') || UiWords.Any(c.Contains) || WholeWords.Contains(c) || c.All(char.IsDigit) || TierLabel.IsMatch(c) || LooksLikeTier(c);
@@ -122,9 +122,9 @@ public static class MatchScreen
         return names;
     }
 
-    private static string Compact(string s) => string.Concat(s.Where(ch => !char.IsWhiteSpace(ch)));
+    internal static string Compact(string s) => string.Concat(s.Where(ch => !char.IsWhiteSpace(ch)));
 
-    private static int EditDistance(string a, string b)
+    internal static int EditDistance(string a, string b)
     {
         var d = new int[b.Length + 1];
         for (var j = 0; j <= b.Length; j++) d[j] = j;

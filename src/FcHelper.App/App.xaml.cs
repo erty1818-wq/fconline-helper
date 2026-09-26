@@ -256,7 +256,11 @@ public partial class App : Application
             var lines = await _reader.ReadAsync(frame);
             if (Settings.SaveCaptures) SaveCapture(frame, lines);
 
-            var candidates = MatchScreen.OpponentCandidates(lines, Settings.MyNickname);
+            // On the matchmaking screen the nicknames sit side by side; in a match (the screen was missed) they are on the
+            // scoreboard, which is read enlarged, and under the bottom panels.
+            var candidates = MatchScreen.LooksLikeMatchScreen(lines)
+                ? MatchScreen.OpponentCandidates(lines, Settings.MyNickname)
+                : await InGameCandidatesAsync(frame, lines);
             var nickname = candidates.Count == 0 ? null : await Service.FindExistingNicknameAsync(candidates);
 
             var search = ShowSearchBeside(area);
@@ -266,9 +270,9 @@ public partial class App : Application
             }
             else
             {
-                search.Prompt(MatchScreen.LooksLikeMatchScreen(lines)
+                search.Prompt(candidates.Count > 0
                     ? "화면에서 상대 닉네임을 읽지 못했습니다. 직접 입력해 주세요."
-                    : "매칭 화면(팀 정보)이 아닌 것 같습니다. 팀 정보 화면에서 눌러 주세요.", candidates.FirstOrDefault());
+                    : "매칭 화면(팀 정보)이나 경기 화면(점수판)에서 눌러 주세요.", candidates.FirstOrDefault());
             }
         }
         catch (Exception ex) when (ex is NexonApiException or HttpRequestException or TaskCanceledException)
@@ -279,6 +283,16 @@ public partial class App : Application
         {
             _recognizing = false;
         }
+    }
+
+    /// <summary>Opponent candidates from the in-game scoreboard (3× then 4×) and the bottom panels, then the plain read.</summary>
+    private async Task<IReadOnlyList<string>> InGameCandidatesAsync(Drawing.Bitmap frame, IReadOnlyList<OcrLine> lines)
+    {
+        var passes = new List<IReadOnlyList<OcrLine>>();
+        foreach (var region in new[] { InGameScreen.Scoreboard, InGameScreen.ScoreboardLarge, InGameScreen.BottomNames })
+            passes.Add(await _reader!.ReadRegionAsync(frame, region));
+        var found = InGameScreen.OpponentCandidates(passes, Settings.MyNickname);
+        return found.Count > 0 ? found : MatchScreen.OpponentCandidates(lines, Settings.MyNickname);
     }
 
     private static void SaveCapture(Drawing.Bitmap frame, IReadOnlyList<OcrLine> lines)

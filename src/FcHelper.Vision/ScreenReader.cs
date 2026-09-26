@@ -57,6 +57,24 @@ public sealed class ScreenReader
         }).ToList();
     }
 
+    /// <summary>
+    /// OCR of one part of a captured frame, enlarged first: small game text (the in-game scoreboard) is read right only
+    /// at two to four times its size. Positions are relative to the region.
+    /// </summary>
+    public async Task<IReadOnlyList<OcrLine>> ReadRegionAsync(Bitmap frame, ScreenRegion region)
+    {
+        var crop = Rectangle.Intersect(new Rectangle(0, 0, frame.Width, frame.Height), new Rectangle(
+            (int)(region.X * frame.Width), (int)(region.Y * frame.Height), (int)(region.Width * frame.Width), (int)(region.Height * frame.Height)));
+        if (crop.Width < 4 || crop.Height < 4) return [];
+        using var big = new Bitmap((int)(crop.Width * region.Scale), (int)(crop.Height * region.Scale), PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(big))
+        {
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.DrawImage(frame, new Rectangle(0, 0, big.Width, big.Height), crop, GraphicsUnit.Pixel);
+        }
+        return await ReadAsync(big);
+    }
+
     private static SoftwareBitmap ToSoftwareBitmap(Bitmap bmp)
     {
         var data = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
