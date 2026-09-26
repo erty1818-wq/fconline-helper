@@ -53,9 +53,51 @@ public partial class SearchWindow
         }
         legend.Children.Add(new TextBlock { Text = "[직접] 위가 공격하는 골문", FontSize = 12, Foreground = Res<Brush>("Muted") });
 
-        var names = _app.Db?.GetPlayerNames(map.Dots.Select(d => d.SpId).Distinct()) ?? [];
+        var leaders = PlayerLeaders.Of(report.Matches, report.Ouid);
+        var names = _app.Db?.GetPlayerNames(map.Dots.Select(d => d.SpId).Concat(leaders.All.Select(l => l.SpId)).Distinct()) ?? [];
         var pitch = new Viewbox { Child = ShotPitch(map, names), MaxWidth = 520, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center };
         SetTab(ShotsContent, switcher, summary, legend, pitch);
+        AddRecentSummary(report, leaders, names);
+    }
+
+    /// <summary>OS-06: how the opponent scores (goal types) and who carries their team, under the map.</summary>
+    private void AddRecentSummary(OpponentReport report, PlayerLeaders leaders, IReadOnlyDictionary<int, string> names)
+    {
+        ShotsContent.Children.Add(SectionTitle("최근 경기 요약"));
+        if (_view is { GoalTypes.Count: > 0 } view && report.Analysis.GoalTypes.Count > 0)
+        {
+            ShotsContent.Children.Add(new TextBlock { Text = $"골 유형 [직접] · 골 {report.Analysis.GoalTypes[0].Total}", Foreground = Res<Brush>("Muted"), FontSize = 12 });
+            ShotsContent.Children.Add(new ItemsControl { ItemsSource = view.GoalTypes, ItemTemplate = (DataTemplate)FindResource("ShareBar"), Margin = new Thickness(0, 2, 0, 8) });
+        }
+
+        var cards = new UniformGrid { Columns = 3, Margin = new Thickness(0, 2, 0, 0) };
+        void Add(string title, PlayerLine? line, Func<PlayerLine, string> detail)
+        {
+            var box = new StackPanel();
+            box.Children.Add(new TextBlock { Text = title, Foreground = Res<Brush>("Muted"), FontSize = 12 });
+            if (line is null)
+            {
+                box.Children.Add(new TextBlock { Text = "기록 없음", Style = (Style)FindResource("Hint") });
+            }
+            else
+            {
+                var face = new Image { Width = 44, Height = 44, Margin = new Thickness(0, 4, 0, 2), HorizontalAlignment = HorizontalAlignment.Left };
+                Studio.Pictures.SetFaceOf(face, line.SpId);
+                box.Children.Add(face);
+                box.Children.Add(new TextBlock { Text = names.GetValueOrDefault(line.SpId) ?? $"#{line.SpId}", FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+                box.Children.Add(new TextBlock { Text = detail(line), Foreground = Res<Brush>("Muted"), FontSize = 12, TextWrapping = TextWrapping.Wrap });
+            }
+            cards.Children.Add(new Border { Style = (Style)FindResource("CardPanel"), Padding = new Thickness(10), Margin = new Thickness(0, 0, 6, 0), Child = box });
+        }
+        Add("최고 평점", leaders.TopRated, l => $"평균 {l.AvgRating:0.00} · {l.Apps}경기");
+        Add("최다 득점", leaders.TopScorer, l => $"{l.Goals}골 {l.Assists}도움 · {l.Apps}경기");
+        Add("최다 도움", leaders.TopAssister, l => $"{l.Assists}도움 {l.Goals}골 · {l.Apps}경기");
+        ShotsContent.Children.Add(cards);
+        ShotsContent.Children.Add(new TextBlock
+        {
+            Text = $"[직접] 경기 기록의 선수 평점·골·도움 합. 평점은 {PlayerLeaders.MinAppsForRating}경기 이상 뛴 선수 중에서 고른다.",
+            Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
+        });
     }
 
     private ToggleButton Chip(string text, bool on, string tip) => new()
