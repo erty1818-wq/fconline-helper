@@ -44,6 +44,9 @@ public sealed class MatchBuilder
         if (_b.ForfeitLoss) (ra, rb, da, db) = ("승", "패", 3, 0);
         a = a with { MatchDetail = a.MatchDetail with { MatchResult = ra }, Shoot = a.Shoot with { GoalTotalDisplay = da } };
         b = b with { MatchDetail = b.MatchDetail with { MatchResult = rb }, Shoot = b.Shoot with { GoalTotalDisplay = db } };
+        // Real data marks the other side of a forfeit as 1 (몰수승).
+        if (_b.ForfeitLoss && !_a.ForfeitLoss) a = a with { MatchDetail = a.MatchDetail with { MatchEndType = 1 } };
+        if (_a.ForfeitLoss && !_b.ForfeitLoss) b = b with { MatchDetail = b.MatchDetail with { MatchEndType = 1 } };
         return new MatchDetail { MatchId = _id, MatchDate = _date, MatchType = _matchType, MatchInfo = [a, b] };
     }
 

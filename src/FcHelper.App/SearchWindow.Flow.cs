@@ -36,6 +36,58 @@ public partial class SearchWindow
         });
         FlowContent.Children.Add(new Viewbox { Child = Timeline(taken, allowed), Stretch = Stretch.Uniform, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) });
         AddTimeBuckets(TimeBuckets.Of(taken, allowed));
+        AddHabits(Habits.Of(report.Matches, report.Ouid));
+    }
+
+    /// <summary>OS-10: forfeits, pauses and the hours and days they play.</summary>
+    private void AddHabits(Habits h)
+    {
+        FlowContent.Children.Add(SectionTitle($"플레이 습관 · 최근 {h.Matches}경기"));
+        FlowContent.Children.Add(new TextBlock
+        {
+            Text = $"몰수패 {h.ForfeitLosses}경기 ({h.ForfeitLossRate * 100:0}%) · 몰수승 {h.ForfeitWins}경기 · 평균 일시정지 {h.AvgPauses:0.0}회 [직접]",
+            FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap,
+            ToolTip = "몰수패: 이 구단주가 경기를 나가거나 연결이 끊겨 진 경기. 몰수승: 상대가 나간 경기.",
+        });
+        if (h.Matches == 0) return;
+        var (start, count) = h.PeakHours();
+        FlowContent.Children.Add(new TextBlock
+        {
+            Text = $"주로 하는 시간 {start}시~{(start + 3) % 24}시 ({count}경기) · 경기 시각은 한국 시간 [추정]",
+            Foreground = Res<Brush>("Muted"), FontSize = 12, Margin = new Thickness(0, 2, 0, 4), TextWrapping = TextWrapping.Wrap,
+            ToolTip = "API의 경기 시각에는 시간대 표시가 없어 UTC로 보고 9시간을 더했습니다.",
+        });
+
+        const double barMax = 50;
+        var most = Math.Max(1, h.ByHour.Max());
+        var hours = new UniformGrid { Columns = 24, Rows = 1, MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Stretch };
+        for (var i = 0; i < 24; i++)
+        {
+            var cell = new StackPanel { ToolTip = $"{i}시 {h.ByHour[i]}경기" };
+            cell.Children.Add(new Border
+            {
+                Height = barMax, Child = new Rectangle
+                {
+                    Height = Math.Max(2, h.ByHour[i] / (double)most * barMax), VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(1, 0, 1, 0),
+                    Fill = Res<Brush>("Info"), RadiusX = 2, RadiusY = 2, Opacity = h.ByHour[i] == 0 ? 0.25 : 0.9,
+                },
+            });
+            cell.Children.Add(new TextBlock { Text = i % 3 == 0 ? $"{i}" : "", FontSize = 10, Foreground = Res<Brush>("Muted"), HorizontalAlignment = HorizontalAlignment.Center });
+            hours.Children.Add(cell);
+        }
+        FlowContent.Children.Add(hours);
+
+        var days = new UniformGrid { Columns = 7, Rows = 1, MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 6, 0, 0) };
+        var busiest = Math.Max(1, h.ByDay.Max());
+        for (var i = 0; i < 7; i++)
+        {
+            var box = new StackPanel();
+            box.Children.Add(new TextBlock { Text = Habits.DayLabels[i], FontSize = 11, Foreground = Res<Brush>("Muted"), HorizontalAlignment = HorizontalAlignment.Center });
+            box.Children.Add(new TextBlock { Text = $"{h.ByDay[i]}", FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
+            var fill = new SolidColorBrush(((SolidColorBrush)Res<Brush>("Info")).Color) { Opacity = 0.08 + 0.4 * h.ByDay[i] / busiest };
+            days.Children.Add(new Border { Background = fill, CornerRadius = new CornerRadius(6), Padding = new Thickness(4), Margin = new Thickness(0, 0, 4, 0), Child = box });
+        }
+        FlowContent.Children.Add(days);
     }
 
     /// <summary>OS-09: goals for and against per quarter-hour, and the busiest ones named.</summary>
