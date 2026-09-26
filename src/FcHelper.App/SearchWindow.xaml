@@ -64,8 +64,19 @@
 
         <TextBlock x:Name="StatusText" Grid.Row="1" Margin="0,6,0,0" Foreground="{StaticResource Muted}" FontSize="12" />
 
-        <ScrollViewer Grid.Row="2" Margin="0,6,0,0" VerticalScrollBarVisibility="Auto">
-            <StackPanel x:Name="Card" Visibility="Collapsed">
+        <DockPanel Grid.Row="2" Margin="0,6,0,0">
+        <!-- Tabs of the analysis (docs/opponent-search/PLAN.md): 요약 is the light card used in game, the rest go deeper. -->
+        <WrapPanel x:Name="TabBar" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed" />
+        <Grid>
+        <!-- Before a search: the start screen (OS-01 fills it). -->
+        <ScrollViewer x:Name="StartPanel" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="StartContent">
+                <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="상대 구단주 닉네임을 넣고 [검색]을 누르세요. 게임 중에는 Ctrl + Alt + S로 열고, 매칭 화면에서는 Ctrl + Alt + F로 닉네임을 읽어 옵니다." />
+            </StackPanel>
+        </ScrollViewer>
+        <ScrollViewer x:Name="SummaryTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+            <StackPanel x:Name="Card">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Right" Text="{Binding Controller}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding Header}" FontSize="19" FontWeight="Bold" />
@@ -179,6 +190,15 @@
                 <TextBlock Text="{Binding SampleNote}" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,10,0,0" />
             </StackPanel>
         </ScrollViewer>
+        <!-- The deeper tabs: each fills its StackPanel from code (SearchWindow.Tabs). -->
+        <ScrollViewer x:Name="SquadTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="SquadContent" /></ScrollViewer>
+        <ScrollViewer x:Name="ShotsTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="ShotsContent" /></ScrollViewer>
+        <ScrollViewer x:Name="FlowTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="FlowContent" /></ScrollViewer>
+        <ScrollViewer x:Name="CompareTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="CompareContent" /></ScrollViewer>
+        <ScrollViewer x:Name="PlayersTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="PlayersContent" /></ScrollViewer>
+        <ScrollViewer x:Name="MineTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed"><StackPanel x:Name="MineContent" /></ScrollViewer>
+        </Grid>
+        </DockPanel>
 
         <DockPanel Grid.Row="3" Margin="0,8,0,0">
             <Button DockPanel.Dock="Right" Content="이 상대 맞춤 추천" Click="OnTailorClick" x:Name="TailorButton" Visibility="Collapsed"

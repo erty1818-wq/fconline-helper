@@ -38,6 +38,9 @@ public sealed class AppSettings
     public bool ApiGuideShown { get; set; }
     /// <summary>Download new versions in the background and switch to them on the next start (the notice still shows).</summary>
     public bool AutoUpdate { get; set; } = true;
+    /// <summary>The 구단주 검색 window's size as the user left it (null = the default card size).</summary>
+    public double? SearchWidth { get; set; }
+    public double? SearchHeight { get; set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly byte[] Entropy = "FcHelper.ApiKey.v1"u8.ToArray();

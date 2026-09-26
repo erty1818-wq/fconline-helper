@@ -1,5 +1,7 @@
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using FcHelper.NexonApi;
 using FcHelper.Services;
 
@@ -12,13 +14,30 @@ public partial class SearchWindow : Window
     private CancellationTokenSource? _lookup;
     private ReportView? _view;
 
+    /// <summary>The tabs after a search: key, label, panel. 내 전적 only shows for the user's own account (OS-18).</summary>
+    private readonly List<(string Key, string Label, ScrollViewer Panel, ToggleButton Chip)> _tabs = [];
+    private string _tab = "summary";
+    /// <summary>Width the deeper tabs open at, so the pitch and charts have room (the 요약 card stays narrow).</summary>
+    private const double WideWidth = 760;
+
     public SearchWindow(App app)
     {
         _app = app;
         InitializeComponent();
         // Never always-on-top: it would cover the game (the user's rule). It opens beside the game window instead.
         Topmost = false;
+        if (app.Settings.SearchWidth is { } w && w >= MinWidth) Width = w;
+        if (app.Settings.SearchHeight is { } h && h >= MinHeight) Height = h;
         PlaceNearRightEdge();
+        BuildTabs();
+        // The size the user leaves the window at is the size it opens with next time.
+        Closing += (_, _) =>
+        {
+            if (WindowState != WindowState.Normal) return;
+            app.Settings.SearchWidth = Math.Round(ActualWidth);
+            app.Settings.SearchHeight = Math.Round(ActualHeight);
+            app.Settings.Save();
+        };
         // Opened by the capture hotkey, the card must not pull keyboard focus away from the game.
         Loaded += (_, _) => { if (ShowActivated) FocusSearchBox(); };
         Closed += (_, _) => _lookup?.Cancel();
@@ -60,7 +79,7 @@ public partial class SearchWindow : Window
 
     /// <summary>
     /// Moves the card next to the game (<paramref name="game"/> in device-independent units) when there is room.
-    /// Only then may it stay on top: next to the game it covers nothing.
+    /// Beside the game it covers nothing, so it never needs to be on top.
     /// </summary>
     /// <returns>True when the card fits beside the game without overlapping it.</returns>
     public bool PlaceBeside(Rect game)
@@ -69,13 +88,13 @@ public partial class SearchWindow : Window
         var area = SystemParameters.WorkArea;
         var right = area.Right - game.Right - gap;
         var left = game.Left - area.Left - gap;
-        Height = Math.Min(720, area.Height - 20);
+        Height = Math.Min(_app.Settings.SearchHeight ?? 720, area.Height - 20);
         Top = Math.Max(area.Top + 10, Math.Min(game.Top, area.Bottom - Height - 10));
 
         if (right >= MinWidth || left >= MinWidth)
         {
             var useRight = right >= left;
-            Width = Math.Min(440, useRight ? right : left);
+            Width = Math.Min(_app.Settings.SearchWidth ?? 440, useRight ? right : left);
             Left = useRight ? game.Right + gap : game.Left - gap - Width;
             return true;
         }
@@ -155,8 +174,53 @@ public partial class SearchWindow : Window
     {
         _view = new ReportView(report);
         Card.DataContext = _view;
-        Card.Visibility = Visibility.Visible;
+        StartPanel.Visibility = Visibility.Collapsed;
+        TabBar.Visibility = Visibility.Visible;
         TailorButton.Visibility = Visibility.Visible;
+        SelectTab(_tab, widen: false);
+    }
+
+    // ── tabs ──
+
+    private void BuildTabs()
+    {
+        foreach (var (key, label, panel) in new (string, string, ScrollViewer)[]
+                 {
+                     ("summary", "요약", SummaryTab), ("squad", "스쿼드", SquadTab), ("shots", "슈팅", ShotsTab), ("flow", "흐름", FlowTab),
+                     ("compare", "비교", CompareTab), ("players", "선수", PlayersTab), ("mine", "내 전적", MineTab),
+                 })
+        {
+            var chip = new ToggleButton { Content = label, Style = (Style)FindResource("Chip"), Margin = new Thickness(0, 0, 6, 4) };
+            chip.Click += (_, _) => SelectTab(key, widen: true);
+            _tabs.Add((key, label, panel, chip));
+            TabBar.Children.Add(chip);
+            if (key != "summary") (panel.Content as StackPanel)?.Children.Add(Placeholder(label));
+        }
+        // 내 전적 is for the user's own account; it appears when OS-18 fills it.
+        _tabs.First(t => t.Key == "mine").Chip.Visibility = Visibility.Collapsed;
+    }
+
+    private TextBlock Placeholder(string label) => new()
+    {
+        Text = $"{label} 탭은 준비 중입니다 (docs/opponent-search/PLAN.md).", Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
+    };
+
+    /// <summary>Shows one tab; the deeper ones widen a narrow window once (moving it left if the screen edge is near).</summary>
+    private void SelectTab(string key, bool widen)
+    {
+        _tab = key;
+        foreach (var t in _tabs)
+        {
+            t.Panel.Visibility = t.Key == key ? Visibility.Visible : Visibility.Collapsed;
+            t.Chip.IsChecked = t.Key == key;
+        }
+        if (!widen || key == "summary" || WindowState != WindowState.Normal || ActualWidth >= WideWidth - 1) return;
+        var area = SystemParameters.WorkArea;
+        var width = Math.Min(WideWidth, area.Width - 20);
+        var right = Left + ActualWidth;
+        Width = width;
+        // Grow towards the free side: keep the right edge when the window sits at the right of the screen.
+        Left = right > area.Right - 40 ? Math.Max(area.Left + 10, right - width) : Math.Min(Left, area.Right - width - 10);
     }
 
     private void OnTailorClick(object sender, RoutedEventArgs e)

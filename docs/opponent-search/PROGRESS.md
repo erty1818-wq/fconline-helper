@@ -6,12 +6,7 @@
 
 ## 지금 하는 중
 
-- 작업: OS-00 탭 구조와 창 크기
-- 담당: Claude (2026-09-26)
-- 시작한 것: SearchWindow를 칩 탭(요약·스쿼드·슈팅·흐름·비교·선수·내 전적) 구조로 바꾸고, 기존 보고서를 `요약` 탭으로 옮김. 창 크기 기억, 넓은 탭을 처음 열 때 폭 약 760으로 넓히기.
-- 바꾼 파일: src/FcHelper.App/SearchWindow.xaml(.cs), src/FcHelper.App/AppSettings.cs
-- 되는 것 / 안 되는 것: (작업 중)
-- 다음 단계: 빌드·테스트 → 화면 확인 → 커밋
+- (없음. 다음은 OS-01)
 
 ## 상태 표
 
@@ -19,7 +14,7 @@
 
 | ID | 작업 | 상태 | 커밋 | 메모 |
 |---|---|---|---|---|
-| OS-00 | 탭 구조와 창 크기 | 진행 중 | | |
+| OS-00 | 탭 구조와 창 크기 | 완료 | (OS-00 커밋) | 칩 탭 7개, 요약 = 기존 카드. 내 전적 칩은 OS-18 전까지 숨김. 다른 탭은 "준비 중" 안내. 화면 확인 미완(사용자 앱 실행 중) |
 | OS-01 | 첫 화면 (최근 검색·즐겨찾기·최근 상대·자동완성) | 대기 | | |
 | OS-02 | 머리 부분 강화 (등급 아이콘·승무패 칩·연승연패) | 대기 | | |
 | OS-03 | 빠른 재조회와 갱신 버튼 | 대기 | | |
@@ -42,8 +37,11 @@
 
 ## 확인한 사실 (다음 작업자가 다시 조사하지 않게)
 
-- (아직 없음. 예: "shootDetail x는 0=내 골문, 1=상대 골문 — 경기 3개로 확인, 테스트 X에 고정")
+- SearchWindow 구조(OS-00 이후): `StartPanel`(검색 전 첫 화면, 내용은 `StartContent`) / `SummaryTab`(기존 카드 `Card`) / `SquadTab`·`ShotsTab`·`FlowTab`·`CompareTab`·`PlayersTab`·`MineTab`. 각 탭 내용은 `SquadContent` 같은 이름의 StackPanel에 코드로 채운다. 채울 때 `Placeholder` 안내를 지운다(`Children.Clear()`).
+- 탭 전환은 `SelectTab(key, widen)`. 키: summary, squad, shots, flow, compare, players, mine. 요약이 아닌 탭을 누르면 폭이 760보다 좁을 때 760으로 넓힌다.
+- 창 크기는 `AppSettings.SearchWidth/SearchHeight`에 닫을 때 저장된다.
 
 ## 작업 일지 (새 항목을 맨 아래에 추가)
 
 - 2026-09-26 · Claude · 계획 수립과 문서화(PLAN.md, PROGRESS.md, AGENTS.md, HANDOFF_PROMPT.md). 코드는 바꾸지 않았다. 기준 커밋 `a0a324c`.
+- 2026-09-26 · Claude · OS-00 완료: 탭 구조, 창 크기 기억, 넓은 탭 자동 확장. 빌드·테스트 174개 통과. 실행 화면은 사용자 앱이 켜져 있어 아직 확인하지 않았다.
