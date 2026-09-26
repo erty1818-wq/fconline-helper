@@ -15,6 +15,11 @@ public sealed record FcHelperOptions
     public string? MyNickname { get; init; }
 
     public TimeSpan UserInfoTtl { get; init; } = TimeSpan.FromDays(1);
+    /// <summary>
+    /// Opening the same manager again within this time answers from the cache without asking the API for new matches
+    /// (the [갱신] button still does). The API lags about two hours anyway.
+    /// </summary>
+    public TimeSpan RecheckAfter { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan MetadataTtl { get; init; } = TimeSpan.FromDays(7);
     public TimeSpan BaselineTtl { get; init; } = TimeSpan.FromHours(24);
 

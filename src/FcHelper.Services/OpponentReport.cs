@@ -37,6 +37,8 @@ public sealed record OpponentReport
 
     /// <summary>How many matches the analysis used, and how many were requested.</summary>
     public int LoadedMatches { get; init; }
+    /// <summary>When the match list was last checked against the API (UTC); null when it never finished.</summary>
+    public DateTime? CheckedAt { get; init; }
     public int RequestedMatches { get; init; }
     public bool IsComplete => LoadedMatches >= RequestedMatches;
 

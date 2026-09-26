@@ -105,9 +105,15 @@ public partial class SearchWindow : Window
         return false;
     }
 
-    private async void OnSearchClick(object sender, RoutedEventArgs e)
+    private void OnSearchClick(object sender, RoutedEventArgs e) => RunSearch(NicknameBox.Text.Trim(), refresh: false);
+
+    private void OnRefreshClick(object sender, RoutedEventArgs e)
     {
-        var nickname = NicknameBox.Text.Trim();
+        if (_shown is not null) RunSearch(_shown, refresh: true);
+    }
+
+    private async void RunSearch(string nickname, bool refresh)
+    {
         if (nickname.Length == 0) return;
 
         var service = _app.Service;
@@ -121,7 +127,8 @@ public partial class SearchWindow : Window
         _lookup?.Cancel();
         var cts = _lookup = new CancellationTokenSource();
         SearchButton.IsEnabled = false;
-        StatusText.Text = "검색 중…";
+        RefreshButton.IsEnabled = false;
+        StatusText.Text = refresh ? "새 경기 확인 중…" : "검색 중…";
 
         // Progress<T> captures the UI thread, so the card can be updated directly from the callback.
         var progress = new Progress<LookupProgress>(p =>
@@ -139,7 +146,7 @@ public partial class SearchWindow : Window
 
         try
         {
-            var report = await service.LookupAsync(nickname, progress, cts.Token);
+            var report = await service.LookupAsync(nickname, progress, cts.Token, refresh);
             if (cts.IsCancellationRequested) return;
             if (report is null)
             {
@@ -170,7 +177,7 @@ public partial class SearchWindow : Window
         }
         finally
         {
-            if (ReferenceEquals(_lookup, cts)) SearchButton.IsEnabled = true;
+            if (ReferenceEquals(_lookup, cts)) SearchButton.IsEnabled = RefreshButton.IsEnabled = true;
         }
     }
 
@@ -181,7 +188,9 @@ public partial class SearchWindow : Window
         _view = new ReportView(report);
         Card.DataContext = _view;
         StartPanel.Visibility = Visibility.Collapsed;
-        TabBar.Visibility = Visibility.Visible;
+        TabRow.Visibility = Visibility.Visible;
+        CheckedText.Text = report.CheckedAt is { } at ? $"{Ago(at)} 갱신" : "갱신 안 됨";
+        CheckedText.ToolTip = report.CheckedAt is { } t ? $"새 경기 확인: {t.ToLocalTime():M월 d일 HH:mm}" : "새 경기 확인을 끝내지 못했습니다. [갱신]을 눌러 다시 확인하세요.";
         TailorButton.Visibility = Visibility.Visible;
         SelectTab(_tab, widen: false);
     }
@@ -196,7 +205,7 @@ public partial class SearchWindow : Window
     {
         RefreshStart();
         StartPanel.Visibility = Visibility.Visible;
-        TabBar.Visibility = Visibility.Collapsed;
+        TabRow.Visibility = Visibility.Collapsed;
         TailorButton.Visibility = Visibility.Collapsed;
         foreach (var t in _tabs) t.Panel.Visibility = Visibility.Collapsed;
         FocusSearchBox();

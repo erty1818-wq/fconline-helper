@@ -70,7 +70,20 @@
 
         <DockPanel Grid.Row="2" Margin="0,6,0,0">
         <!-- Tabs of the analysis (docs/opponent-search/PLAN.md): 요약 is the light card used in game, the rest go deeper. -->
-        <WrapPanel x:Name="TabBar" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed" />
+        <DockPanel x:Name="TabRow" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed">
+            <!-- OS-03: when the match list was last checked, and a button to check again now. -->
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                <TextBlock x:Name="CheckedText" Foreground="{StaticResource Muted}" FontSize="11" VerticalAlignment="Center" Margin="6,0,6,0" />
+                <Button x:Name="RefreshButton" Style="{StaticResource Ghost}" Padding="6,2" Click="OnRefreshClick"
+                        ToolTip="새 경기가 있는지 지금 NEXON Open API로 확인합니다. 같은 상대를 10분 안에 다시 열면 저장된 기록으로 바로 보여 줍니다.">
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="{app:Icon Update}" Width="13" Height="13" Margin="0,0,4,0" VerticalAlignment="Center" />
+                        <TextBlock Text="갱신" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <WrapPanel x:Name="TabBar" />
+        </DockPanel>
         <Grid>
         <!-- Before a search: the start screen (OS-01 fills it). -->
         <ScrollViewer x:Name="StartPanel" VerticalScrollBarVisibility="Auto">

@@ -137,6 +137,7 @@ public class FcHelperServiceTests : IDisposable
         var svc = Service();
         await svc.LookupAsync("FC고인물123");
         _api.Calls.Clear();
+        _time.Advance(TimeSpan.FromMinutes(11));
 
         var progress = new List<LookupProgress>();
         await svc.LookupAsync("FC고인물123", new SyncProgress<LookupProgress>(progress.Add));
@@ -155,11 +156,50 @@ public class FcHelperServiceTests : IDisposable
         await svc.LookupAsync("FC고인물123");
         _api.Add(new MatchBuilder("opp", "late").At(new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc)).A(s => s.Nick("FC고인물123")).Build());
         _api.Calls.Clear();
+        _time.Advance(TimeSpan.FromMinutes(11));
 
         var report = await svc.LookupAsync("FC고인물123");
 
         Assert.Equal(1, _api.CallsTo("match-detail"));
         Assert.Equal(6, report!.Analysis.Record.Matches);
+    }
+
+    [Fact]
+    public async Task Reopening_within_ten_minutes_makes_no_api_call_unless_refreshed()
+    {
+        SeedOpponent(5);
+        var svc = Service();
+        var first = await svc.LookupAsync("FC고인물123");
+        Assert.Equal(_time.GetUtcNow().UtcDateTime, first!.CheckedAt);
+        _api.Add(new MatchBuilder("opp", "late").At(new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc)).A(s => s.Nick("FC고인물123")).Build());
+        _api.Calls.Clear();
+        _time.Advance(TimeSpan.FromMinutes(5));
+
+        var again = await svc.LookupAsync("FC고인물123");
+        Assert.Empty(_api.Calls);
+        Assert.Equal(5, again!.Analysis.Record.Matches);
+        Assert.Equal(first.CheckedAt, again.CheckedAt);
+        Assert.True(again.IsComplete);
+
+        var refreshed = await svc.LookupAsync("FC고인물123", refresh: true);
+        Assert.Equal(1, _api.CallsTo("match-detail"));
+        Assert.Equal(6, refreshed!.Analysis.Record.Matches);
+        Assert.Equal(_time.GetUtcNow().UtcDateTime, refreshed.CheckedAt);
+    }
+
+    [Fact]
+    public async Task A_stopped_fetch_is_not_remembered_as_checked()
+    {
+        SeedOpponent(8);
+        _api.FailDetailsAfter = 3;
+        var svc = Service();
+        var report = await svc.LookupAsync("FC고인물123");
+        Assert.Null(report!.CheckedAt);
+
+        _api.FailDetailsAfter = int.MaxValue;
+        _api.Calls.Clear();
+        await svc.LookupAsync("FC고인물123");
+        Assert.Equal(5, _api.CallsTo("match-detail"));
     }
 
     [Fact]

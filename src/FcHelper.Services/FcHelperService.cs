@@ -28,8 +28,10 @@ public sealed class FcHelperService(
 
     // ── lookup ─────────────────────────────────────────────────────────────
 
+    /// <param name="refresh">Ask the API for new matches even when the last check is recent (the [갱신] button).</param>
     /// <returns>The report, or null when no user has that nickname.</returns>
-    public async Task<OpponentReport?> LookupAsync(string nickname, IProgress<LookupProgress>? progress = null, CancellationToken ct = default)
+    public async Task<OpponentReport?> LookupAsync(
+        string nickname, IProgress<LookupProgress>? progress = null, CancellationToken ct = default, bool refresh = false)
     {
         nickname = nickname.Trim();
         if (nickname.Length == 0) return null;
@@ -42,6 +44,13 @@ public sealed class FcHelperService(
         var context = await PrepareContextAsync(user.Ouid, ct);
 
         var cachedIds = db.GetCachedMatchIds(user.Ouid, Options.MatchType, window);
+        var checkedAt = LastChecked(user.Ouid);
+        if (!refresh && cachedIds.Count > 0 && checkedAt is { } at && Now - at < Options.RecheckAfter)
+        {
+            // Seen a moment ago: no API call at all, the cache is as fresh as the API would be.
+            var again = await Task.Run(() => BuildReport(user, cachedIds, cachedIds.Count, context) with { CheckedAt = at }, ct);
+            return await FinishAsync(again, 0, 0, progress, ct);
+        }
         if (cachedIds.Count > 0)
         {
             var cached = await Task.Run(() => BuildReport(user, cachedIds, window, context), ct);
@@ -72,18 +81,36 @@ public sealed class FcHelperService(
             }
         }
 
-        var report = await Task.Run(() => BuildReport(user, ids, ids.Count, context), ct);
-        progress?.Report(new LookupProgress(LookupStage.Done, report, fetched, toFetch.Count));
+        // Only a complete check counts: after a quota stop the next open tries again.
+        if (fetched == toFetch.Count)
+        {
+            checkedAt = Now;
+            db.SetValue(CheckedKey(user.Ouid), checkedAt.Value.ToString("O"));
+        }
+        var report = await Task.Run(() => BuildReport(user, ids, ids.Count, context) with { CheckedAt = checkedAt }, ct);
+        return await FinishAsync(report, fetched, toFetch.Count, progress, ct);
+    }
+
+    private async Task<OpponentReport> FinishAsync(
+        OpponentReport report, int fetched, int toFetch, IProgress<LookupProgress>? progress, CancellationToken ct)
+    {
+        progress?.Report(new LookupProgress(LookupStage.Done, report, fetched, toFetch));
 
         // The card is already up; overall and price follow a moment later.
         var withMarket = await AddMarketAsync(report, ct);
         if (!ReferenceEquals(withMarket, report))
         {
             report = withMarket;
-            progress?.Report(new LookupProgress(LookupStage.Done, report, fetched, toFetch.Count));
+            progress?.Report(new LookupProgress(LookupStage.Done, report, fetched, toFetch));
         }
         return report;
     }
+
+    private static string CheckedKey(string ouid) => $"lookup.checked.{ouid}";
+
+    private DateTime? LastChecked(string ouid) =>
+        db.GetValue(CheckedKey(ouid)) is { } v
+        && DateTime.TryParse(v.Value, null, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t.ToUniversalTime() : null;
 
     private async Task<OpponentReport> AddMarketAsync(OpponentReport report, CancellationToken ct)
     {
