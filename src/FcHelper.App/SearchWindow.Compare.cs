@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using FcHelper.Core.Models;
 using FcHelper.Services;
 
 namespace FcHelper.App;
@@ -32,11 +33,53 @@ public partial class SearchWindow
             Text = "포메이션은 게임이 알려 주지 않아 선발 11명의 포지션으로 가장 가까운 것을 고릅니다.",
             Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap,
         });
-        _ = AddFormationLineupsAsync(report, key);
+        var lineups = new StackPanel();
+        CompareContent.Children.Add(lineups);
+        _ = AddFormationLineupsAsync(report, key, lineups);
+        AddTeams(report);
+    }
+
+    /// <summary>OS-15: the squads they switched between (7+ same starters = one team), with results and key players.</summary>
+    private void AddTeams(OpponentReport report)
+    {
+        CompareContent.Children.Add(SectionTitle("팀 단위 분석 [계산]"));
+        var teams = Teams.Group(report.Matches, report.Ouid);
+        if (teams.Count == 0) { CompareContent.Children.Add(TabHint("기록이 있는 경기가 없습니다.")); return; }
+        if (teams.Count == 1)
+        {
+            CompareContent.Children.Add(TabHint($"최근 {teams[0].Matches.Count}경기를 모두 같은 팀으로 뛰었습니다 (선발 {Teams.MinShared}명 이상 같음)."));
+            return;
+        }
+        var label = new Dictionary<MatchInfo, string>(ReferenceEqualityComparer.Instance);
+        foreach (var t in teams)
+            foreach (var m in t.Matches)
+                label[m.SideOf(report.Ouid)!] = $"팀 {t.Number}";
+        CompareContent.Children.Add(SplitTable(Splits.By(report.Matches, report.Ouid, s => label.GetValueOrDefault(s)), "팀"));
+
+        var ids = teams.SelectMany(t => t.Matches).SelectMany(m => m.SideOf(report.Ouid)!.Player).Select(p => p.SpId).Distinct().ToList();
+        var names = _app.Db?.GetPlayerNames(ids) ?? [];
+        foreach (var t in teams.Take(4))
+        {
+            var top = PlayerLeaders.Of(t.Matches, report.Ouid).All
+                .OrderByDescending(l => (double)(l.Goals + l.Assists) / l.Apps).ThenByDescending(l => l.AvgRating).Take(3)
+                .Select(l => $"{names.GetValueOrDefault(l.SpId) ?? $"#{l.SpId}"} {(double)(l.Goals + l.Assists) / l.Apps:0.0}(골+도움/경기) · 평점 {l.AvgRating:0.0}");
+            var first = t.Matches[^1].MatchDate.ToLocalTime();
+            var last = t.Matches[0].MatchDate.ToLocalTime();
+            CompareContent.Children.Add(new TextBlock
+            {
+                Text = $"팀 {t.Number} ({first:M/d}~{last:M/d}): {string.Join(" · ", top)}",
+                FontSize = 12, Foreground = Res<Brush>("Muted"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 1),
+            });
+        }
+        CompareContent.Children.Add(new TextBlock
+        {
+            Text = $"최근 경기부터 보며 선발 {Teams.MinShared}명 이상이 같으면 같은 팀으로 묶습니다.",
+            Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+        });
     }
 
     /// <summary>OS-14: for the formations used at least twice (up to three), the eleven that stands for each on a small pitch.</summary>
-    private async Task AddFormationLineupsAsync(OpponentReport report, string key)
+    private async Task AddFormationLineupsAsync(OpponentReport report, string key, StackPanel host)
     {
         var picks = Splits.ByFormation(report.Matches, report.Ouid)
             .Where(l => l.Key != Splits.Unknown && l.Matches >= 2).Take(3)
@@ -44,14 +87,14 @@ public partial class SearchWindow
             .Where(x => x.Pick is not null)
             .ToList();
         if (picks.Count == 0) return;
-        CompareContent.Children.Add(SectionTitle("포메이션별 대표 라인업"));
+        host.Children.Add(SectionTitle("포메이션별 대표 라인업"));
         if (_app.Squads is not { } squads)
         {
-            CompareContent.Children.Add(TabHint("시세 데이터가 아직 준비되지 않아 카드를 그릴 수 없습니다."));
+            host.Children.Add(TabHint("시세 데이터가 아직 준비되지 않아 카드를 그릴 수 없습니다."));
             return;
         }
         var status = TabHint("카드 정보 불러오는 중…");
-        CompareContent.Children.Add(status);
+        host.Children.Add(status);
         var owned = picks.Select(x => SquadContext.StartersOf(x.Pick!.Value.Side)).ToList();
         try
         {
@@ -62,7 +105,7 @@ public partial class SearchWindow
             // Cards already known still draw; the rest are left out of the pitch.
         }
         if (_compareFor != key) return;
-        CompareContent.Children.Remove(status);
+        host.Children.Remove(status);
         var row = new WrapPanel();
         for (var i = 0; i < picks.Count; i++)
         {
@@ -78,7 +121,7 @@ public partial class SearchWindow
             box.Children.Add(pitch);
             row.Children.Add(box);
         }
-        CompareContent.Children.Add(row);
+        host.Children.Add(row);
     }
 
     /// <summary>OS-12 / OS-13: one row per group with matches, W-D-L, win rate and goals per match.</summary>
