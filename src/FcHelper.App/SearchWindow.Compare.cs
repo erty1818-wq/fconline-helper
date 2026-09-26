@@ -32,6 +32,53 @@ public partial class SearchWindow
             Text = "포메이션은 게임이 알려 주지 않아 선발 11명의 포지션으로 가장 가까운 것을 고릅니다.",
             Style = (Style)FindResource("Hint"), TextWrapping = TextWrapping.Wrap,
         });
+        _ = AddFormationLineupsAsync(report, key);
+    }
+
+    /// <summary>OS-14: for the formations used at least twice (up to three), the eleven that stands for each on a small pitch.</summary>
+    private async Task AddFormationLineupsAsync(OpponentReport report, string key)
+    {
+        var picks = Splits.ByFormation(report.Matches, report.Ouid)
+            .Where(l => l.Key != Splits.Unknown && l.Matches >= 2).Take(3)
+            .Select(l => (Line: l, Pick: Splits.Representative(report.Matches, report.Ouid, l.Key)))
+            .Where(x => x.Pick is not null)
+            .ToList();
+        if (picks.Count == 0) return;
+        CompareContent.Children.Add(SectionTitle("포메이션별 대표 라인업"));
+        if (_app.Squads is not { } squads)
+        {
+            CompareContent.Children.Add(TabHint("시세 데이터가 아직 준비되지 않아 카드를 그릴 수 없습니다."));
+            return;
+        }
+        var status = TabHint("카드 정보 불러오는 중…");
+        CompareContent.Children.Add(status);
+        var owned = picks.Select(x => SquadContext.StartersOf(x.Pick!.Value.Side)).ToList();
+        try
+        {
+            await squads.LoadOffMarketAsync(owned.SelectMany(o => o).Select(o => o.SpId).Distinct());
+        }
+        catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException)
+        {
+            // Cards already known still draw; the rest are left out of the pitch.
+        }
+        if (_compareFor != key) return;
+        CompareContent.Children.Remove(status);
+        var row = new WrapPanel();
+        for (var i = 0; i < picks.Count; i++)
+        {
+            var (line, pick) = picks[i];
+            var box = new StackPanel { Width = 214, Margin = new Thickness(0, 0, 10, 8) };
+            box.Children.Add(new TextBlock { Text = $"{line.Key} · {line.Matches}경기 {line.WinRate * 100:0}%", FontWeight = FontWeights.SemiBold });
+            box.Children.Add(new TextBlock
+            {
+                Text = $"{pick!.Value.Matches}경기 중 가장 자주 나온 선발 [계산]", Foreground = Res<Brush>("Muted"), FontSize = 11, Margin = new Thickness(0, 0, 0, 2),
+            });
+            var pitch = new Studio.PitchView();
+            pitch.Show(Theirs(squads.CurrentSquad(owned[i])));
+            box.Children.Add(pitch);
+            row.Children.Add(box);
+        }
+        CompareContent.Children.Add(row);
     }
 
     /// <summary>OS-12 / OS-13: one row per group with matches, W-D-L, win rate and goals per match.</summary>

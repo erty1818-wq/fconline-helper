@@ -34,6 +34,23 @@ public static class Splits
     public static IReadOnlyList<SplitLine> ByController(IEnumerable<MatchDetail> matches, string ouid) =>
         By(matches, ouid, s => s.HasStats && s.MatchDetail.Controller.Length > 0 ? ReportText.ControllerLabel(s.MatchDetail.Controller) : null);
 
+    /// <summary>
+    /// The lineup that stands for a formation (OS-14): of the matches played in it, the one whose starters appear most
+    /// often in the others, so it is a real eleven with real positions and grades. Null when the formation was not used.
+    /// </summary>
+    public static (MatchInfo Side, int Matches)? Representative(IEnumerable<MatchDetail> matches, string ouid, string formation)
+    {
+        var sides = matches.Select(m => m.SideOf(ouid))
+            .Where(s => s is { HasStats: true } && SquadContext.FormationOf(s) == formation)
+            .Cast<MatchInfo>().ToList();
+        if (sides.Count == 0) return null;
+        var used = sides.SelectMany(s => s.Player.Where(p => !p.IsSubstitute).Select(p => p.SpId)).GroupBy(id => id).ToDictionary(g => g.Key, g => g.Count());
+        // Ties go to the newer match (the list is newest first).
+        var best = sides.Select((s, i) => (Side: s, Score: s.Player.Where(p => !p.IsSubstitute).Sum(p => used[p.SpId]), Order: i))
+            .OrderByDescending(x => x.Score).ThenBy(x => x.Order).First().Side;
+        return (best, sides.Count);
+    }
+
     /// <summary>Formation estimated from the starters' positions [추정].</summary>
     public static IReadOnlyList<SplitLine> ByFormation(IEnumerable<MatchDetail> matches, string ouid) =>
         By(matches, ouid, s => s.HasStats ? SquadContext.FormationOf(s) : null);
