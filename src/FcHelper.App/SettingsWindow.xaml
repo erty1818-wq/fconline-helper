@@ -33,11 +33,11 @@
 
         <TextBlock Style="{StaticResource Section}" Text="상대 인식 방식" />
         <RadioButton x:Name="HotkeyModeBox" GroupName="Detection" Foreground="{StaticResource Text}" Margin="0,2"
-                     Content="단축키 캡처 (Ctrl + Alt + F): 매칭 화면 · 경기 점수판" />
+                     Content="반자동: Ctrl + Alt + F로 화면을 읽어 검색" />
         <RadioButton x:Name="ManualModeBox" GroupName="Detection" Foreground="{StaticResource Text}" Margin="0,2"
-                     Content="수동 검색: 닉네임을 직접 입력 (Ctrl + Alt + S)" />
+                     Content="수동: 닉네임을 직접 입력 (Ctrl + Alt + S)" />
         <RadioButton x:Name="AutoModeBox" GroupName="Detection" Foreground="{StaticResource Text}" Margin="0,2"
-                     Content="완전 자동: 매칭 카드 · 종료 카드가 저절로 뜸" />
+                     Content="자동: 매칭 카드 · 종료 카드가 저절로 뜸" />
         <TextBlock Foreground="{StaticResource Muted}" FontSize="11" Margin="20,0,0,4" TextWrapping="Wrap"
                    Text="게임 창이 앞에 있을 때만 2초마다 점수판 부분을 읽습니다(게임 파일·메모리에는 손대지 않음). Ctrl + Alt + F도 그대로 쓸 수 있습니다." />
         <CheckBox x:Name="SaveCapturesBox" Content="인식한 화면을 저장 (개발용, 인식 개선에 사용)" />

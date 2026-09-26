@@ -102,14 +102,20 @@
         </DockPanel>
         <Grid>
         <!-- Before a search: the start screen (OS-01 fills it). -->
-        <ScrollViewer x:Name="StartPanel" VerticalScrollBarVisibility="Auto">
-            <StackPanel x:Name="StartContent">
-                <!-- Favourites, recent searches and recent opponents: filled by SearchWindow.RefreshStart. -->
-                <StackPanel x:Name="StartLists" />
-                <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,12,0,0"
-                           Text="상대 구단주 닉네임을 넣고 [검색]을 누르세요. 게임 중에는 Ctrl + Alt + S로 이 창을 열고, 단축키 모드에서는 매칭 화면에서 Ctrl + Alt + F로 상대 닉네임을 읽어 옵니다." />
+        <DockPanel x:Name="StartPanel">
+            <!-- 자동 / 반자동 / 수동, pinned under the lists so everyone sees the modes exist without opening the settings. -->
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <StackPanel x:Name="ModePanel" />
+                <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="Ctrl + Alt + S로 언제든 이 창을 엽니다. 게임 파일이나 메모리는 건드리지 않고 화면만 읽습니다. 카드 항목과 내 닉네임은 홈 화면 [설정]에서." />
             </StackPanel>
-        </ScrollViewer>
+            <ScrollViewer x:Name="StartScroll" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="StartContent">
+                    <!-- Favourites, recent searches and recent opponents: filled by SearchWindow.RefreshStart. -->
+                    <StackPanel x:Name="StartLists" />
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
         <ScrollViewer x:Name="SummaryTab" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
             <StackPanel x:Name="Card">
                 <DockPanel>

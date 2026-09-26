@@ -133,7 +133,7 @@ public sealed class Updater(HttpClient http)
     public static bool ApplyAndRestart()
     {
         var exe = Environment.ProcessPath;
-        if (exe is null || !File.Exists(Pending) || !exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return false;
+        if (exe is null || IsDevelopmentBuild || !File.Exists(Pending) || !exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return false;
         var old = Path.ChangeExtension(exe, ".old.exe");
         try
         {
@@ -160,6 +160,23 @@ public sealed class Updater(HttpClient http)
     }
 
     /// <summary>On start-up: deletes the exe an update replaced, and says whether a newer downloaded version is waiting.</summary>
+    /// <summary>
+    /// A build run from the source tree (Debug, or any build with FcHelper.dll beside the exe; the published single file
+    /// has none). It must never replace itself with a release: that once swapped a test build for v0.9.0 unnoticed.
+    /// </summary>
+    public static bool IsDevelopmentBuild
+    {
+        get
+        {
+#if DEBUG
+            return true;
+#else
+            var dir = Path.GetDirectoryName(Environment.ProcessPath);
+            return dir is not null && File.Exists(Path.Combine(dir, "FcHelper.dll"));
+#endif
+        }
+    }
+
     public static bool Cleanup()
     {
         if (Environment.ProcessPath is { } exe && Path.ChangeExtension(exe, ".old.exe") is var old && File.Exists(old))

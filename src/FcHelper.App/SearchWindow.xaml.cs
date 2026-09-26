@@ -33,6 +33,7 @@ public partial class SearchWindow : Window
         if (app.Settings.SearchHeight is { } h && h >= MinHeight) Height = h;
         PlaceNearRightEdge();
         BuildTabs();
+        BuildModePicker();
         RefreshStart();
         // The size the user leaves the window at is the size it opens with next time.
         Closing += (_, _) =>
@@ -213,6 +214,63 @@ public partial class SearchWindow : Window
         CheckedText.ToolTip = report.CheckedAt is { } t ? $"새 경기 확인: {t.ToLocalTime():M월 d일 HH:mm}" : "새 경기 확인을 끝내지 못했습니다. [갱신]을 눌러 다시 확인하세요.";
         TailorButton.Visibility = Visibility.Visible;
         SelectTab(_tab, widen: false);
+    }
+
+    // ── 상대 인식 방식 (start screen) ──
+
+    private static readonly (DetectionMode Mode, string Title, string Text)[] Modes =
+    [
+        (DetectionMode.Auto, "자동",
+            "누를 것 없음. 게임 창이 앞에 있으면 화면을 읽어, 매칭되면 상대 카드, 경기가 끝나면 종료 카드를 게임 옆에 띄웁니다."),
+        (DetectionMode.Hotkey, "반자동",
+            "매칭 화면이나 경기 점수판에서 Ctrl + Alt + F를 누르면 상대 닉네임을 읽어 바로 검색합니다."),
+        (DetectionMode.Manual, "수동",
+            "화면을 읽지 않습니다. 위 칸에 상대 닉네임을 직접 넣고 검색합니다."),
+    ];
+
+    /// <summary>One card per mode: the radio with its name, what it does under it; a click anywhere on the card picks it.</summary>
+    private void BuildModePicker()
+    {
+        ModePanel.Children.Clear();
+        ModePanel.Children.Add(SectionTitle("상대 인식 방식"));
+        var row = new System.Windows.Controls.Primitives.UniformGrid { Columns = Modes.Length };
+        ModePanel.Children.Add(row);
+        foreach (var (mode, title, text) in Modes)
+        {
+            var radio = new RadioButton
+            {
+                GroupName = "SearchDetection", IsChecked = _app.Settings.Detection == mode,
+                Content = new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, FontSize = 14 },
+            };
+            radio.Checked += (_, _) => { _app.SetDetection(mode); UpdateModeNote(); };
+            var body = new StackPanel();
+            body.Children.Add(radio);
+            body.Children.Add(new TextBlock
+            {
+                Text = text, Foreground = (Brush)FindResource("Muted"), FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+            });
+            var card = new Border
+            {
+                Style = (Style)FindResource("CardPanel"), Padding = new Thickness(10, 8, 10, 8), Margin = new Thickness(0, 0, 6, 0),
+                Child = body, Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            card.MouseLeftButtonUp += (_, _) => radio.IsChecked = true;
+            row.Children.Add(card);
+        }
+        _modeNote = new TextBlock { Foreground = (Brush)FindResource("Warn"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+        ModePanel.Children.Add(_modeNote);
+        UpdateModeNote();
+    }
+
+    private TextBlock? _modeNote;
+
+    /// <summary>자동 needs my nickname to tell the two names on the scoreboard apart.</summary>
+    private void UpdateModeNote()
+    {
+        if (_modeNote is null) return;
+        _modeNote.Text = _app.Settings.Detection == DetectionMode.Auto && string.IsNullOrWhiteSpace(_app.Settings.MyNickname)
+            ? "자동을 쓰려면 홈 화면 [설정]에서 내 닉네임을 넣어 주세요. 점수판의 두 닉네임 중 상대를 고르는 데 필요합니다."
+            : "";
     }
 
     // ── start screen (before a search): favourites, recent searches, recent opponents, autocomplete ──

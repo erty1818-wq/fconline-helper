@@ -9,7 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>FcHelper</AssemblyName>
     <!-- Compared with the release page's tag for updates: raise it with every release. -->
-    <Version>0.8.0</Version>
+    <Version>0.9.0</Version>
     <RootNamespace>FcHelper.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- The exe's icon in Explorer and the taskbar; windows and the tray use the same file. -->

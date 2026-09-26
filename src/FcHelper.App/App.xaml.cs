@@ -121,18 +121,22 @@ public partial class App : Application
         else if (!e.Args.Contains("--tray") || Service is null) ShowHome();
     }
 
-    /// <summary>Rebuilds the API client and service after the settings change.</summary>
-    private void ApplySettings()
+    /// <summary>자동 / 반자동 / 수동, picked on the 구단주 검색 start screen or in the settings; applies at once.</summary>
+    public void SetDetection(DetectionMode mode)
     {
-        _voice?.Dispose();
-        _voice = Settings.VoiceBriefing ? new VoiceBriefing() : null;
-        if (_voice is { HasKoreanVoice: false }) Notify("한국어 음성이 설치되어 있지 않아 기본 음성으로 읽습니다.");
+        if (Settings.Detection == mode) return;
+        Settings.Detection = mode;
+        Settings.Save();
+        ApplyDetection();
+    }
 
+    private void ApplyDetection()
+    {
         // 완전 자동 watches the game window only in that mode (docs/auto-mode).
         _watcher?.Dispose();
         _watcher = Settings.Detection == DetectionMode.Auto ? new AutoWatcher(this) : null;
 
-        // The capture shortcut exists only in hotkey mode, so manual mode leaves Ctrl+Alt+F to other programs.
+        // The capture shortcut exists except in manual mode, so manual mode leaves Ctrl+Alt+F to other programs.
         _captureHotkey?.Dispose();
         _captureHotkey = null;
         if (Settings.Detection != DetectionMode.Manual)
@@ -140,6 +144,16 @@ public partial class App : Application
             _captureHotkey = new GlobalHotkey(GlobalHotkey.ModControl | GlobalHotkey.ModAlt, VkF, RecognizeOpponent);
             if (!_captureHotkey.IsRegistered) Notify("단축키 Ctrl+Alt+F를 등록하지 못했습니다. 다른 프로그램이 쓰고 있을 수 있습니다.");
         }
+    }
+
+    /// <summary>Rebuilds the API client and service after the settings change.</summary>
+    private void ApplySettings()
+    {
+        _voice?.Dispose();
+        _voice = Settings.VoiceBriefing ? new VoiceBriefing() : null;
+        if (_voice is { HasKoreanVoice: false }) Notify("한국어 음성이 설치되어 있지 않아 기본 음성으로 읽습니다.");
+
+        ApplyDetection();
 
         var key = Settings.ApiKey;
         if (string.IsNullOrWhiteSpace(key))
@@ -512,7 +526,7 @@ public partial class App : Application
             return;
         }
         var downloaded = false;
-        if (Settings.AutoUpdate)
+        if (Settings.AutoUpdate && !Updater.IsDevelopmentBuild)
         {
             try { downloaded = await _updater.DownloadAsync(info); }
             catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException) { downloaded = false; }
