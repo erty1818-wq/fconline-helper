@@ -38,7 +38,7 @@ public partial class SearchWindow
         };
         var value = new TextBlock { Foreground = Res<System.Windows.Media.Brush>("Muted"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
         var colors = new TextBlock { Foreground = Res<System.Windows.Media.Brush>("Muted"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 6) };
-        var pitch = new PitchView { MaxWidth = 520, HorizontalAlignment = HorizontalAlignment.Center };
+        var pitch = new PitchView { MaxWidth = 470, HorizontalAlignment = HorizontalAlignment.Center };
         SetTab(SquadContent, title, value, colors, pitch);
 
         if (_app.Squads is not { } squads)
@@ -53,12 +53,16 @@ public partial class SearchWindow
             value.Text = "카드 정보 불러오는 중…";
             var unread = await squads.LoadOffMarketAsync(owned.Select(o => o.SpId));
             if (Stale()) return;
-            var slots = squads.CurrentSquad(owned);
+            var slots = Theirs(squads.CurrentSquad(owned));
             pitch.Show(slots);
-            var untraded = slots.Count(s => !s.Card.IsTraded);
-            value.Text = $"구단가치 [계산] 선발 시세 합 {Bp.Format(slots.Sum(s => s.Price))} · 평균 OVR {(slots.Count == 0 ? 0 : slots.Average(s => s.Ovr)):0.0}"
-                + (untraded > 0 ? $" · {untraded}명은 시세 없음(합에서 빠짐)" : "")
-                + (unread > 0 ? $" · {unread}명은 카드 정보를 받지 못함" : "");
+            void Describe(IReadOnlyList<SquadSlot> shown, string ovrNote)
+            {
+                var untraded = shown.Count(s => !s.Card.IsTraded);
+                value.Text = $"구단가치 [계산] 선발 시세 합 {Bp.Format(shown.Sum(s => s.Price))} · 평균 OVR {(shown.Count == 0 ? 0 : shown.Average(s => s.Ovr)):0.0}{ovrNote}"
+                    + (untraded > 0 ? $" · {untraded}명은 시세 없음(합에서 빠짐)" : "")
+                    + (unread > 0 ? $" · {unread}명은 카드 정보를 받지 못함" : "");
+            }
+            Describe(slots, "");
 
             colors.Text = "팀컬러 확인 중… (처음에는 30초쯤 걸립니다)";
             var detected = await squads.DetectTeamColorsAsync(owned);
@@ -69,7 +73,10 @@ public partial class SearchWindow
                 : "팀컬러 [계산]: " + string.Join(" · ", detected.Where(d => active.Contains(d.Color.Id))
                     .Select(d => $"{TeamColor.CategoryLabel(d.Color.Category)} {d.Color.Name} {d.Owned}명 {d.Level.Level}단계"));
             // Draw again with the bonuses the squad plays with.
-            pitch.Show(squads.CurrentSquad(owned, await squads.TargetsAsync(active)));
+            var withColors = Theirs(squads.CurrentSquad(owned, await squads.TargetsAsync(active)));
+            if (Stale()) return;
+            pitch.Show(withColors);
+            if (detected.Count > 0) Describe(withColors, " (팀컬러 포함)");
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
@@ -77,6 +84,10 @@ public partial class SearchWindow
             colors.Text = "데이터센터에 연결하지 못해 일부 정보를 채우지 못했습니다.";
         }
     }
+
+    /// <summary>CurrentSquad marks cards as the user's own (보유, locked); these are the opponent's, so show their prices instead.</summary>
+    private static IReadOnlyList<SquadSlot> Theirs(IReadOnlyList<SquadSlot> slots) =>
+        slots.Select(s => s with { Owned = false, Locked = false }).ToList();
 
     private static void SetTab(Panel panel, params UIElement[] children)
     {
