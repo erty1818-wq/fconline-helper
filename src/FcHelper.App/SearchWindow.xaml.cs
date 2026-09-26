@@ -360,6 +360,7 @@ public partial class SearchWindow : Window
         switch (key)
         {
             case "squad": await ShowSquadAsync(r); break;
+            case "shots": ShowShots(r); break;
         }
     }
 
