@@ -39,7 +39,8 @@ public partial class SearchWindow
         var value = new TextBlock { Foreground = Res<System.Windows.Media.Brush>("Muted"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
         var colors = new TextBlock { Foreground = Res<System.Windows.Media.Brush>("Muted"), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 6) };
         var pitch = new PitchView { MaxWidth = 470, HorizontalAlignment = HorizontalAlignment.Center };
-        SetTab(SquadContent, title, value, colors, pitch);
+        var weak = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+        SetTab(SquadContent, title, value, colors, weak, pitch);
 
         if (_app.Squads is not { } squads)
         {
@@ -54,11 +55,11 @@ public partial class SearchWindow
             var unread = await squads.LoadOffMarketAsync(owned.Select(o => o.SpId));
             if (Stale()) return;
             var slots = Theirs(squads.CurrentSquad(owned));
-            pitch.Show(slots);
+            ShowWeakSpots(slots, squads, pitch, weak);
             void Describe(IReadOnlyList<SquadSlot> shown, string ovrNote)
             {
                 var untraded = shown.Count(s => !s.Card.IsTraded);
-                value.Text = $"구단가치 [계산] 선발 시세 합 {Bp.Format(shown.Sum(s => s.Price))} · 평균 OVR {(shown.Count == 0 ? 0 : shown.Average(s => s.Ovr)):0.0}{ovrNote}"
+                value.Text = $"구단가치 [계산] 선발 시세 합 {Bp.Format(shown.Sum(s => s.Price))} · 평균 OVR {(shown.Count == 0 ? 0 : shown.Average(s => s.ShownOvr)):0.0}{ovrNote}"
                     + (untraded > 0 ? $" · {untraded}명은 시세 없음(합에서 빠짐)" : "")
                     + (unread > 0 ? $" · {unread}명은 카드 정보를 받지 못함" : "");
             }
@@ -75,14 +76,44 @@ public partial class SearchWindow
             // Draw again with the bonuses the squad plays with.
             var withColors = Theirs(squads.CurrentSquad(owned, await squads.TargetsAsync(active)));
             if (Stale()) return;
-            pitch.Show(withColors);
             if (detected.Count > 0) Describe(withColors, " (팀컬러 포함)");
+            ShowWeakSpots(withColors, squads, pitch, weak);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
             if (Stale()) return;
             colors.Text = "데이터센터에 연결하지 못해 일부 정보를 채우지 못했습니다.";
         }
+    }
+
+    /// <summary>
+    /// The slots clearly weaker than the rest of the eleven (often the keeper or a full-back when the money went to the
+    /// attack), outlined on the pitch, and the keeper's salary class either way.
+    /// </summary>
+    private void ShowWeakSpots(IReadOnlyList<SquadSlot> slots, SquadService squads, PitchView pitch, StackPanel host)
+    {
+        var (average, spots) = SquadWeakSpots.Of(slots, squads.PayRank);
+        pitch.Highlighted = spots.Select(s => s.Index).ToHashSet();
+        pitch.Show(slots);
+        host.Children.Clear();
+        host.Children.Add(new TextBlock
+        {
+            Text = spots.Count == 0 ? $"약점 [계산]: 평균 OVR {average:0.0}보다 {SquadWeakSpots.WeakGap:0} 이상 낮은 자리가 없습니다." : "약점 [계산] · 피치에 주황 테두리",
+            FontWeight = FontWeights.SemiBold, Foreground = Res<System.Windows.Media.Brush>(spots.Count == 0 ? "Muted" : "Warn"), Margin = new Thickness(0, 2, 0, 2),
+        });
+        foreach (var s in spots)
+            host.Children.Add(new TextBlock
+            {
+                Text = $"{s.Position} {s.Name} OVR {s.Ovr:0} · {s.Reason}"
+                    + (s.Position == "GK" && s.PayRank is { } r && !s.Reason.Contains("저급여") ? $" · 급여 {s.Pay} ({SquadWeakSpots.PayLabel(r)})" : ""),
+                TextWrapping = TextWrapping.Wrap,
+            });
+        if (slots.FirstOrDefault(s => s.Position == "GK") is { } gk && squads.PayRank(gk.Card) is { } rank && spots.All(s => s.Index != gk.Index))
+            host.Children.Add(new TextBlock
+            {
+                Text = $"GK {gk.Card.Name} 급여 {gk.Pay} · {SquadWeakSpots.PayLabel(rank)} (시장 GK 중 하위 {rank * 100:0}%)",
+                Foreground = Res<System.Windows.Media.Brush>("Muted"), FontSize = 12,
+            });
     }
 
     /// <summary>CurrentSquad marks cards as the user's own (보유, locked); these are the opponent's, so show their prices instead.</summary>

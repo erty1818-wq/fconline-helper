@@ -38,6 +38,16 @@ public sealed class SquadService(
     /// </summary>
     public IReadOnlyList<MarketCard> Pool() => EnsurePool().Cards;
 
+    /// <summary>
+    /// Where the card's salary ranks among market cards of its group (GK, FB, …): 0 = cheapest, 1 = dearest.
+    /// Null when the group has no cards in the market data.
+    /// </summary>
+    public double? PayRank(MarketCard card)
+    {
+        var pays = EnsurePool().Cards.Where(c => c.Group == card.Group).Select(c => c.Pay).ToList();
+        return pays.Count == 0 ? null : (double)pays.Count(p => p < card.Pay) / pays.Count;
+    }
+
     public MarketCard? Card(long spId) => EnsurePool().BySpId.GetValueOrDefault(spId) ?? _offMarket.GetValueOrDefault(spId);
 
     private readonly Dictionary<long, MarketCard> _offMarket = [];
