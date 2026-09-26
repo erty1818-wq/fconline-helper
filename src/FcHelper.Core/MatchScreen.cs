@@ -90,7 +90,20 @@ public static class MatchScreen
     private static bool IsUiText(string text)
     {
         var c = Compact(text);
-        return c.Length < 2 || c is "VS" or "vs" || c.EndsWith('점') || UiWords.Any(c.Contains) || WholeWords.Contains(c) || c.All(char.IsDigit) || TierLabel.IsMatch(c);
+        return c.Length < 2 || c is "VS" or "vs" || c.EndsWith('점') || UiWords.Any(c.Contains) || WholeWords.Contains(c) || c.All(char.IsDigit) || TierLabel.IsMatch(c) || LooksLikeTier(c);
+    }
+
+    private static readonly string[] TierWords = ["챔피언스", "챌린지", "챌린저", "월드클래스", "세미프로", "유망주", "엘리트", "아마추어"];
+
+    /// <summary>
+    /// A division label misread by one letter ("철린저 2부" for "챌린저 2부" really came through as a search). Only whole
+    /// labels of three letters or more, so real nicknames are rarely caught.
+    /// </summary>
+    private static bool LooksLikeTier(string compact)
+    {
+        var core = System.Text.RegularExpressions.Regex.Replace(compact, @"(\d*부?(감독)?)$", "");
+        if (core.StartsWith("슈퍼")) core = core[2..];
+        return core.Length >= 3 && TierWords.Any(t => EditDistance(core, t) <= 1);
     }
 
     /// <summary>

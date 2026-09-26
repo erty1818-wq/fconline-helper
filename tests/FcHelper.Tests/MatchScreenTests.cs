@@ -73,6 +73,7 @@ public class MatchScreenTests
         new("셰틸 크누첸", 0.68, 0.655, 0.09, 0.03),
         new("챌린저 2부", 0.60, 0.20, 0.08, 0.045),
         new("월드클래스1", 0.85, 0.25, 0.09, 0.05),
+        new("철린저 2부", 0.62, 0.22, 0.08, 0.045), // "챌린저" misread; it once went through as a real search
     ];
 
     [Fact]
@@ -82,7 +83,7 @@ public class MatchScreenTests
         {
             var candidates = MatchScreen.OpponentCandidates(NoisyScreen(), me);
             Assert.Equal("류춘", candidates[0]);
-            Assert.DoesNotContain(candidates, c => c is "준비" or "연장전" or "셰틸크누첸" or "셰틸" or "크누첸" or "챌린저2부" or "월드클래스1");
+            Assert.DoesNotContain(candidates, c => c is "준비" or "연장전" or "셰틸크누첸" or "셰틸" or "크누첸" or "챌린저2부" or "월드클래스1" or "철린저" or "철린저2부");
         }
     }
 
