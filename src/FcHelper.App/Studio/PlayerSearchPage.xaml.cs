@@ -49,7 +49,6 @@ public partial class PlayerSearchPage : UserControl
     private readonly List<(ToggleButton Button, string Group, string Ids)> _positions = [];
     private readonly List<(ToggleButton Button, string Ids)> _bodies = [];
     private readonly List<(ComboBox Stat, TextBox Min, TextBox Max)> _stats = [];
-    private readonly Dictionary<string, ImageSource?> _seasonIcons = [];
 
     public PlayerSearchPage()
     {
@@ -180,7 +179,6 @@ public partial class PlayerSearchPage : UserControl
     private async Task LoadIconAsync(Image image, string url, string code)
     {
         var source = await Faces.LoadAsync(url);
-        _seasonIcons[code] = source;
         if (source is not null) image.Source = source;
     }
 
@@ -333,8 +331,11 @@ public partial class PlayerSearchPage : UserControl
 
     private async Task FillPicturesAsync(SearchRow row)
     {
-        if (_options?.Seasons.FirstOrDefault(s => s.Code.Equals(row.Season, StringComparison.OrdinalIgnoreCase)) is { } season)
-            row.SeasonIcon = _seasonIcons.GetValueOrDefault(season.Code) ?? await Faces.LoadAsync(season.Icon);
+        // The row's season is the icon's file name (26TOTS → …/season/26tots.png); the checkbox ids shorten some (26ts),
+        // so the official icon is looked up by that name, or built from it for seasons the page lists differently.
+        var icon = _options?.Seasons.FirstOrDefault(s => s.Icon.EndsWith($"/{row.Season}.png", StringComparison.OrdinalIgnoreCase))?.Icon
+            ?? $"https://ssl.nexon.com/s2/game/fc/online/obt/externalAssets/new/season/{row.Season.ToLowerInvariant()}.png";
+        row.SeasonIcon = await Faces.LoadAsync(icon);
         if (Faces.Enabled) row.Face = await Faces.GetAsync(row.SpId);
     }
 
@@ -350,7 +351,7 @@ public partial class PlayerSearchPage : UserControl
         Results.Columns.Add(new DataGridTextColumn { Header = "OVR", Binding = new Binding(nameof(SearchRow.Ovr)), Width = 50 });
         Results.Columns.Add(new DataGridTextColumn { Header = "포지션", Binding = new Binding(nameof(SearchRow.Positions)), Width = 150 });
         Results.Columns.Add(new DataGridTextColumn { Header = "급여", Binding = new Binding(nameof(SearchRow.Pay)), Width = 45 });
-        Results.Columns.Add(new DataGridTextColumn { Header = $"시세 (+{Math.Max(1, GradeBox.SelectedIndex + 1)})", Binding = new Binding(nameof(SearchRow.Price)), Width = 80 });
+        Results.Columns.Add(new DataGridTextColumn { Header = $"시세 (+{Math.Max(1, GradeBox.SelectedIndex + 1)})", Binding = new Binding(nameof(SearchRow.Price)), Width = 100 });
         var names = new[] { Col1, Col2, Col3, Col4 }.Select(c => (c.SelectedItem as SearchPick)?.Name ?? "").ToList();
         foreach (var (name, path) in names.Zip(new[] { nameof(SearchRow.S1), nameof(SearchRow.S2), nameof(SearchRow.S3), nameof(SearchRow.S4) }))
             Results.Columns.Add(new DataGridTextColumn { Header = name, Binding = new Binding(path), Width = 70 });
