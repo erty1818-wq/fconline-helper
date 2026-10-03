@@ -340,6 +340,22 @@ public sealed class MarketStore
         return set;
     }
 
+    /// <summary>All already-cached member sets, used to price feature colours without extra network requests.</summary>
+    public IReadOnlyDictionary<int, IReadOnlySet<long>> LoadAllTeamColorMembers()
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT team_color, sp_id FROM team_color_member ORDER BY team_color");
+        using var r = cmd.ExecuteReader();
+        var sets = new Dictionary<int, HashSet<long>>();
+        while (r.Read())
+        {
+            var id = r.GetInt32(0);
+            if (!sets.TryGetValue(id, out var members)) sets[id] = members = [];
+            members.Add(r.GetInt64(1));
+        }
+        return sets.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<long>)kv.Value);
+    }
+
     public (string Value, DateTime UpdatedAt)? GetValue(string key)
     {
         using var c = Open();

@@ -115,6 +115,39 @@ public class PriceModelTests
     }
 
     [Fact]
+    public void Separates_physical_buckets_and_both_team_colour_kinds()
+    {
+        var cards = Market().Select((c, i) =>
+        {
+            var height = new[] { 168, 172, 177, 182 }[i % 4];
+            var weight = new[] { 62, 67, 72, 87 }[(i / 4) % 4];
+            var multiplier = (height == 182 ? 1.3 : 1) * (weight == 87 ? 1.2 : 1)
+                * (i % 7 == 0 ? 1.4 : 1) * (i % 11 == 0 ? 1.25 : 1);
+            return c with
+            {
+                Stats = new Dictionary<string, int>(c.Stats) { ["height"] = height, ["weight"] = weight },
+                Prices = new Dictionary<int, long> { [1] = 1000, [8] = (long)(c.PriceAt(8) * multiplier) },
+            };
+        }).ToList();
+        var affiliation = cards.Where((_, i) => i % 7 == 0).Select(c => c.SpId).ToHashSet();
+        var feature = cards.Where((_, i) => i % 11 == 0).Select(c => c.SpId).ToHashSet();
+        var model = PriceModel.Fit("W", 8, cards,
+        [
+            new("tc:aff:1", "소속 팀컬러: A", FactorKind.TeamColor, affiliation),
+            new("tc:feature:2", "특성 팀컬러: B", FactorKind.FeatureTeamColor, feature),
+        ])!;
+        var factors = model.Factors().ToDictionary(f => f.Key);
+
+        Assert.Equal(FactorKind.Height, factors["height:180-184"].Kind);
+        Assert.Equal(FactorKind.Weight, factors["weight:85+"].Kind);
+        Assert.InRange(factors["height:180-184"].Percent, 12, 40);
+        Assert.InRange(factors["weight:85+"].Percent, 10, 30);
+        Assert.Equal(FactorKind.TeamColor, factors["tc:aff:1"].Kind);
+        Assert.Equal(FactorKind.FeatureTeamColor, factors["tc:feature:2"].Kind);
+        Assert.InRange(model.ValidationError, 0, 0.12);
+    }
+
+    [Fact]
     public void Card_filter_applies_every_condition()
     {
         var card = new MarketCard
@@ -207,6 +240,7 @@ public class MarketRefreshTests : IDisposable
         Assert.True(await svc.RefreshIfDueAsync());
         var cards = store.LoadCards(store.LatestFinished()!.Id, "ST");
         Assert.Contains(cards, c => c.Stats.ContainsKey("sprintspeed") && c.Stats.ContainsKey("composure")); // both stat passes
+        Assert.Contains(cards, c => MarketGroups.Get("ST").AllStats.All(c.Stats.ContainsKey));
         Assert.Contains(cards, c => c.Tags.Contains("trait:라인 브레이커"));
 
         var calls = _source.Calls;

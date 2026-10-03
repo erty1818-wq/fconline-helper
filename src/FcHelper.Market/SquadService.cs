@@ -335,6 +335,9 @@ public sealed class SquadService(
         IProgress<string>? progress = null)
     {
         var chart = await ChartAsync(rankFrom, rankTo, ct: ct);
+        // The same fitted premiums drive both bargain search and squad effective OVR.
+        try { await RankerTeamColorMembersAsync(ct: ct); }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException || e is TaskCanceledException && !ct.IsCancellationRequested) { }
         var rankers = chart is null ? null : new RankerUsage(chart.Picks);
         var pool = Pool();
         if (request.AutoEnhance && request.TeamColors.All(t => t.Color.Category != TeamColorCategory.Enhance))
@@ -682,9 +685,27 @@ public sealed class SquadService(
     public async Task<IReadOnlySet<long>> RankerTeamColorMembersAsync(int top = RankerTeamColors, CancellationToken ct = default)
     {
         var members = new HashSet<long>();
+        var factors = new List<MarketMembership>();
         foreach (var (color, _) in await PopularTeamColorsAsync(top, ct))
-            if (await TeamColorAsync(color.Id, ct) is { } tc) members.UnionWith(tc.Members);
-        if (top == RankerTeamColors) market.SetRankerTeamColorMembers(members);
+        {
+            if (await TeamColorAsync(color.Id, ct) is not { } tc) continue;
+            members.UnionWith(tc.Members);
+            factors.Add(new MarketMembership($"tc:aff:{color.Id}", $"소속 팀컬러: {color.Name}", FactorKind.TeamColor, tc.Members));
+        }
+        if (top == RankerTeamColors)
+        {
+            // Feature colours are not listed in the ranker team-colour chart. Rank the cached sets by how many users
+            // field their cards, then price the strongest signals separately from affiliation colours.
+            var chart = await ChartAsync(allowFetch: false, ct: ct);
+            var rankerUse = chart?.Picks.GroupBy(p => p.SpId).ToDictionary(g => g.Key, g => g.Sum(p => p.Users)) ?? [];
+            var features = (await TeamColorsAsync(ct)).Where(t => t.Category == TeamColorCategory.Feature).ToDictionary(t => t.Id);
+            var cached = store.LoadAllTeamColorMembers();
+            factors.AddRange(cached.Where(kv => features.ContainsKey(kv.Key) && kv.Value.Count >= 8)
+                .Select(kv => (Color: features[kv.Key], Members: kv.Value, Users: kv.Value.Sum(id => rankerUse.GetValueOrDefault(id))))
+                .Where(x => x.Users > 0).OrderByDescending(x => x.Users).Take(12)
+                .Select(x => new MarketMembership($"tc:feature:{x.Color.Id}", $"특성 팀컬러: {x.Color.Name}", FactorKind.FeatureTeamColor, x.Members)));
+            market.SetValueMemberships(factors);
+        }
         return members;
     }
 

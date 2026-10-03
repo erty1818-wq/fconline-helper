@@ -76,7 +76,8 @@ public partial class ValuePage : UserControl
             return;
         }
         Factors.ItemsSource = FactorRow.For(model, group);
-        Status.Text = $"{group.Name} +{grade}{(floor > 0 ? $" · OVR {floor}+" : "")} · 카드 {model.Cards}장 · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}. "
+        var validation = double.IsNaN(model.ValidationError) ? "표본 부족" : $"{model.ValidationError:P0}";
+        Status.Text = $"{group.Name} +{grade}{(floor > 0 ? $" · OVR {floor}+" : "")} · 카드 {model.Cards}장 · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00} · 검증 중앙오차 {validation}. "
             + "능력치는 같은 OVR에서 +1일 때, 특성·체형은 없는 카드 대비. OVR 환산 = 그만큼 OVR이 높은 카드의 가격 [추정: 시장 회귀, 인과 아님].";
     }
 
@@ -105,7 +106,8 @@ public partial class ValuePage : UserControl
             var kept = picks.Where(p => !bad.Contains((p.Card.SpId, p.Grade))).ToList();
             Results.ItemsSource = kept.Take(300).Select(p => ValueRow.From(p, group, squads.KnownLiquidity(p.Card.SpId, p.Grade))).ToList();
             Status.Text = $"{group.Name} +{grade} · {kept.Count}장 · 예상가보다 싼 순서 · {Filters.Summary(filter)}"
-                + (bad.Count > 0 ? $" · 거래가 거의 없는 {bad.Count}장 제외" : "") + $" (R² {model.R2:0.00}, 카드 {model.Cards}장)";
+                + (bad.Count > 0 ? $" · 거래가 거의 없는 {bad.Count}장 제외" : "")
+                + $" (R² {model.R2:0.00}, 검증 중앙오차 {(double.IsNaN(model.ValidationError) ? "표본 부족" : model.ValidationError.ToString("P0"))}, 카드 {model.Cards}장)";
         });
     }
 }

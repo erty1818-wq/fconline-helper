@@ -100,7 +100,7 @@ public sealed record FactorRow(string Name, string Kind, string Percent, double 
     public static IReadOnlyList<FactorRow> For(PriceModel model, MarketGroup g) =>
         model.Factors()
             .OrderByDescending(f => f.Kind == FactorKind.Trait && f.IsCore)
-            .ThenByDescending(f => f.Kind is FactorKind.Stat or FactorKind.Height && f.IsCore)
+            .ThenByDescending(f => f.Kind is FactorKind.Stat or FactorKind.Height or FactorKind.Weight && f.IsCore)
             .ThenByDescending(f => Math.Abs(f.Percent))
             .Select(f => new FactorRow(f.Name, KindLabel(f), $"{f.Percent:+0.0;-0.0}%", f.Percent, $"{f.Low:+0;-0} ~ {f.High:+0;-0}%",
                 $"{f.OvrEquivalent:+0.0;-0.0}", f.OvrEquivalent, (f.BpAtMedian >= 0 ? "+" : "−") + FcHelper.Market.Bp.Format(Math.Abs(f.BpAtMedian)),
@@ -111,11 +111,13 @@ public sealed record FactorRow(string Name, string Kind, string Percent, double 
     {
         FactorKind.Trait => f.IsCore ? "핵심 신특" : "특성",
         FactorKind.Stat => f.IsInflating ? "뻥스탯" : f.IsCore ? "코어 능력치" : "능력치",
-        FactorKind.Height => "키·체중",
+        FactorKind.Height => "키",
+        FactorKind.Weight => "체중",
         FactorKind.Skill => "개인기",
         FactorKind.Body => "체형",
         FactorKind.Foot => "약발",
-        FactorKind.TeamColor => "팀컬러",
+        FactorKind.TeamColor => "소속 팀컬러",
+        FactorKind.FeatureTeamColor => "특성 팀컬러",
         _ => "급여",
     };
 

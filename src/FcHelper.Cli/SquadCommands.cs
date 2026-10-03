@@ -200,7 +200,8 @@ internal static class SquadCommands
         var minOvr = option("minovr") is { } m ? Int(m, 0) : 0;
         var model = minOvr > 0 ? squads.Market.ModelAbove(group.Key, grade, minOvr) : squads.Market.Model(group.Key, grade);
         if (model is null) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
-        Console.WriteLine($"{group.Name} +{grade}{(minOvr > 0 ? $" · OVR {minOvr}+" : "")} · 카드 {model.Cards}장 (호날두·호나우두·굴리트 제외) · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}");
+        Console.WriteLine($"{group.Name} +{grade}{(minOvr > 0 ? $" · OVR {minOvr}+" : "")} · 카드 {model.Cards}장 (호날두·호나우두·굴리트 제외) · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}"
+            + $" · 검증 중앙오차 {(double.IsNaN(model.ValidationError) ? "표본 부족" : model.ValidationError.ToString("P0"))}");
         var factors = model.Factors();
         void Print(string title, IEnumerable<PriceFactor> list)
         {
@@ -210,9 +211,10 @@ internal static class SquadCommands
                     + $"{(f.BpAtMedian >= 0 ? "+" : "-")}{Bp.Format(Math.Abs(f.BpAtMedian)),7}{(f.Cards is { } n ? $"  {n}장" : "")}{(f.Clear ? "" : "  (불확실)")}{(f.IsInflating ? "  뻥스탯" : "")}");
         }
         Print("핵심 신특", factors.Where(f => f.Kind == FactorKind.Trait && f.IsCore));
-        Print("코어 능력치 (같은 OVR에서 +1)", factors.Where(f => f.Kind == FactorKind.Stat && f.IsCore || f.Kind == FactorKind.Height).OrderByDescending(f => f.Percent));
+        Print("코어 능력치·피지컬", factors.Where(f => (f.Kind == FactorKind.Stat && f.IsCore) || f.Kind is FactorKind.Height or FactorKind.Weight).OrderByDescending(f => f.Percent));
         Print("그 밖의 능력치", factors.Where(f => f.Kind == FactorKind.Stat && !f.IsCore).OrderByDescending(f => f.Percent));
-        Print("그 밖의 특성·개인기·체형·약발·팀컬러", factors.Where(f => f.Kind is FactorKind.Trait or FactorKind.Skill or FactorKind.Body or FactorKind.Foot or FactorKind.TeamColor && !(f.Kind == FactorKind.Trait && f.IsCore)).OrderByDescending(f => f.Percent));
+        Print("그 밖의 특성·개인기·체형·약발·팀컬러", factors.Where(f => f.Kind is FactorKind.Trait or FactorKind.Skill or FactorKind.Body or FactorKind.Foot or FactorKind.TeamColor or FactorKind.FeatureTeamColor
+            && !(f.Kind == FactorKind.Trait && f.IsCore)).OrderByDescending(f => f.Percent));
         Console.WriteLine("\n%·OVR·BP는 다른 조건이 같을 때의 시세 차이 [추정: 시장 회귀, 인과 아님]. 범위가 0을 포함하면 불확실.");
         return 0;
     }

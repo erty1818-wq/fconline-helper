@@ -40,9 +40,30 @@ public sealed record MarketGroup(string Key, string Name, string Positions, stri
 public static class MarketGroups
 {
     private static readonly string[] AttackTraits =
-        ["라인 브레이커", "트릭스터", "아크로바틱 피니셔", "스피드스터", "타이탄", "프레데터", "레이저 슈터", "크로스 포쳐", "파이터", "2개의 심장"];
-    private static readonly string[] MidTraits = ["커맨더", "레이저 슈터", "와일드 태클러", "체이서", "파이터", "2개의 심장", "블로커", "타이탄", "스피드스터", "트릭스터"];
-    private static readonly string[] DefTraits = ["파이터", "체이서", "와일드 태클러", "블로커", "커맨더", "타이탄", "스피드스터"];
+        ["라인 브레이커", "트릭스터", "아크로바틱 피니셔", "스피드스터", "타이탄", "레이저 슈터", "크로스 포쳐", "파이터", "2개의 심장"];
+    private static readonly string[] MidTraits = ["커맨더", "레이저 슈터", "와일드 태클러", "체이서", "파이터", "2개의 심장", "블로커", "타이탄", "스피드스터", "트릭스터", "프레데터"];
+    private static readonly string[] DefTraits = ["파이터", "체이서", "와일드 태클러", "블로커", "커맨더", "타이탄", "스피드스터", "프레데터", "2개의 심장"];
+
+    /// <summary>
+    /// Every ability exposed by the official player search. The first pass of each group stays position-specific and is
+    /// refreshed with prices every day; a full/schema refresh fills the remaining passes once per card.
+    /// </summary>
+    private static readonly string[] AllPlayerStats =
+    [
+        "sprintspeed", "acceleration", "finishing", "shotpower", "longshots", "positioning", "volleys", "penalties",
+        "shortpassing", "vision", "crossing", "longpassing", "interceptions", "freekickaccuracy", "curve", "dribbling",
+        "ballcontrol", "agility", "balance", "reactions", "marking", "standingtackle", "headingaccuracy", "slidingtackle",
+        "strength", "stamina", "aggression", "jumping", "composure", "gkdiving", "gkhandling", "gkkicking",
+        "gkreflexes", "gkpositioning", "height", "weight",
+    ];
+
+    private static string[][] CompleteStats(params string[][] priority)
+    {
+        var passes = priority.Select(p => p.Distinct().ToArray()).ToList();
+        var seen = passes.SelectMany(p => p).ToHashSet();
+        passes.AddRange(AllPlayerStats.Where(seen.Add).Chunk(4).Select(c => c.ToArray()));
+        return [.. passes];
+    }
 
     // Core stats from the video (2024 넥스트필드 이후 메타). 3 = 핵심, 2 = 중요, 1 = 있으면 좋음.
     private static readonly CoreStat[] ForwardCore =
@@ -78,49 +99,48 @@ public static class MarketGroups
         new("balance", 2), new("agility", 2), new("marking", 2), new("standingtackle", 2), new("interceptions", 2), new("shortpassing", 1),
     ];
 
-    private static readonly string[][] ForwardStats =
-    [
+    private static readonly string[][] ForwardStats = CompleteStats(
         ["sprintspeed", "acceleration", "strength", "finishing"], ["dribbling", "agility", "shotpower", "composure"],
-        ["balance", "reactions", "volleys", "headingaccuracy"], ["longshots", "stamina", "jumping", "curve"], ["height", "weight", "ballcontrol", "positioning"],
-    ];
+        ["balance", "reactions", "volleys", "headingaccuracy"], ["longshots", "stamina", "jumping", "curve"], ["height", "weight", "ballcontrol", "positioning"]);
 
     public static readonly IReadOnlyList<MarketGroup> All =
     [
         new("ST", "스트라이커", ",24,25,26,", ForwardStats, AttackTraits)
-            { CoreStats = ForwardCore, KeyTraits = ["라인 브레이커", "트릭스터", "아크로바틱 피니셔"] },
+            { CoreStats = ForwardCore, KeyTraits = ["라인 브레이커", "타이탄", "크로스 포쳐", "아크로바틱 피니셔", "2개의 심장", "스피드스터"] },
         new("W", "윙어", ",23,27,",
-            [ForwardStats[0], ForwardStats[1], ["balance", "crossing", "curve", "shortpassing"], ["ballcontrol", "vision", "reactions", "stamina"]], AttackTraits)
-            { CoreStats = WingCore, KeyTraits = ["라인 브레이커", "트릭스터", "아크로바틱 피니셔"] },
+            CompleteStats(ForwardStats[0], ForwardStats[1], ["balance", "crossing", "curve", "shortpassing"], ["ballcontrol", "vision", "reactions", "stamina"]), AttackTraits)
+            { CoreStats = WingCore, KeyTraits = ["라인 브레이커", "스피드스터", "트릭스터", "크로스 포쳐", "아크로바틱 피니셔", "2개의 심장"] },
         new("CF", "중앙 공격수", ",20,21,22,", ForwardStats, AttackTraits)
-            { CoreStats = ForwardCore, KeyTraits = ["라인 브레이커", "트릭스터", "아크로바틱 피니셔"] },
+            { CoreStats = ForwardCore, KeyTraits = ["라인 브레이커", "타이탄", "크로스 포쳐", "아크로바틱 피니셔", "2개의 심장", "스피드스터"] },
         new("SM", "측면 미드필더", ",12,16,",
-            [["sprintspeed", "acceleration", "crossing", "dribbling"], ["stamina", "agility", "shortpassing", "composure"],
-             ["balance", "curve", "ballcontrol", "vision"], ["reactions", "finishing", "longshots", "strength"]], AttackTraits)
-            { CoreStats = WingCore, KeyTraits = ["라인 브레이커", "트릭스터", "아크로바틱 피니셔"] },
+            CompleteStats(["sprintspeed", "acceleration", "crossing", "dribbling"], ["stamina", "agility", "shortpassing", "composure"],
+             ["balance", "curve", "ballcontrol", "vision"], ["reactions", "finishing", "longshots", "strength"]), AttackTraits)
+            { CoreStats = WingCore, KeyTraits = ["라인 브레이커", "스피드스터", "트릭스터", "크로스 포쳐", "아크로바틱 피니셔", "2개의 심장"] },
         new("CAM", "공격형 미드필더", ",17,18,19,",
-            [["sprintspeed", "acceleration", "dribbling", "shortpassing"], ["agility", "vision", "longshots", "composure"],
-             ["balance", "ballcontrol", "finishing", "shotpower"], ["reactions", "volleys", "curve", "strength"]], AttackTraits)
-            { CoreStats = CamCore, KeyTraits = ["라인 브레이커", "트릭스터", "아크로바틱 피니셔"] },
+            CompleteStats(["sprintspeed", "acceleration", "dribbling", "shortpassing"], ["agility", "vision", "longshots", "composure"],
+             ["balance", "ballcontrol", "finishing", "shotpower"], ["reactions", "volleys", "curve", "strength"]), AttackTraits)
+            { CoreStats = CamCore, KeyTraits = ["트릭스터", "레이저 슈터", "라인 브레이커", "스피드스터", "아크로바틱 피니셔", "2개의 심장"] },
         new("CM", "중앙 미드필더", ",13,14,15,",
-            [["shortpassing", "longpassing", "vision", "stamina"], ["strength", "interceptions", "composure", "sprintspeed"],
-             ["longshots", "shotpower", "marking", "aggression"], ["standingtackle", "balance", "acceleration", "finishing"]], MidTraits)
-            { CoreStats = MidCore, KeyTraits = ["커맨더", "레이저 슈터", "와일드 태클러", "체이서", "파이터"] },
+            CompleteStats(["shortpassing", "longpassing", "vision", "stamina"], ["strength", "interceptions", "composure", "sprintspeed"],
+             ["longshots", "shotpower", "marking", "aggression"], ["standingtackle", "balance", "acceleration", "finishing"]), MidTraits)
+            { CoreStats = MidCore, KeyTraits = ["커맨더", "레이저 슈터", "파이터", "2개의 심장"] },
         new("CDM", "수비형 미드필더", ",9,10,11,",
-            [["interceptions", "standingtackle", "strength", "shortpassing"], ["stamina", "marking", "sprintspeed", "composure"],
-             ["longshots", "shotpower", "longpassing", "aggression"], ["balance", "acceleration", "finishing", "curve"]], MidTraits)
-            { CoreStats = MidCore, KeyTraits = ["커맨더", "레이저 슈터", "와일드 태클러", "체이서", "파이터"] },
+            CompleteStats(["interceptions", "standingtackle", "strength", "shortpassing"], ["stamina", "marking", "sprintspeed", "composure"],
+             ["longshots", "shotpower", "longpassing", "aggression"], ["balance", "acceleration", "finishing", "curve"]), MidTraits)
+            { CoreStats = MidCore, KeyTraits = ["파이터", "커맨더", "와일드 태클러", "체이서", "프레데터", "2개의 심장"] },
         new("CB", "센터백", ",1,4,5,6,",
-            [["sprintspeed", "strength", "marking", "standingtackle"], ["headingaccuracy", "jumping", "interceptions", "acceleration"],
-             ["balance", "agility", "aggression", "reactions"], ["height", "weight", "slidingtackle", "composure"]], DefTraits)
-            { CoreStats = CentreBackCore, InflatingStats = ["headingaccuracy", "slidingtackle"], KeyTraits = ["파이터", "체이서", "와일드 태클러"] },
+            CompleteStats(["sprintspeed", "strength", "marking", "standingtackle"], ["headingaccuracy", "jumping", "interceptions", "acceleration"],
+             ["balance", "agility", "aggression", "reactions"], ["height", "weight", "slidingtackle", "composure"]), DefTraits)
+            { CoreStats = CentreBackCore, InflatingStats = ["headingaccuracy", "slidingtackle"], KeyTraits = ["파이터", "타이탄", "프레데터", "와일드 태클러", "블로커", "체이서"] },
         new("FB", "풀백", ",2,3,7,8,",
-            [["sprintspeed", "acceleration", "stamina", "crossing"], ["standingtackle", "marking", "interceptions", "strength"],
-             ["balance", "agility", "curve", "height"], ["shortpassing", "aggression", "reactions", "jumping"]], DefTraits)
-            { CoreStats = FullBackCore, KeyTraits = ["파이터", "체이서", "와일드 태클러"] },
+            CompleteStats(["sprintspeed", "acceleration", "stamina", "crossing"], ["standingtackle", "marking", "interceptions", "strength"],
+             ["balance", "agility", "curve", "height"], ["shortpassing", "aggression", "reactions", "jumping"]), DefTraits)
+            { CoreStats = FullBackCore, KeyTraits = ["파이터", "프레데터", "스피드스터", "체이서", "와일드 태클러", "2개의 심장"] },
         new("GK", "골키퍼", ",0,",
-            [["gkdiving", "gkhandling", "gkreflexes", "gkpositioning"], ["gkkicking", "reactions", "height", "composure"], ["jumping", "weight", "balance", "strength"]],
+            CompleteStats(["gkdiving", "gkhandling", "gkreflexes", "gkpositioning"], ["gkkicking", "reactions", "height", "composure"], ["jumping", "weight", "balance", "strength"]),
             ["GK 데드아이", "GK 빠른 반응", "GK 공중볼 장악"])
-            { CoreStats = [new("gkdiving", 2), new("gkreflexes", 2), new("gkhandling", 2), new("gkpositioning", 2), new("jumping", 2), new("height", 3)] },
+            { CoreStats = [new("gkdiving", 2), new("gkreflexes", 2), new("gkhandling", 2), new("gkpositioning", 2), new("jumping", 2), new("height", 3)],
+              KeyTraits = ["GK 데드아이", "GK 빠른 반응", "GK 공중볼 장악"] },
     ];
 
     public static MarketGroup Get(string key) => All.First(g => g.Key == key);
@@ -170,6 +190,7 @@ public static class MarketGroups
         ["gkpositioning"] = "GK 위치 선정", ["gkkicking"] = "GK 킥", ["reactions"] = "반응 속도", ["height"] = "키",
         ["weight"] = "체중", ["balance"] = "밸런스", ["volleys"] = "발리슛", ["curve"] = "커브", ["ballcontrol"] = "볼 컨트롤",
         ["positioning"] = "위치 선정", ["aggression"] = "적극성", ["slidingtackle"] = "슬라이딩 태클",
+        ["penalties"] = "페널티 킥", ["freekickaccuracy"] = "프리킥 정확도",
     };
 
     public static string TagLabel(string tag) => tag switch

@@ -25,18 +25,28 @@ public sealed class MarketService(
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<(long, string, int), PriceModel?> _models = [];
     private readonly Dictionary<(long, string), IReadOnlyList<MarketCard>> _cards = [];
-    private IReadOnlySet<long>? _rankerMembers;
+    private IReadOnlyList<MarketMembership> _memberships = [];
 
-    /// <summary>Cards of the team colours rankers use most; the price models then price that membership (refit on change).</summary>
+    /// <summary>Compatibility entry point for callers that only have the union of popular affiliation colours.</summary>
     public void SetRankerTeamColorMembers(IReadOnlySet<long> members)
+        => SetValueMemberships(members.Count == 0 ? [] : [new(PriceModel.RankerColorTag, "랭커 주요 팀컬러 소속", FactorKind.TeamColor, members)]);
+
+    /// <summary>Sets separately priced affiliation and feature team colours and refits only when membership changed.</summary>
+    public void SetValueMemberships(IReadOnlyList<MarketMembership> memberships)
     {
         lock (_models)
         {
-            if (_rankerMembers is not null && _rankerMembers.SetEquals(members)) return;
-            _rankerMembers = members.Count > 0 ? members : null;
+            if (SameMemberships(_memberships, memberships)) return;
+            _memberships = memberships;
             _models.Clear();
+            _playable.Clear();
         }
     }
+
+    private static bool SameMemberships(IReadOnlyList<MarketMembership> a, IReadOnlyList<MarketMembership> b) =>
+        a.Count == b.Count && a.OrderBy(x => x.Key).Zip(b.OrderBy(x => x.Key)).All(x =>
+            x.First.Key == x.Second.Key && x.First.Name == x.Second.Name && x.First.Kind == x.Second.Kind
+            && x.First.Members.Count == x.Second.Members.Count && x.First.Members.All(x.Second.Members.Contains));
     private HarvestProgress? _running;
     private string? _lastError;
 
@@ -150,7 +160,7 @@ public sealed class MarketService(
         lock (_models)
         {
             if (!_models.TryGetValue((snap.Id, group, grade), out var model))
-                _models[(snap.Id, group, grade)] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group), _rankerMembers);
+                _models[(snap.Id, group, grade)] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group), _memberships);
             return model;
         }
     }
@@ -170,7 +180,7 @@ public sealed class MarketService(
             if (_models.Count == 0) _playable.Clear(); // refit together with the full models
             var key = (snap.Id, group, grade, minOvr);
             if (!_playable.TryGetValue(key, out var model))
-                _playable[key] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group).Where(c => c.OvrAt(grade) >= minOvr), _rankerMembers);
+                _playable[key] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group).Where(c => c.OvrAt(grade) >= minOvr), _memberships);
             return model;
         }
     }
@@ -181,6 +191,7 @@ public sealed class MarketService(
         ("공격 (ST·CF·윙·측미·공미)", ["ST", "CF", "W", "SM", "CAM"]),
         ("중앙 미드 (CM·CDM)", ["CM", "CDM"]),
         ("수비 (CB·풀백)", ["CB", "FB"]),
+        ("골키퍼", ["GK"]),
     ];
 
     /// <summary>
@@ -196,7 +207,7 @@ public sealed class MarketService(
             var factors = groups
                 .Select(g => (Group: g, Model: minOvr is { } lo ? ModelAbove(g, grade, lo) : Model(g, grade)))
                 .Where(x => x.Model is not null)
-                .SelectMany(x => x.Model!.Factors().Where(f => f.Kind == FactorKind.Trait && f.IsCore).Select(f => (x.Group, Factor: f)))
+                .SelectMany(x => x.Model!.Factors().Where(f => f.Kind == FactorKind.Trait).Select(f => (x.Group, Factor: f)))
                 .ToList();
             foreach (var trait in factors.GroupBy(f => f.Factor.Key))
             {
