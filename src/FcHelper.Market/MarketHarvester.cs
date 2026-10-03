@@ -4,7 +4,7 @@ namespace FcHelper.Market;
 
 public enum RefreshKind
 {
-    /// <summary>Everything: every stat pass and all tags. First run, and once when the collected stats change (about 1,300 requests).</summary>
+    /// <summary>Everything: every stat pass and all tags. First run, and once when the collected stats change (at least 2,400 requests).</summary>
     Full,
     /// <summary>Prices and the first stat pass; the rest is carried over (about 260 requests).</summary>
     Prices,

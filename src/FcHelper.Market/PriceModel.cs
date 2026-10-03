@@ -277,9 +277,25 @@ public sealed class PriceModel
             sse += e * e;
             sst += (y - mean) * (y - mean);
         }
-        var s2 = sse / Math.Max(rows.Count - k, 1);
+        var meat = new double[k, k];
+        foreach (var (x, y) in rows)
+        {
+            var e = y - Dot(beta, x);
+            for (var i = 0; i < k; i++)
+                for (var j = 0; j < k; j++)
+                    meat[i, j] += e * e * x[i] * x[j];
+        }
+        var hc1 = rows.Count / (double)Math.Max(rows.Count - k, 1);
         var se = new double[k];
-        for (var i = 0; i < k; i++) se[i] = Math.Sqrt(Math.Max(inv[i, i] * s2, 0));
+        // Heteroskedasticity-robust ridge covariance: HC1 × A⁻¹(X' diag(e²) X)A⁻¹.
+        for (var i = 0; i < k; i++)
+        {
+            double variance = 0;
+            for (var j = 0; j < k; j++)
+                for (var l = 0; l < k; l++)
+                    variance += inv[i, j] * meat[j, l] * inv[l, i];
+            se[i] = Math.Sqrt(Math.Max(variance * hc1, 0));
+        }
         return (beta, se, sst > 0 ? 1 - sse / sst : 0);
     }
 

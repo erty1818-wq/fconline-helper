@@ -686,7 +686,8 @@ public sealed class SquadService(
     {
         var members = new HashSet<long>();
         var factors = new List<MarketMembership>();
-        foreach (var (color, _) in await PopularTeamColorsAsync(top, ct))
+        var popular = await PopularTeamColorsAsync(top, ct);
+        foreach (var (color, _) in popular)
         {
             if (await TeamColorAsync(color.Id, ct) is not { } tc) continue;
             members.UnionWith(tc.Members);
@@ -699,6 +700,23 @@ public sealed class SquadService(
             var chart = await ChartAsync(allowFetch: false, ct: ct);
             var rankerUse = chart?.Picks.GroupBy(p => p.SpId).ToDictionary(g => g.Key, g => g.Sum(p => p.Users)) ?? [];
             var features = (await TeamColorsAsync(ct)).Where(t => t.Category == TeamColorCategory.Feature).ToDictionary(t => t.Id);
+            const string discoveryKey = "market.feature-colour-discovery.v1";
+            var discovery = store.GetValue(discoveryKey);
+            if (chart is not null && (discovery is null || Now - discovery.Value.UpdatedAt >= TeamColorCache.Ttl))
+            {
+                try
+                {
+                    var known = store.LoadAllTeamColorMembers().Keys.ToHashSet();
+                    var found = new Dictionary<int, int>();
+                    foreach (var pick in chart.Picks.OrderByDescending(p => p.Users).DistinctBy(p => p.SpId).Take(12))
+                        foreach (var id in await teamColors.CardTeamColorsAsync(pick.SpId, ct))
+                            if (features.ContainsKey(id)) found[id] = found.GetValueOrDefault(id) + pick.Users;
+                    var selected = found.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).Take(12).Select(kv => kv.Key).ToList();
+                    foreach (var id in selected.Where(id => !known.Contains(id))) await TeamColorAsync(id, ct);
+                    store.SetValue(discoveryKey, string.Join(",", selected.Order()), Now);
+                }
+                catch (Exception e) when (e is HttpRequestException or InvalidOperationException || e is TaskCanceledException && !ct.IsCancellationRequested) { }
+            }
             var cached = store.LoadAllTeamColorMembers();
             factors.AddRange(cached.Where(kv => features.ContainsKey(kv.Key) && kv.Value.Count >= 8)
                 .Select(kv => (Color: features[kv.Key], Members: kv.Value, Users: kv.Value.Sum(id => rankerUse.GetValueOrDefault(id))))

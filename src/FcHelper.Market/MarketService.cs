@@ -211,18 +211,29 @@ public sealed class MarketService(
                 .ToList();
             foreach (var trait in factors.GroupBy(f => f.Factor.Key))
             {
-                double sumW = 0, sumB = 0, sumOvr = 0;
-                foreach (var (_, f) in trait)
+                var estimates = trait.Select(x =>
                 {
-                    var b = Math.Log(1 + f.Percent / 100);
-                    var se = (Math.Log(1 + f.High / 100) - Math.Log(1 + f.Low / 100)) / (2 * 1.96);
-                    var w = 1 / Math.Max(se * se, 1e-6);
+                    var b = Math.Log(1 + x.Factor.Percent / 100);
+                    var se = (Math.Log(1 + x.Factor.High / 100) - Math.Log(1 + x.Factor.Low / 100)) / (2 * 1.96);
+                    return (x.Group, x.Factor, B: b, Se: Math.Max(se, 1e-3));
+                }).ToList();
+                var fixedWeights = estimates.Select(e => 1 / (e.Se * e.Se)).ToList();
+                var fixedMean = estimates.Select((e, i) => fixedWeights[i] * e.B).Sum() / fixedWeights.Sum();
+                var q = estimates.Select((e, i) => fixedWeights[i] * Math.Pow(e.B - fixedMean, 2)).Sum();
+                var c = fixedWeights.Sum() - fixedWeights.Sum(w => w * w) / fixedWeights.Sum();
+                var tau2 = c > 0 ? Math.Max(0, (q - (estimates.Count - 1)) / c) : 0;
+                double sumW = 0, sumB = 0, sumOvr = 0;
+                foreach (var e in estimates)
+                {
+                    var w = 1 / (e.Se * e.Se + tau2);
                     sumW += w;
-                    sumB += w * b;
-                    sumOvr += w * f.OvrEquivalent;
+                    sumB += w * e.B;
+                    sumOvr += w * e.Factor.OvrEquivalent;
                 }
                 var mean = sumB / sumW;
-                var half = 1.96 / Math.Sqrt(sumW);
+                // Position groups can contain the same cards, so their errors are correlated. Never claim a narrower
+                // interval than the most precise single group even when the fixed/random-effects formula would.
+                var half = Math.Max(1.96 / Math.Sqrt(sumW), estimates.Min(e => 1.96 * e.Se));
                 result.Add(new TraitValue(trait.Key[6..], scope, (Math.Exp(mean) - 1) * 100, (Math.Exp(mean - half) - 1) * 100,
                     (Math.Exp(mean + half) - 1) * 100, sumOvr / sumW, trait.Sum(t => t.Factor.Cards ?? 0),
                     trait.Select(t => (t.Group, t.Factor)).ToList()));
