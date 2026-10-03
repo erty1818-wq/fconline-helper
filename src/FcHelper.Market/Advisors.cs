@@ -1,9 +1,13 @@
 namespace FcHelper.Market;
 
-/// <summary>A card top rankers use that also trades below what similar cards cost: proven and underpriced.</summary>
+/// <summary>A card top rankers use with a price below the model estimate; mispricing is not established.</summary>
 public sealed record HiddenPick(MarketCard Card, string Position, int Grade, int Ovr, long Price, long Expected, int Users, double Share)
 {
     public double Discount => Price / (double)Expected - 1;
+    public double ModelError { get; init; } = double.NaN;
+    public double LogErrorScale { get; init; } = double.NaN;
+    public double EvidenceScore => PriceEvidence.Score(Price, Expected, LogErrorScale);
+    public bool OutsideModelError => EvidenceScore < -1.96;
 }
 
 /// <summary>One grade of a card, with the cheapest other card (and its grade) that reaches the same OVR at the position.</summary>
@@ -84,9 +88,10 @@ public static class Advisors
             // Compare at the grade rankers use: the model was fitted at one grade, so scale by the card's own grade curve.
             var expected = (long)(model.Predict(card) * price / Math.Max(card.PriceAt(model.Grade), 1));
             result.Add(new HiddenPick(card, p.Position, p.Grade, card.OvrAt(Formations.Normalize(p.Position), p.Grade) ?? card.OvrAt(p.Grade),
-                price, expected, p.Users, p.Share));
+                price, expected, p.Users, p.Share) { ModelError = model.ValidationError, LogErrorScale = model.ValidationLogScale });
         }
-        return result.Where(h => h.Discount < 0).OrderBy(h => h.Discount * Math.Log(1 + h.Users)).ToList();
+        return result.Where(h => h.Discount < 0)
+            .OrderBy(h => PriceEvidence.Rank(h.EvidenceScore, h.Card.RatingCount) * Math.Log(1 + h.Users)).ToList();
     }
 
     // ── enhancement ────────────────────────────────────────────────────────

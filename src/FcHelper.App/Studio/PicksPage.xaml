@@ -10,7 +10,7 @@
                     <Button x:Name="FindButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="찾기" Click="OnFind" />
                     <StackPanel>
                         <TextBlock Text="숨은 랭커픽" Style="{StaticResource H1}" />
-                        <TextBlock Style="{StaticResource Hint}" Text="상위 랭커들이 실제로 쓰는데, 같은 스펙 카드보다 싸게 거래되는 카드 (랭커 사용 = 전날 공식경기 · 예상가 [추정])" />
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="상위 랭커 사용 카드의 시세와 예상가를 비교합니다. 가격 차이를 검증 오차와 함께 보고, 오차 범위 안의 차이는 저평가로 판정하지 않습니다 [추정]." />
                     </StackPanel>
                 </DockPanel>
                 <WrapPanel>
@@ -35,7 +35,7 @@
                 <DataGridTemplateColumn Header="꿀" Width="36">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <Image Source="{app:Icon Honey}" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="꿀선수: 같은 스펙 카드보다 30% 이상 싸게 거래">
+                            <Image Source="{app:Icon Honey}" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="저평가 후보 [추정]: 예상가 대비 30% 이상 낮고 검증 오차보다 큰 차이, 거래 확인">
                                 <Image.Style>
                                     <Style TargetType="Image">
                                         <Setter Property="Visibility" Value="Visible" />
@@ -78,6 +78,8 @@
                 <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="90" ElementStyle="{StaticResource Num}" />
                 <DataGridTextColumn Header="예상가 [추정]" Binding="{Binding Expected}" Width="100" ElementStyle="{StaticResource Num}" />
                 <DataGridTextColumn Header="차이" Binding="{Binding Diff}" Width="70" ElementStyle="{StaticResource Good}" />
+                <DataGridTextColumn Header="검증 중앙오차" Binding="{Binding ModelError}" Width="95" />
+                <DataGridTextColumn Header="가격 차이 해석" Binding="{Binding Evidence}" Width="135" />
                 <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="*" />
             </DataGrid.Columns>
         </DataGrid>

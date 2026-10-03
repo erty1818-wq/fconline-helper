@@ -13,7 +13,9 @@ public sealed record MarketStatus(MarketSnapshot? Current, int Cards, HarvestPro
 public sealed record TraitValue(string Trait, string Scope, double Percent, double Low, double High, double OvrEquivalent, int Cards,
     IReadOnlyList<(string Group, PriceFactor Factor)> ByGroup)
 {
-    public bool Clear => Low > 0 || High < 0;
+    public int Players { get; init; }
+    public bool Estimated => double.IsFinite(Percent);
+    public bool Clear => Estimated && Players >= 10 && (Low > 0 || High < 0);
 }
 
 public sealed class MarketService(
@@ -202,20 +204,34 @@ public sealed class MarketService(
     public IReadOnlyList<TraitValue> TraitValues(int grade = 8, int? minOvr = null)
     {
         var result = new List<TraitValue>();
+        if (store.LatestFinished() is not { } snapshot) return result;
         foreach (var (scope, groups) in TraitScopes)
         {
             var factors = groups
                 .Select(g => (Group: g, Model: minOvr is { } lo ? ModelAbove(g, grade, lo) : Model(g, grade)))
                 .Where(x => x.Model is not null)
-                .SelectMany(x => x.Model!.Factors().Where(f => f.Kind == FactorKind.Trait).Select(f => (x.Group, Factor: f)))
+                .SelectMany(x => x.Model!.Factors().Where(f => f.Kind == FactorKind.Trait).Select(f => (x.Group, Model: x.Model!, Factor: f)))
                 .ToList();
             foreach (var trait in factors.GroupBy(f => f.Factor.Key))
             {
-                var estimates = trait.Select(x =>
+                var contributingGroups = trait.Where(x => x.Factor.Estimated).Select(x => x.Group).ToHashSet();
+                var sample = trait.Select(x => x.Group).Distinct().Where(g => contributingGroups.Count == 0 || contributingGroups.Contains(g))
+                    .SelectMany(g => Cards(snapshot.Id, g)).Where(c => c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice
+                        && !MarketGroups.IsPriceOutlier(c) && (minOvr is null || c.OvrAt(grade) >= minOvr) && c.Tags.Contains(trait.Key)).ToList();
+                var players = sample.Select(c => c.PlayerId).Distinct().Count();
+                var cardCount = sample.Select(c => c.SpId).Distinct().Count();
+                var byGroup = trait.Select(t => (t.Group, t.Factor)).ToList();
+                if (contributingGroups.Count == 0)
+                {
+                    result.Add(new(trait.Key[6..], scope, double.NaN, double.NaN, double.NaN, 0, cardCount, byGroup) { Players = players });
+                    continue;
+                }
+                var estimates = trait.Where(x => x.Factor.Estimated).Select(x =>
                 {
                     var b = Math.Log(1 + x.Factor.Percent / 100);
-                    var se = (Math.Log(1 + x.Factor.High / 100) - Math.Log(1 + x.Factor.Low / 100)) / (2 * 1.96);
-                    return (x.Group, x.Factor, B: b, Se: Math.Max(se, 1e-3));
+                    var half = (Math.Log(1 + x.Factor.High / 100) - Math.Log(1 + x.Factor.Low / 100)) / 2;
+                    var se = half / PriceModel.Critical95(x.Model.Players - 1);
+                    return (x.Group, x.Factor, B: b, Se: Math.Max(se, 1e-3), Half: half);
                 }).ToList();
                 var fixedWeights = estimates.Select(e => 1 / (e.Se * e.Se)).ToList();
                 var fixedMean = estimates.Select((e, i) => fixedWeights[i] * e.B).Sum() / fixedWeights.Sum();
@@ -233,10 +249,9 @@ public sealed class MarketService(
                 var mean = sumB / sumW;
                 // Position groups can contain the same cards, so their errors are correlated. Never claim a narrower
                 // interval than the most precise single group even when the fixed/random-effects formula would.
-                var half = Math.Max(1.96 / Math.Sqrt(sumW), estimates.Min(e => 1.96 * e.Se));
+                var half = Math.Max(PriceModel.Critical95(players - 1) / Math.Sqrt(sumW), estimates.Min(e => e.Half));
                 result.Add(new TraitValue(trait.Key[6..], scope, (Math.Exp(mean) - 1) * 100, (Math.Exp(mean - half) - 1) * 100,
-                    (Math.Exp(mean + half) - 1) * 100, sumOvr / sumW, trait.Sum(t => t.Factor.Cards ?? 0),
-                    trait.Select(t => (t.Group, t.Factor)).ToList()));
+                    (Math.Exp(mean + half) - 1) * 100, sumOvr / sumW, cardCount, byGroup) { Players = players });
             }
         }
         return result;

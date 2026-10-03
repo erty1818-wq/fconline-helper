@@ -63,6 +63,8 @@ internal static class StudioKit
 
 public sealed record PickRow(string Position, string Name, string Season, string Grade, int Ovr, int Users, string Share, string Price, string Expected, string Diff, long SpId, int GradeValue)
 {
+    public string ModelError { get; init; } = "";
+    public string Evidence { get; init; } = "";
     public string Core { get; init; } = "";
     public string Height { get; init; } = "";
     public string Tags { get; init; } = "";
@@ -72,6 +74,8 @@ public sealed record PickRow(string Position, string Name, string Season, string
 public sealed record ValueRow(string Name, string Season, int Ovr, string Core, double CoreValue, int WeakFoot, int Pay, string Height, string Stats,
     string Price, string Expected, string Diff, double Discount, string Tags)
 {
+    public string ModelError { get; init; } = "";
+    public string Evidence { get; init; } = "";
     /// <summary>🐝 when the card is a 꿀선수 and is known to trade.</summary>
     public string Honey { get; init; } = "";
     /// <summary>The card, for its mini face in the grid.</summary>
@@ -88,7 +92,9 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
             c.Stats.TryGetValue("height", out var h) ? h.ToString() : "", string.Join(" · ", stats),
             Bp.Format(p.Price), Bp.Format(p.Expected), StudioKit.Pct(p.Discount), p.Discount, StudioKit.Tags(c))
         {
-            Honey = liquidity is { Tradable: true } && FcHelper.Market.Honey.IsHoney(p.Discount) ? FcHelper.Market.Honey.Mark : "",
+            Honey = liquidity is { Tradable: true } && p.OutsideModelError && FcHelper.Market.Honey.IsHoney(p.Discount) ? FcHelper.Market.Honey.Mark : "",
+            ModelError = PriceEvidence.ErrorLabel(p.ModelError),
+            Evidence = PriceEvidence.Label(p.EvidenceScore),
             SpId = c.SpId,
         };
     }
@@ -97,14 +103,16 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
 /// <summary>One price factor of a position (stat, trait, body…) for the "가격 요인" table.</summary>
 public sealed record FactorRow(string Name, string Kind, string Percent, double PercentValue, string Range, string Ovr, double OvrValue, string Bp, string Cards, string Verdict)
 {
+    public string Players { get; init; } = "";
     public static IReadOnlyList<FactorRow> For(PriceModel model, MarketGroup g) =>
         model.Factors()
             .OrderByDescending(f => f.Kind == FactorKind.Trait && f.IsCore)
             .ThenByDescending(f => f.Kind is FactorKind.Stat or FactorKind.Height or FactorKind.Weight && f.IsCore)
             .ThenByDescending(f => Math.Abs(f.Percent))
-            .Select(f => new FactorRow(f.Name, KindLabel(f), $"{f.Percent:+0.0;-0.0}%", f.Percent, $"{f.Low:+0;-0} ~ {f.High:+0;-0}%",
-                $"{f.OvrEquivalent:+0.0;-0.0}", f.OvrEquivalent, (f.BpAtMedian >= 0 ? "+" : "−") + FcHelper.Market.Bp.Format(Math.Abs(f.BpAtMedian)),
-                f.Cards?.ToString() ?? "", VerdictOf(f)))
+            .Select(f => new FactorRow(f.Name, KindLabel(f), f.Estimated ? $"{f.Percent:+0.0;-0.0}%" : "—", f.Percent,
+                f.Estimated ? $"{f.Low:+0;-0} ~ {f.High:+0;-0}%" : "—", f.Estimated ? $"{f.OvrEquivalent:+0.0;-0.0}" : "—", f.OvrEquivalent,
+                f.Estimated ? (f.BpAtMedian >= 0 ? "+" : "−") + FcHelper.Market.Bp.Format(Math.Abs(f.BpAtMedian)) : "—",
+                f.Cards?.ToString() ?? "", VerdictOf(f)) { Players = f.Players?.ToString() ?? "" })
             .ToList();
 
     private static string KindLabel(PriceFactor f) => f.Kind switch
@@ -122,7 +130,8 @@ public sealed record FactorRow(string Name, string Kind, string Percent, double 
     };
 
     private static string VerdictOf(PriceFactor f) =>
-        !f.Clear ? "불확실 (범위가 0을 포함)"
+        !f.Estimated || f.Players < 10 ? "표본 부족"
+        : !f.Clear ? "불확실 (범위가 0을 포함)"
         : f.IsInflating && f.Percent < 0 ? "OVR만 올리는 능력치: 같은 OVR이면 싸게 거래"
         : f.Percent > 0 ? "시장이 값을 더 쳐줌" : "시장이 값을 덜 쳐줌";
 }

@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 namespace FcHelper.Market;
 
 public sealed record MarketSnapshot(long Id, string Kind, DateTime StartedAt, DateTime? FinishedAt);
+public sealed record PatchBaseline(DateTime PatchAt, string Name, long? Snapshot, DateOnly? HistoryDay);
 
 /// <summary>
 /// Market data in SQLite, as snapshots: a refresh writes a new snapshot and only becomes the one searched once it
@@ -38,6 +39,10 @@ public sealed class MarketStore
         if (Convert.ToInt32(cols.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
             Exec(c, "ALTER TABLE market_card ADD COLUMN positions TEXT NOT NULL DEFAULT '{}'");
         ExtraSchema(c);
+        // The known rebalance date starts at midnight KST. Registration also protects already-collected baselines.
+        Exec(c, "INSERT OR IGNORE INTO market_patch_baseline (patch_at, name) VALUES ($p, $n)",
+            ("$p", Iso(new DateTime(2026, 9, 29, 15, 0, 0, DateTimeKind.Utc))), ("$n", "2026-09-30 신규 특성 리밸런싱"));
+        RefreshBaselinePins(c);
     }
 
     /// <summary>Tables of the ranker, team colour and price-history features, kept next to the market cards.</summary>
@@ -52,6 +57,8 @@ public sealed class MarketStore
         CREATE TABLE IF NOT EXISTS team_color_member (
             team_color INTEGER NOT NULL, sp_id INTEGER NOT NULL, PRIMARY KEY (team_color, sp_id));
         CREATE TABLE IF NOT EXISTS kv_market (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS market_patch_baseline (
+            patch_at TEXT PRIMARY KEY, name TEXT NOT NULL, snapshot INTEGER, history_day TEXT);
         """);
 
     private SqliteConnection Open()
@@ -65,6 +72,43 @@ public sealed class MarketStore
 
     public MarketSnapshot? LatestFinished() => ReadSnapshot("WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1");
     public MarketSnapshot? Unfinished() => ReadSnapshot("WHERE finished_at IS NULL ORDER BY id DESC LIMIT 1");
+
+    public IReadOnlyList<MarketSnapshot> Snapshots()
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT id, kind, started_at, finished_at FROM market_snapshot ORDER BY id");
+        using var r = cmd.ExecuteReader();
+        var result = new List<MarketSnapshot>();
+        while (r.Read()) result.Add(new(r.GetInt64(0), r.GetString(1), Date(r.GetString(2)), r.IsDBNull(3) ? null : Date(r.GetString(3))));
+        return result;
+    }
+
+    /// <summary>Retains the last finished snapshot and full UTC history day before an announced patch.</summary>
+    public void RegisterPatch(DateTime patchAtUtc, string name)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        Exec(c, "INSERT OR IGNORE INTO market_patch_baseline (patch_at, name) VALUES ($p, $n)", ("$p", Iso(patchAtUtc)), ("$n", name));
+        RefreshBaselinePins(c);
+        tx.Commit();
+    }
+
+    public IReadOnlyList<PatchBaseline> PatchBaselines()
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT patch_at, name, snapshot, history_day FROM market_patch_baseline ORDER BY patch_at");
+        using var r = cmd.ExecuteReader();
+        var result = new List<PatchBaseline>();
+        while (r.Read()) result.Add(new(Date(r.GetString(0)), r.GetString(1), r.IsDBNull(2) ? null : r.GetInt64(2),
+            r.IsDBNull(3) ? null : DateOnly.Parse(r.GetString(3), CultureInfo.InvariantCulture)));
+        return result;
+    }
+
+    private static void RefreshBaselinePins(SqliteConnection c) => Exec(c, """
+        UPDATE market_patch_baseline SET
+            snapshot = COALESCE((SELECT id FROM market_snapshot WHERE finished_at < patch_at ORDER BY finished_at DESC LIMIT 1), snapshot),
+            history_day = COALESCE((SELECT MAX(day) FROM price_history WHERE day < substr(patch_at, 1, 10)), history_day);
+        """);
 
     private MarketSnapshot? ReadSnapshot(string where)
     {
@@ -81,14 +125,19 @@ public sealed class MarketStore
         return (long)cmd.ExecuteScalar()!;
     }
 
-    /// <summary>Marks a snapshot finished and drops all but the newest <see cref="KeepSnapshots"/> finished ones.</summary>
+    /// <summary>Retains the newest snapshots plus registered patch baselines.</summary>
     public void FinishSnapshot(long id, DateTime now)
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
         Exec(c, "UPDATE market_snapshot SET finished_at = $t WHERE id = $i", ("$t", Iso(now)), ("$i", id));
         Exec(c, "DELETE FROM market_done WHERE snapshot = $i", ("$i", id));
-        const string old = "SELECT id FROM market_snapshot WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT -1 OFFSET $n";
+        RefreshBaselinePins(c);
+        const string old = """
+            SELECT id FROM market_snapshot WHERE finished_at IS NOT NULL
+            AND id NOT IN (SELECT id FROM market_snapshot WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT $n)
+            AND id NOT IN (SELECT snapshot FROM market_patch_baseline WHERE snapshot IS NOT NULL)
+            """;
         foreach (var table in new[] { "market_card", "market_tag" })
             Exec(c, $"DELETE FROM {table} WHERE snapshot IN ({old})", ("$n", KeepSnapshots));
         Exec(c, $"DELETE FROM market_snapshot WHERE id IN ({old})", ("$n", KeepSnapshots));
@@ -254,7 +303,9 @@ public sealed class MarketStore
         }
         foreach (var (grp, spId, prices) in rows)
             Exec(c, "INSERT OR REPLACE INTO price_history VALUES ($d, $g, $p, $pr)", ("$d", key), ("$g", grp), ("$p", spId), ("$pr", prices));
-        Exec(c, "DELETE FROM price_history WHERE day < $cut", ("$cut", day.AddDays(-HistoryDays).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+        RefreshBaselinePins(c);
+        Exec(c, "DELETE FROM price_history WHERE day < $cut AND day NOT IN (SELECT history_day FROM market_patch_baseline WHERE history_day IS NOT NULL)",
+            ("$cut", day.AddDays(-HistoryDays).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         tx.Commit();
     }
 

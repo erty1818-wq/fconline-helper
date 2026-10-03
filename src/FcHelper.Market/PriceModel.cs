@@ -14,8 +14,10 @@ public sealed record MarketMembership(string Key, string Name, FactorKind Kind, 
 public sealed record PriceFactor(string Key, string Name, FactorKind Kind, double Percent, double Low, double High, double OvrEquivalent,
     long BpAtMedian, int? Cards, bool IsCore, bool IsInflating)
 {
-    /// <summary>The 95% range excludes zero: the market clearly prices it.</summary>
-    public bool Clear => Low > 0 || High < 0;
+    public int? Players { get; init; }
+    public bool Estimated => double.IsFinite(Percent);
+    /// <summary>At least ten footballers and a player-clustered interval excluding zero.</summary>
+    public bool Clear => Estimated && (Players is null || Players >= 10) && (Low > 0 || High < 0);
 }
 
 /// <summary>
@@ -26,7 +28,8 @@ public sealed record PriceFactor(string Key, string Name, FactorKind Kind, doubl
 /// </summary>
 public sealed class PriceModel
 {
-    private const int MinTagCards = 8, MinSeasonCards = 5;
+    private const int MinPlayers = 8, MinSeasonCards = 5;
+    private sealed record UnpricedFactor(string Key, string Name, FactorKind Kind, int Cards, int Players, bool IsCore);
     private sealed record PhysicalFeature(string Key, string Name, string Stat, FactorKind Kind, int Min, int Max, int Cards, bool IsCore)
     {
         public bool Has(MarketCard c) => c.Stats.TryGetValue(Stat, out var value) && value >= Min && value <= Max;
@@ -61,20 +64,28 @@ public sealed class PriceModel
     private readonly double[] _se;
     private readonly string[] _names;
     private readonly Dictionary<string, int> _counts;
+    private readonly Dictionary<string, int> _playerCounts;
+    private readonly List<UnpricedFactor> _unpriced = [];
+    private readonly double _critical;
 
     public string Group { get; }
     public int Grade { get; }
     public int Cards { get; }
+    public int Players { get; }
     public double R2 { get; }
     /// <summary>Median absolute percentage error on a deterministic 20% holdout.</summary>
     public double ValidationError { get; }
+    /// <summary>Robust spread of holdout log-price errors; used to compare price gaps across position models.</summary>
+    public double ValidationLogScale { get; }
 
-    private PriceModel(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships)
+    private PriceModel(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships, bool validate = true)
     {
         _memberships = (memberships ?? []).ToDictionary(m => m.Key);
         Group = group;
         Grade = grade;
         Cards = data.Count;
+        Players = data.Select(c => c.PlayerId).Distinct().Count();
+        _critical = Critical95(Players - 1);
         var g = _group = MarketGroups.Get(group);
         _stats = g.AllStats.Where(s => s is not ("height" or "weight") && data.Count(c => c.Stats.ContainsKey(s)) >= 0.9 * data.Count).ToArray();
         _physical = PhysicalFeatures(data, g);
@@ -86,11 +97,19 @@ public sealed class PriceModel
         var tagCounts = data.SelectMany(c => c.Tags).GroupBy(t => t).ToDictionary(x => x.Key, x => x.Count());
         foreach (var membership in _memberships.Values)
             tagCounts[membership.Key] = data.Count(c => membership.Members.Contains(c.SpId));
-        var ordinaryTags = tagCounts.Where(kv => kv.Value >= MinTagCards && !_memberships.ContainsKey(kv.Key))
+        var tagPlayers = tagCounts.Keys.ToDictionary(t => t, t => data.Where(c => Has(c, t)).Select(c => c.PlayerId).Distinct().Count());
+        var tagControls = tagCounts.Keys.ToDictionary(t => t, t => data.Where(c => !Has(c, t)).Select(c => c.PlayerId).Distinct().Count());
+        bool Supported(string t) => tagPlayers[t] >= MinPlayers && tagControls[t] >= MinPlayers;
+        foreach (var tag in tagCounts.Keys.Where(t => !Supported(t)))
+        {
+            var kind = KindOf(tag);
+            _unpriced.Add(new(tag, Label(tag), kind, tagCounts[tag], tagPlayers[tag], kind == FactorKind.Trait && g.KeyTraits.Contains(tag[6..])));
+        }
+        var ordinaryTags = tagCounts.Where(kv => Supported(kv.Key) && !_memberships.ContainsKey(kv.Key))
             .OrderByDescending(kv => kv.Value).Select(kv => kv.Key);
         var distinctMemberships = new List<string>();
         var seenMembershipColumns = new List<HashSet<long>>();
-        foreach (var membership in _memberships.Values.Where(m => tagCounts.GetValueOrDefault(m.Key) >= MinTagCards)
+        foreach (var membership in _memberships.Values.Where(m => Supported(m.Key))
                      .OrderBy(m => m.Kind == FactorKind.TeamColor ? 0 : 1).ThenByDescending(m => tagCounts[m.Key]))
         {
             var inGroup = data.Where(c => membership.Members.Contains(c.SpId)).Select(c => c.SpId).ToHashSet();
@@ -106,13 +125,17 @@ public sealed class PriceModel
             .. _physical.Select(p => p.Name),
             .. _tags.Select(Label), .. _seasons.Select(s => $"season:{s}"), "season:기타"];
         _counts = tagCounts.ToDictionary(kv => Label(kv.Key), kv => kv.Value);
+        _playerCounts = tagPlayers.ToDictionary(kv => Label(kv.Key), kv => kv.Value);
         foreach (var p in _physical) _counts[p.Name] = p.Cards;
+        foreach (var p in _physical) _playerCounts[p.Name] = data.Where(p.Has).Select(c => c.PlayerId).Distinct().Count();
         _counts["양발 (약발 5)"] = data.Count(c => c.WeakFoot >= 5);
         _counts["약발 4"] = data.Count(c => c.WeakFoot == 4);
+        _playerCounts["양발 (약발 5)"] = data.Where(c => c.WeakFoot >= 5).Select(c => c.PlayerId).Distinct().Count();
+        _playerCounts["약발 4"] = data.Where(c => c.WeakFoot == 4).Select(c => c.PlayerId).Distinct().Count();
 
         var rows = data.Select(c => (c.SpId, X: Features(c), Y: Math.Log(c.PriceAt(grade)))).ToList();
-        (_beta, _se, R2) = Ols(rows.Select(r => (r.X, r.Y)).ToList());
-        ValidationError = Validate(rows);
+        (_beta, _se, R2) = Ols(rows.Select(r => (r.X, r.Y)).ToList(), data.Select(c => c.PlayerId).ToList());
+        (ValidationError, ValidationLogScale) = validate ? Validate(group, grade, data, memberships) : (double.NaN, double.NaN);
     }
 
     /// <returns>Null when there are too few traded cards to fit.</returns>
@@ -121,7 +144,7 @@ public sealed class PriceModel
     public static PriceModel? Fit(string group, int grade, IEnumerable<MarketCard> cards, IReadOnlyList<MarketMembership>? memberships = null)
     {
         var data = cards.Where(c => c.Group == group && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
-        return data.Count < 60 ? null : new PriceModel(group, grade, data, memberships);
+        return data.Count < 60 || data.Select(c => c.PlayerId).Distinct().Count() < 10 ? null : new PriceModel(group, grade, data, memberships);
     }
 
     private string Label(string tag) => _memberships.TryGetValue(tag, out var membership) ? membership.Name : MarketGroups.TagLabel(tag);
@@ -129,7 +152,10 @@ public sealed class PriceModel
     private bool Has(MarketCard c, string tag) => _memberships.TryGetValue(tag, out var membership)
         ? membership.Members.Contains(c.SpId) : c.Tags.Contains(tag);
 
-    private static PhysicalFeature[] PhysicalFeatures(IReadOnlyList<MarketCard> data, MarketGroup group)
+    private FactorKind KindOf(string tag) => tag.StartsWith("trait:") ? FactorKind.Trait : tag.StartsWith("skill:") ? FactorKind.Skill
+        : _memberships.TryGetValue(tag, out var membership) ? membership.Kind : FactorKind.Body;
+
+    private PhysicalFeature[] PhysicalFeatures(IReadOnlyList<MarketCard> data, MarketGroup group)
     {
         var result = new List<PhysicalFeature>();
         Add("height", "키", FactorKind.Height, HeightBuckets);
@@ -142,9 +168,16 @@ public sealed class PriceModel
             var counts = buckets.Select(b => (Bucket: b, Cards: data.Count(c => c.Stats.TryGetValue(stat, out var v) && v >= b.Min && v <= b.Max))).ToList();
             var reference = counts.MaxBy(x => x.Cards).Bucket;
             var isCore = group.CoreStats.Any(s => s.Stat == stat);
-            foreach (var (bucket, cards) in counts.Where(x => x.Cards >= MinTagCards && x.Bucket.Key != reference.Key))
-                result.Add(new PhysicalFeature($"{stat}:{bucket.Key}", $"{title} {bucket.Label} (기준 {reference.Label})", stat, kind,
-                    bucket.Min, bucket.Max, cards, isCore));
+            foreach (var (bucket, cards) in counts.Where(x => x.Cards > 0 && x.Bucket.Key != reference.Key))
+            {
+                var p = new PhysicalFeature($"{stat}:{bucket.Key}", $"{title} {bucket.Label} (기준 {reference.Label})", stat, kind,
+                    bucket.Min, bucket.Max, cards, isCore);
+                var players = data.Where(p.Has).Select(c => c.PlayerId).Distinct().Count();
+                var controls = data.Where(c => c.Stats.TryGetValue(stat, out var v) && v >= reference.Min && v <= reference.Max)
+                    .Select(c => c.PlayerId).Distinct().Count();
+                if (players >= MinPlayers && controls >= MinPlayers) result.Add(p);
+                else _unpriced.Add(new(p.Key, p.Name, kind, cards, players, isCore));
+            }
         }
     }
 
@@ -159,10 +192,15 @@ public sealed class PriceModel
     {
         var x = Features(c);
         const int firstPremium = 3; // after const, OVR, OVR²; salary (index 5) is a cost, not a quality
-        var end = 6 + _stats.Length + _physical.Length + _tags.Length;
+        var tagStart = 6 + _stats.Length + _physical.Length;
+        var end = tagStart + _tags.Length;
         double premium = 0;
         for (var i = firstPremium; i < end; i++)
-            if (i != 5) premium += _beta[i] * x[i];
+        {
+            if (i == 5) continue;
+            if (i >= tagStart && KindOf(_tags[i - tagStart]) is FactorKind.TeamColor or FactorKind.FeatureTeamColor) continue;
+            premium += _beta[i] * x[i];
+        }
         var slope = _beta[1] + 2 * _beta[2] * (c.Ovr1 - _ovrMean);
         return slope > 0.01 ? Math.Clamp(premium / slope, -6, 10) : 0;
     }
@@ -170,7 +208,7 @@ public sealed class PriceModel
     public IReadOnlyList<PriceEffect> Effects() =>
         _names.Select((n, i) => (n, i))
             .Where(t => t.i > 0 && t.n != "OVR²" && !t.n.StartsWith("season:"))
-            .Select(t => new PriceEffect(t.n, Pct(_beta[t.i]), Pct(_beta[t.i] - 1.96 * _se[t.i]), Pct(_beta[t.i] + 1.96 * _se[t.i]),
+            .Select(t => new PriceEffect(t.n, Pct(_beta[t.i]), Pct(_beta[t.i] - _critical * _se[t.i]), Pct(_beta[t.i] + _critical * _se[t.i]),
                 _se[t.i] > 0 ? _beta[t.i] / _se[t.i] : 0, _counts.TryGetValue(t.n, out var n) ? n : null))
             .ToList();
 
@@ -186,9 +224,10 @@ public sealed class PriceModel
         void Add(int i, string key, FactorKind kind, bool isCore, bool inflating = false)
         {
             var name = _names[i];
-            result.Add(new PriceFactor(key, name, kind, Pct(_beta[i]), Pct(_beta[i] - 1.96 * _se[i]), Pct(_beta[i] + 1.96 * _se[i]),
+            result.Add(new PriceFactor(key, name, kind, Pct(_beta[i]), Pct(_beta[i] - _critical * _se[i]), Pct(_beta[i] + _critical * _se[i]),
                 slope > 0.01 ? _beta[i] / slope : 0, (long)(_medianPrice * (Math.Exp(_beta[i]) - 1)),
-                _counts.TryGetValue(name, out var n) ? n : null, isCore, inflating));
+                _counts.TryGetValue(name, out var n) ? n : null, isCore, inflating)
+                { Players = _playerCounts.GetValueOrDefault(name, Players) });
         }
         Add(3, "foot:5", FactorKind.Foot, true);
         Add(4, "foot:4", FactorKind.Foot, false);
@@ -200,10 +239,11 @@ public sealed class PriceModel
         for (var i = 0; i < _tags.Length; i++)
         {
             var tag = _tags[i];
-            var kind = tag.StartsWith("trait:") ? FactorKind.Trait : tag.StartsWith("skill:") ? FactorKind.Skill
-                : _memberships.TryGetValue(tag, out var membership) ? membership.Kind : FactorKind.Body;
+            var kind = KindOf(tag);
             Add(6 + _stats.Length + _physical.Length + i, tag, kind, kind == FactorKind.Trait && _group.KeyTraits.Contains(tag[6..]));
         }
+        result.AddRange(_unpriced.Select(f => new PriceFactor(f.Key, f.Name, f.Kind, double.NaN, double.NaN, double.NaN, 0, 0,
+            f.Cards, f.IsCore, false) { Players = f.Players }));
         return result;
     }
 
@@ -226,14 +266,35 @@ public sealed class PriceModel
     private static double Pct(double b) => (Math.Exp(b) - 1) * 100;
     private static double Dot(double[] a, double[] b) { double s = 0; for (var i = 0; i < a.Length; i++) s += a[i] * b[i]; return s; }
 
-    private static double Validate(IReadOnlyList<(long SpId, double[] X, double Y)> rows)
+    private static (double Error, double LogScale) Validate(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships)
     {
-        var train = rows.Where(r => Fold(r.SpId) != 0).Select(r => (r.X, r.Y)).ToList();
-        var holdout = rows.Where(r => Fold(r.SpId) == 0).ToList();
-        if (train.Count < 50 || holdout.Count < 10) return double.NaN;
-        var (beta, _, _) = Ols(train);
-        var errors = holdout.Select(r => Math.Abs(Math.Exp(Dot(beta, r.X) - r.Y) - 1)).Order().ToList();
-        return errors[errors.Count / 2];
+        var train = data.Where(c => Fold(c.PlayerId) != 0).ToList();
+        var holdout = data.Where(c => Fold(c.PlayerId) == 0).ToList();
+        if (train.Count < 50 || holdout.Count < 10 || train.Select(c => c.PlayerId).Distinct().Count() < 10) return (double.NaN, double.NaN);
+        // Feature selection and reference buckets must also use training data only.
+        var model = new PriceModel(group, grade, train, memberships, validate: false);
+        var residuals = holdout.Select(c => Math.Log(c.PriceAt(grade)) - Math.Log(model.Predict(c))).ToList();
+        var errors = residuals.Select(e => Math.Abs(Math.Exp(-e) - 1)).Order().ToList();
+        var median = Median(residuals);
+        var mad = Median(residuals.Select(e => Math.Abs(e - median)));
+        return (Median(errors), Math.Max(Math.Max(1.4826 * mad, Math.Abs(median)), 0.05));
+    }
+
+    private static double Median(IEnumerable<double> values)
+    {
+        var sorted = values.Order().ToArray();
+        return (sorted[(sorted.Length - 1) / 2] + sorted[sorted.Length / 2]) / 2;
+    }
+
+    internal static double Critical95(int degreesOfFreedom)
+    {
+        double[] t = [12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228,
+            2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086,
+            2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042];
+        if (degreesOfFreedom <= 30) return t[Math.Max(degreesOfFreedom, 1) - 1];
+        const double z = 1.95996398454;
+        return z + (z * z * z + z) / (4 * degreesOfFreedom)
+            + (5 * Math.Pow(z, 5) + 16 * z * z * z + 3 * z) / (96 * degreesOfFreedom * degreesOfFreedom);
     }
 
     private static int Fold(long id)
@@ -251,7 +312,8 @@ public sealed class PriceModel
     }
 
     /// <summary>Regularized least squares. Binary factors with tiny samples are shrunk instead of producing huge premiums.</summary>
-    internal static (double[] Beta, double[] Se, double R2) Ols(IReadOnlyList<(double[] X, double Y)> rows)
+    internal static (double[] Beta, double[] Se, double R2) Ols(IReadOnlyList<(double[] X, double Y)> rows, IReadOnlyList<int>? clusters = null,
+        double ridge = 2, int absorbedParameters = 0)
     {
         var k = rows[0].X.Length;
         var xtx = new double[k, k];
@@ -265,7 +327,7 @@ public sealed class PriceModel
                 for (var j = 0; j < k; j++) xtx[i, j] += x[i] * x[j];
             }
         }
-        for (var i = 1; i < k; i++) xtx[i, i] += i <= 2 ? 1e-6 : 2.0;
+        for (var i = 1; i < k; i++) xtx[i, i] += i <= 2 ? 1e-6 : ridge;
         var inv = Invert(xtx);
         var beta = new double[k];
         for (var i = 0; i < k; i++) for (var j = 0; j < k; j++) beta[i] += inv[i, j] * xty[j];
@@ -277,24 +339,33 @@ public sealed class PriceModel
             sse += e * e;
             sst += (y - mean) * (y - mean);
         }
-        var meat = new double[k, k];
-        foreach (var (x, y) in rows)
+        var scores = new Dictionary<int, double[]>();
+        for (var row = 0; row < rows.Count; row++)
         {
+            var (x, y) = rows[row];
             var e = y - Dot(beta, x);
+            var cluster = clusters?[row] ?? row;
+            if (!scores.TryGetValue(cluster, out var score)) scores[cluster] = score = new double[k];
+            for (var i = 0; i < k; i++) score[i] += e * x[i];
+        }
+        var meat = new double[k, k];
+        foreach (var score in scores.Values)
+        {
             for (var i = 0; i < k; i++)
                 for (var j = 0; j < k; j++)
-                    meat[i, j] += e * e * x[i] * x[j];
+                    meat[i, j] += score[i] * score[j];
         }
-        var hc1 = rows.Count / (double)Math.Max(rows.Count - k, 1);
+        var cr1 = scores.Count / (double)Math.Max(scores.Count - 1, 1)
+            * (rows.Count - 1) / Math.Max(rows.Count - k - absorbedParameters, 1);
         var se = new double[k];
-        // Heteroskedasticity-robust ridge covariance: HC1 × A⁻¹(X' diag(e²) X)A⁻¹.
+        // Player-clustered ridge covariance: CR1 × A⁻¹(Σ score_g score_g')A⁻¹.
         for (var i = 0; i < k; i++)
         {
             double variance = 0;
             for (var j = 0; j < k; j++)
                 for (var l = 0; l < k; l++)
                     variance += inv[i, j] * meat[j, l] * inv[l, i];
-            se[i] = Math.Sqrt(Math.Max(variance * hc1, 0));
+            se[i] = Math.Sqrt(Math.Max(variance * cr1, 0));
         }
         return (beta, se, sst > 0 ? 1 - sse / sst : 0);
     }
@@ -401,15 +472,35 @@ public sealed record ValueQuery
 
 public sealed record ValuePick(MarketCard Card, int Grade, long Price, long Expected)
 {
+    public double ModelError { get; init; } = double.NaN;
+    public double LogErrorScale { get; init; } = double.NaN;
+    public double EvidenceScore => PriceEvidence.Score(Price, Expected, LogErrorScale);
+    public bool OutsideModelError => EvidenceScore < -1.96;
     /// <summary>Price relative to the model's expectation: −0.4 = 40% cheaper than similar cards.</summary>
     public double Discount => Price / (double)Expected - 1;
+}
+
+/// <summary>A holdout-error comparison, not a confidence interval or proof of mispricing.</summary>
+public static class PriceEvidence
+{
+    public static double Score(long price, long expected, double scale) => price > 0 && expected > 0 && double.IsFinite(scale) && scale > 0
+        ? Math.Log(price / (double)expected) / scale : double.NaN;
+
+    // Rating count is a demand proxy, not measured trading volume. Unvalidated models sort last.
+    public static double Rank(double score, int ratings) => double.IsFinite(score)
+        ? score * Math.Clamp(Math.Log(1 + Math.Max(ratings, 0)) / Math.Log(101), 0.5, 1) : double.PositiveInfinity;
+
+    public static string Label(double score) => !double.IsFinite(score) ? "오차 검증 부족"
+        : score < -1.96 ? "저평가 후보 [추정]" : "모델 오차 범위 내";
+    public static string ErrorLabel(double error) => double.IsFinite(error) ? $"{error:P0}" : "표본 부족";
 }
 
 public static class ValueFinder
 {
     public static IReadOnlyList<ValuePick> Find(PriceModel model, IEnumerable<MarketCard> cards, ValueQuery q) =>
         cards.Where(c => c.Group == q.Group && q.Filter.Matches(c, q.Grade))
-            .Select(c => new ValuePick(c, q.Grade, c.PriceAt(q.Grade), (long)model.Predict(c)))
-            .OrderBy(p => p.Discount)
+            .Select(c => new ValuePick(c, q.Grade, c.PriceAt(q.Grade), (long)model.Predict(c))
+                { ModelError = model.ValidationError, LogErrorScale = model.ValidationLogScale })
+            .OrderBy(p => PriceEvidence.Rank(p.EvidenceScore, p.Card.RatingCount))
             .ToList();
 }

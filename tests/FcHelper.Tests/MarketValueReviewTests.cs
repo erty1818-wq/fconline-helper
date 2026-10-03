@@ -3,15 +3,12 @@ using FcHelper.Market;
 namespace FcHelper.Tests;
 
 /// <summary>
-/// Reproductions of the MV-04 review findings (docs/market-value/REVIEW-CLAUDE.md). They fail on the model as of
-/// c8cb18f and are skipped so CI stays green; MV-05 removes the Skip once the fix is in.
+/// Reproductions of the MV-04 review findings (docs/market-value/REVIEW-CLAUDE.md).
 /// The market is synthetic with a known truth: every footballer has several season cards and a footballer-level
 /// "name premium" the model cannot see, which is what the real market looks like.
 /// </summary>
 public class MarketValueReviewTests
 {
-    private const string Pending = "MV-04 finding, fixed in MV-05 (docs/market-value/REVIEW-CLAUDE.md)";
-
     private static double Normal(Random r) => Math.Sqrt(-2 * Math.Log(1 - r.NextDouble())) * Math.Cos(2 * Math.PI * r.NextDouble());
 
     /// <summary>
@@ -48,23 +45,26 @@ public class MarketValueReviewTests
 
     private static int Footballer(MarketCard c) => (int)(c.SpId % 1_000_000);
 
-    [Fact(Skip = Pending)]
-    public void Team_colour_membership_is_not_counted_as_playing_premium()
+    [Theory]
+    [InlineData(FactorKind.TeamColor)]
+    [InlineData(FactorKind.FeatureTeamColor)]
+    public void Team_colour_membership_is_not_counted_as_playing_premium(FactorKind kind)
     {
         // The market pays +50% for the cards of 42 footballers because they unlock a team colour. Squads add the team
         // colour's real bonus separately (SquadSlot.TeamColorBonus), so the price premium must not also be played OVR.
         var colour = Enumerable.Range(0, 250).Where(p => p % 6 == 0).ToHashSet();
         var cards = Market(1, colour, Math.Log(1.5));
         var members = cards.Where(c => colour.Contains(Footballer(c))).Select(c => c.SpId).ToHashSet();
-        var model = PriceModel.Fit("W", 8, cards, [new("tc:aff:9", "소속 팀컬러", FactorKind.TeamColor, members)])!;
+        var model = PriceModel.Fit("W", 8, cards, [new("tc:aff:9", "소속 팀컬러", kind, members)])!;
         var member = cards.First(c => members.Contains(c.SpId));
         var twin = member with { SpId = 999_000_001 }; // the same card without the membership
 
         Assert.True(model.Factors().Single(f => f.Key == "tc:aff:9").Clear); // the price premium itself is real…
+        Assert.True(model.Predict(member) > model.Predict(twin) * 1.2); // retained in the price expectation
         Assert.Equal(model.PremiumInOvr(twin), model.PremiumInOvr(member), 3); // …but it is not playing value
     }
 
-    [Fact(Skip = Pending)]
+    [Fact]
     public void A_team_colour_of_few_footballers_is_not_called_clear_by_chance()
     {
         // No true effect. Cards of 6 footballers (~24 cards) share their name premiums, so card-level robust errors call
@@ -82,5 +82,80 @@ public class MarketValueReviewTests
             if (model.Factors().Single(f => f.Key == "tc:aff:1").Clear) clear++;
         }
         Assert.InRange(clear / (double)runs, 0, 0.15);
+    }
+
+    [Fact]
+    public void Clustered_covariance_accounts_for_correlated_season_errors_independently_of_sample_cuts()
+    {
+        var rows = new List<(double[] X, double Y)>();
+        var clusters = new List<int>();
+        for (var player = 0; player < 40; player++)
+        {
+            var x = player % 2 == 0 ? -1.0 : 1.0;
+            var error = Math.Sin(player * 1.7);
+            for (var season = 0; season < 5; season++)
+            {
+                rows.Add(([1, x], 2 + 0.4 * x + error));
+                clusters.Add(player);
+            }
+        }
+        var independent = PriceModel.Ols(rows);
+        var clustered = PriceModel.Ols(rows, clusters);
+        Assert.Equal(independent.Beta, clustered.Beta);
+        Assert.InRange(clustered.Se[1] / independent.Se[1], 2.1, 2.4);
+    }
+
+    [Fact]
+    public void Many_season_cards_do_not_make_a_rare_trait_estimable()
+    {
+        var cards = Market(7).Select(c => c.PlayerId < 6 ? c with { Tags = new HashSet<string> { "trait:트릭스터" } } : c).ToList();
+        var factor = PriceModel.Fit("W", 8, cards)!.Factors().Single(f => f.Key == "trait:트릭스터");
+        Assert.True(factor.Cards > 8);
+        Assert.Equal(6, factor.Players);
+        Assert.False(factor.Estimated);
+        Assert.False(factor.Clear);
+    }
+
+    [Fact]
+    public void A_large_discount_within_holdout_error_is_not_labelled_a_bargain()
+    {
+        var pick = new ValuePick(Market(1)[0], 8, 65, 100) { ModelError = 0.55, LogErrorScale = 0.6 };
+        Assert.False(pick.OutsideModelError);
+        Assert.Equal("모델 오차 범위 내", PriceEvidence.Label(pick.EvidenceScore));
+        var quietModel = pick with { LogErrorScale = 0.1 };
+        Assert.True(quietModel.OutsideModelError);
+        Assert.Equal("저평가 후보 [추정]", PriceEvidence.Label(quietModel.EvidenceScore));
+        Assert.False((pick with { LogErrorScale = double.NaN }).OutsideModelError);
+    }
+
+    [Fact]
+    public void Position_average_reports_distinct_players_and_unestimated_rare_traits()
+    {
+        using var temp = new TempDb();
+        var store = new MarketStore(temp.Path);
+        var now = new DateTime(2026, 10, 3, 0, 0, 0, DateTimeKind.Utc);
+        var snapshot = store.StartSnapshot("Full", now);
+        var cards = Market(7);
+        var rare = cards.Where(c => c.PlayerId < 6).Select(c => c.SpId).ToList();
+        foreach (var group in new[] { "W", "SM" })
+        {
+            store.SaveRows(snapshot, group, cards.Select(c => new ListRow(c.SpId, c.Name, c.Season, c.Pay, c.Ovr1, c.WeakFoot,
+                c.Rating, c.RatingCount, new Dictionary<int, long>(c.Prices), new Dictionary<string, int>(c.Stats))));
+            store.SaveTag(snapshot, group, rare, "trait:트릭스터");
+        }
+        store.FinishSnapshot(snapshot, now);
+        var service = new MarketService(new NoRequests(), store, _ => Task.FromResult("[]"));
+        var value = Assert.Single(service.TraitValues());
+        Assert.Equal(6, value.Players);
+        Assert.Equal(rare.Count, value.Cards);
+        Assert.Equal(2, value.ByGroup.Count);
+        Assert.False(value.Estimated);
+        Assert.False(value.Clear);
+    }
+
+    private sealed class NoRequests : IMarketListSource
+    {
+        public Task<IReadOnlyList<ListRow>> QueryAsync(ListQuery query, CancellationToken ct = default)
+            => throw new InvalidOperationException("No network requests during valuation.");
     }
 }

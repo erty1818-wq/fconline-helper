@@ -52,9 +52,11 @@ public partial class ValuePage : UserControl
         try { await squads.RankerTeamColorMembersAsync(); }
         catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException or InvalidOperationException) { }
         var values = await Task.Run(() => squads.Market.TraitValues(grade, floor));
-        Factors.ItemsSource = values.Select(t => new FactorRow(t.Trait, t.Scope, $"{t.Percent:+0;-0}%", t.Percent, $"{t.Low:+0;-0} ~ {t.High:+0;-0}%",
-            $"{t.OvrEquivalent:+0.0;-0.0}", t.OvrEquivalent, "", t.Cards.ToString(),
-            (t.Clear ? "" : "불확실 · ") + string.Join(", ", t.ByGroup.Select(g => $"{MarketGroups.Get(g.Group).Name} {g.Factor.Percent:+0;-0}%")))).ToList();
+        Factors.ItemsSource = values.Select(t => new FactorRow(t.Trait, t.Scope, t.Estimated ? $"{t.Percent:+0;-0}%" : "—", t.Percent,
+            t.Estimated ? $"{t.Low:+0;-0} ~ {t.High:+0;-0}%" : "—", t.Estimated ? $"{t.OvrEquivalent:+0.0;-0.0}" : "—", t.OvrEquivalent, "", t.Cards.ToString(),
+            (!t.Estimated || t.Players < 10 ? "표본 부족 · " : t.Clear ? "" : "불확실 · ")
+            + string.Join(", ", t.ByGroup.Select(g => g.Factor.Estimated ? $"{MarketGroups.Get(g.Group).Name} {g.Factor.Percent:+0;-0}%" : $"{MarketGroups.Get(g.Group).Name} 표본 부족")))
+            { Players = t.Players.ToString() }).ToList();
         Status.Text = $"+{grade}{(floor is { } f ? $" · OVR {f}+ 카드" : " · 전체 카드")} · 신특이 있는 카드가 없는 카드보다 비싼 정도 (포지션별 추정을 정밀도로 가중 평균) [추정: 시장 회귀]";
     }
 
@@ -77,8 +79,8 @@ public partial class ValuePage : UserControl
         }
         Factors.ItemsSource = FactorRow.For(model, group);
         var validation = double.IsNaN(model.ValidationError) ? "표본 부족" : $"{model.ValidationError:P0}";
-        Status.Text = $"{group.Name} +{grade}{(floor > 0 ? $" · OVR {floor}+" : "")} · 카드 {model.Cards}장 · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00} · 검증 중앙오차 {validation}. "
-            + "능력치는 같은 OVR에서 +1일 때, 특성·체형은 없는 카드 대비. OVR 환산 = 그만큼 OVR이 높은 카드의 가격 [추정: 시장 회귀, 인과 아님].";
+        Status.Text = $"{group.Name} +{grade}{(floor > 0 ? $" · OVR {floor}+" : "")} · 카드 {model.Cards}장 · 선수 {model.Players}명 · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00} · 검증 중앙오차 {validation}. "
+            + "능력치는 같은 OVR에서 다른 능력치와 배분을 바꾼 연관성, 특성·체형은 없는 카드 대비. 범위는 선수별 군집 보정한 근사치이며 릿지 편향·누락 변수는 포함하지 않습니다 [추정, 인과 아님].";
     }
 
     private async void OnSearch(object sender, RoutedEventArgs e)
@@ -105,9 +107,9 @@ public partial class ValuePage : UserControl
             var bad = await squads.IlliquidAsync(picks.Take(30).Select(p => (p.Card.SpId, p.Grade)), new Progress<string>(m => Status.Text = $"상위 30장 {m}"));
             var kept = picks.Where(p => !bad.Contains((p.Card.SpId, p.Grade))).ToList();
             Results.ItemsSource = kept.Take(300).Select(p => ValueRow.From(p, group, squads.KnownLiquidity(p.Card.SpId, p.Grade))).ToList();
-            Status.Text = $"{group.Name} +{grade} · {kept.Count}장 · 예상가보다 싼 순서 · {Filters.Summary(filter)}"
+            Status.Text = $"{group.Name} +{grade} · {kept.Count}장 · 검증 오차·평점 수를 반영한 가격 차이 순서 · {Filters.Summary(filter)}"
                 + (bad.Count > 0 ? $" · 거래가 거의 없는 {bad.Count}장 제외" : "")
-                + $" (R² {model.R2:0.00}, 검증 중앙오차 {(double.IsNaN(model.ValidationError) ? "표본 부족" : model.ValidationError.ToString("P0"))}, 카드 {model.Cards}장)";
+                + $" (R² {model.R2:0.00}, 검증 중앙오차 {PriceEvidence.ErrorLabel(model.ValidationError)}, 카드 {model.Cards}장). 오차는 보장 범위가 아니며 저평가 후보도 실제 거래와 체감을 확인해야 합니다 [추정].";
         });
     }
 }

@@ -33,9 +33,11 @@ public partial class PicksPage : UserControl
                 Core = MarketGroups.Get(p.Card.Group).CoreGap(p.Card) is { } gap ? $"{gap:+0.0;-0.0}" : "",
                 Height = p.Card.Stats.TryGetValue("height", out var h) ? h.ToString() : "",
                 Tags = StudioKit.Tags(p.Card),
-                Honey = squads.KnownLiquidity(p.Card.SpId, p.Grade) is { Tradable: true } && Honey.IsHoney(p.Discount) ? Honey.Mark : "",
+                Honey = squads.KnownLiquidity(p.Card.SpId, p.Grade) is { Tradable: true } && p.OutsideModelError && Honey.IsHoney(p.Discount) ? Honey.Mark : "",
+                ModelError = PriceEvidence.ErrorLabel(p.ModelError),
+                Evidence = PriceEvidence.Label(p.EvidenceScore),
             }).ToList();
-            Status.Text = picks.Count == 0 ? "조건에 맞는 카드가 없습니다. 최소 랭커 수를 낮추거나 조건을 넓혀 보세요." : $"{picks.Count}장 · 랭커 사용이 많고 싼 순서 · {Filters.Summary(filter)}" + (bad.Count > 0 ? $" · 거래가 거의 없는 {bad.Count}장 제외" : "");
+            Status.Text = picks.Count == 0 ? "조건에 맞는 카드가 없습니다. 최소 랭커 수를 낮추거나 조건을 넓혀 보세요." : $"{picks.Count}장 · 검증 오차·평점 수·랭커 사용 수를 반영한 순서 · {Filters.Summary(filter)}" + (bad.Count > 0 ? $" · 거래가 거의 없는 {bad.Count}장 제외" : "") + " · 모델 오차 범위 내 차이는 저평가로 판정하지 않습니다 [추정].";
         });
     }
 

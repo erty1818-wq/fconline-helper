@@ -153,6 +153,7 @@ static void PrintUsage() => Console.Error.WriteLine("""
           같은 스펙 대비 싸게 거래되는 선수 (API 키 불필요, 앱이 받아 둔 시세 사용). 세부 조건: --maxovr --foot 5
           --body thin|normal|heavy --height 183-192 --maxpay 28 --stat 속력=130,밸런스=120 --core 0 --name 이름
       fch factors [--pos CB] [--grade 8]
+      fch valuation-audit [--grade 8] [--minovr 135] [--out report.json]
           포지션 가격 요인: 코어 능력치·신특·체형·키가 시세에 주는 영향 (%, OVR 환산, BP) [추정].
       fch squad [--formation 4-2-2-2] [--budget 100억] [--grades 5,8] [--cap 310] [--teamcolor 2002,40515]
           스쿼드 추천. 급여 한도는 공식 스쿼드메이커에서 읽은 값이 기본. 팀컬러는 소속,특성 번호.

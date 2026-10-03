@@ -11,7 +11,7 @@
                     <StackPanel>
                         <TextBlock Text="가성비 찾기" Style="{StaticResource H1}" />
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
-                                   Text="같은 OVR·코어 능력치·약발·급여·키·특성·개인기·체형·시즌 카드들의 오늘 시세보다 싸게 거래되는 카드 [추정]. 호날두·호나우두·굴리트는 가격 학습에서 뺍니다." />
+                                   Text="비슷한 스펙의 예상가와 실제 시세를 비교합니다 [추정]. 모델 오차 범위 안의 가격 차이는 저평가로 판정하지 않습니다. 호날두·호나우두·굴리트는 가격 학습에서 뺍니다." />
                     </StackPanel>
                 </DockPanel>
                 <WrapPanel>
@@ -33,7 +33,7 @@
                     <DataGridTemplateColumn Header="꿀" Width="36" SortMemberPath="Discount">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Image Source="{app:Icon Honey}" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="꿀선수: 같은 스펙 카드보다 30% 이상 싸게 거래">
+                                <Image Source="{app:Icon Honey}" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="저평가 후보 [추정]: 예상가 대비 30% 이상 낮고 검증 오차보다 큰 차이, 거래 확인">
                                     <Image.Style>
                                         <Style TargetType="Image">
                                             <Setter Property="Visibility" Value="Visible" />
@@ -76,6 +76,8 @@
                     <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="80" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="예상가 [추정]" Binding="{Binding Expected}" Width="90" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="차이" Binding="{Binding Diff}" Width="55" ElementStyle="{StaticResource Good}" SortMemberPath="Discount" />
+                    <DataGridTextColumn Header="검증 중앙오차" Binding="{Binding ModelError}" Width="95" />
+                    <DataGridTextColumn Header="가격 차이 해석" Binding="{Binding Evidence}" Width="135" />
                     <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="190" />
                 </DataGrid.Columns>
             </DataGrid>
@@ -84,10 +86,11 @@
                     <DataGridTextColumn Header="요인" Binding="{Binding Name}" Width="170" />
                     <DataGridTextColumn Header="구분" Binding="{Binding Kind}" Width="175" />
                     <DataGridTextColumn Header="가격 영향" Binding="{Binding Percent}" Width="80" ElementStyle="{StaticResource Num}" SortMemberPath="PercentValue" />
-                    <DataGridTextColumn Header="95% 범위" Binding="{Binding Range}" Width="110" ElementStyle="{StaticResource Num}" />
+                    <DataGridTextColumn Header="근사 95% 범위" Binding="{Binding Range}" Width="110" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="OVR 환산" Binding="{Binding Ovr}" Width="75" ElementStyle="{StaticResource Num}" SortMemberPath="OvrValue" />
                     <DataGridTextColumn Header="중간 카드 기준 BP" Binding="{Binding Bp}" Width="110" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="카드 수" Binding="{Binding Cards}" Width="60" ElementStyle="{StaticResource Num}" />
+                    <DataGridTextColumn Header="선수 수" Binding="{Binding Players}" Width="60" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="판정" Binding="{Binding Verdict}" Width="*" />
                 </DataGrid.Columns>
             </DataGrid>

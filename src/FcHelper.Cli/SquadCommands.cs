@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using FcHelper.Data;
 using FcHelper.Market;
 using FcHelper.NexonApi;
@@ -7,7 +9,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "allocation", "mteam", "mhoney"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "valuation-audit", "allocation", "mteam", "mhoney"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -74,6 +76,26 @@ internal static class SquadCommands
                     Console.WriteLine("  +11 카드 수별 팀 수: " + string.Join("  ", alloc.PlusElevenCounts.OrderByDescending(kv => kv.Key).Select(kv => $"{kv.Key}명 {kv.Value}팀")));
                     return 0;
                 case "factors": return await Factors(squads, option);
+                case "valuation-audit":
+                    await squads.RankerTeamColorMembersAsync();
+                    var auditGrade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
+                    int? auditFloor = option("minovr") is { } af ? Int(af, 135) : null;
+                    var report = new
+                    {
+                        Snapshot = store.LatestFinished(),
+                        Snapshots = store.Snapshots().Select(s => new { Snapshot = s, Cards = store.CountCards(s.Id) }),
+                        HistoryDays = store.PriceHistoryDays(), PatchBaselines = store.PatchBaselines(), Grade = auditGrade, MinOvr = auditFloor,
+                        PatchChanges = store.PatchBaselines().Where(p => p.Snapshot is not null).Select(p => new { Baseline = p,
+                            After = store.LatestFinished(), Values = PatchValueModel.Compare(store.LoadCards(p.Snapshot!.Value), store.LoadCards(store.LatestFinished()!.Id), auditGrade) }),
+                        Models = MarketGroups.All.Select(g => auditFloor is { } lo ? market.ModelAbove(g.Key, auditGrade, lo) : market.Model(g.Key, auditGrade))
+                            .Where(m => m is not null).Select(m => new { m!.Group, m.Cards, m.Players, m.R2, m.ValidationError, m.ValidationLogScale, m.MedianPrice, Factors = m.Factors() }),
+                        Traits = market.TraitValues(auditGrade, auditFloor).Select(t => new { t.Trait, t.Scope, t.Percent, t.Low, t.High, t.OvrEquivalent, t.Cards, t.Players, t.Estimated, t.Clear,
+                            ByGroup = t.ByGroup.Select(g => new { g.Group, g.Factor }) }),
+                    };
+                    var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });
+                    if (option("out") is { } output) await File.WriteAllTextAsync(output, json);
+                    else Console.WriteLine(json);
+                    return 0;
                 case "traits":
                     await squads.RankerTeamColorMembersAsync();
                     var tgrade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
@@ -81,14 +103,15 @@ internal static class SquadCommands
                     {
                         Console.WriteLine($"\n■ 신특 평균 값어치 · +{tgrade} · {(minOvr is { } m ? $"OVR {m}+ 카드만" : "전체 카드")} [추정]");
                         foreach (var t in squads.Market.TraitValues(tgrade, minOvr))
-                            Console.WriteLine($"  {t.Scope,-22} {t.Trait,-10} {t.Percent,7:+0;-0}% ({t.Low:+0;-0}~{t.High:+0;-0}%) OVR {t.OvrEquivalent:+0.0;-0.0} · {t.Cards}장{(t.Clear ? "" : " (불확실)")}"
-                                + "  [" + string.Join(", ", t.ByGroup.Select(g => $"{g.Group} {g.Factor.Percent:+0;-0}%")) + "]");
+                            Console.WriteLine($"  {t.Scope,-22} {t.Trait,-10} " + (t.Estimated ? $"{t.Percent:+0;-0}% ({t.Low:+0;-0}~{t.High:+0;-0}%) OVR {t.OvrEquivalent:+0.0;-0.0}" : "표본 부족")
+                                + $" · {t.Cards}장 · 선수 {t.Players}명{(t.Clear ? "" : " (불확실)")}"
+                                + "  [" + string.Join(", ", t.ByGroup.Select(g => g.Factor.Estimated ? $"{g.Group} {g.Factor.Percent:+0;-0}%" : $"{g.Group} 표본 부족")) + "]");
                     }
                     return 0;
                 case "picks":
                     foreach (var h in (await squads.HiddenRankerPicksAsync(option("pos"), await Filter(squads, option, 0),
                                  Int(option("users"), 10), rankFrom, rankTo)).Take(Int(option("top"), 15)))
-                        Console.WriteLine($"{h.Position,-4} {h.Card.Name,-10} {h.Card.Season,-8} +{h.Grade,-2} OVR {h.Ovr} · 랭커 {h.Users}명({h.Share:P1}) · 시세 {Bp.Format(h.Price),7} · 예상 {Bp.Format(h.Expected),7} · {h.Discount:+0%;-0%}");
+                        Console.WriteLine($"{h.Position,-4} {h.Card.Name,-10} {h.Card.Season,-8} +{h.Grade,-2} OVR {h.Ovr} · 랭커 {h.Users}명({h.Share:P1}) · 시세 {Bp.Format(h.Price),7} · 예상 {Bp.Format(h.Expected),7} · {h.Discount:+0%;-0%} · 중앙오차 {PriceEvidence.ErrorLabel(h.ModelError)} · {PriceEvidence.Label(h.EvidenceScore)}");
                     Console.WriteLine("랭커 사용 = 데일리 차트(전날 공식경기). 예상가 = 같은 스펙 카드의 오늘 시세 [추정].");
                     return 0;
                 case "grade": return Grade(squads, option);
@@ -184,7 +207,7 @@ internal static class SquadCommands
             var c = p.Card;
             var core = group.CoreGap(c) is { } g ? $"코어 {g:+0.0;-0.0}" : "";
             Console.WriteLine($"  {c.Name,-10} {c.Season,-8} OVR {c.OvrAt(grade)} {core} 약발{c.WeakFoot} 급여{c.Pay,2}{(c.Stats.TryGetValue("height", out var h) ? $" {h}cm" : "")}"
-                + $" · 시세 {Bp.Format(p.Price),7} · 예상 {Bp.Format(p.Expected),7} · {p.Discount * 100:+0;-0}%  " + string.Join(" ", c.Tags.Order().Select(MarketGroups.TagLabel)));
+                + $" · 시세 {Bp.Format(p.Price),7} · 예상 {Bp.Format(p.Expected),7} · {p.Discount * 100:+0;-0}% · 중앙오차 {PriceEvidence.ErrorLabel(p.ModelError)} · {PriceEvidence.Label(p.EvidenceScore)}  " + string.Join(" ", c.Tags.Order().Select(MarketGroups.TagLabel)));
         }
         Console.WriteLine("예상가 = 같은 스펙 카드들의 오늘 시세로 계산한 값 [추정]. 코어 = 포지션 핵심 능력치 가중 평균 − OVR.");
         return 0;
@@ -200,22 +223,22 @@ internal static class SquadCommands
         var minOvr = option("minovr") is { } m ? Int(m, 0) : 0;
         var model = minOvr > 0 ? squads.Market.ModelAbove(group.Key, grade, minOvr) : squads.Market.Model(group.Key, grade);
         if (model is null) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
-        Console.WriteLine($"{group.Name} +{grade}{(minOvr > 0 ? $" · OVR {minOvr}+" : "")} · 카드 {model.Cards}장 (호날두·호나우두·굴리트 제외) · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}"
+        Console.WriteLine($"{group.Name} +{grade}{(minOvr > 0 ? $" · OVR {minOvr}+" : "")} · 카드 {model.Cards}장 · 선수 {model.Players}명 (호날두·호나우두·굴리트 제외) · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}"
             + $" · 검증 중앙오차 {(double.IsNaN(model.ValidationError) ? "표본 부족" : model.ValidationError.ToString("P0"))}");
         var factors = model.Factors();
         void Print(string title, IEnumerable<PriceFactor> list)
         {
             Console.WriteLine($"\n[{title}]");
             foreach (var f in list)
-                Console.WriteLine($"  {f.Name,-22} {f.Percent,6:+0.0;-0.0}%  ({f.Low:+0;-0}~{f.High:+0;-0}%)  OVR {f.OvrEquivalent,5:+0.0;-0.0}  "
-                    + $"{(f.BpAtMedian >= 0 ? "+" : "-")}{Bp.Format(Math.Abs(f.BpAtMedian)),7}{(f.Cards is { } n ? $"  {n}장" : "")}{(f.Clear ? "" : "  (불확실)")}{(f.IsInflating ? "  뻥스탯" : "")}");
+                Console.WriteLine($"  {f.Name,-22} " + (f.Estimated ? $"{f.Percent:+0.0;-0.0}% ({f.Low:+0;-0}~{f.High:+0;-0}%) OVR {f.OvrEquivalent:+0.0;-0.0}" : "표본 부족")
+                    + $"{(f.Cards is { } n ? $"  {n}장" : "")} · 선수 {f.Players}명{(f.Clear ? "" : "  (불확실)")}{(f.IsInflating ? "  뻥스탯" : "")}");
         }
         Print("핵심 신특", factors.Where(f => f.Kind == FactorKind.Trait && f.IsCore));
         Print("코어 능력치·피지컬", factors.Where(f => (f.Kind == FactorKind.Stat && f.IsCore) || f.Kind is FactorKind.Height or FactorKind.Weight).OrderByDescending(f => f.Percent));
         Print("그 밖의 능력치", factors.Where(f => f.Kind == FactorKind.Stat && !f.IsCore).OrderByDescending(f => f.Percent));
         Print("그 밖의 특성·개인기·체형·약발·팀컬러", factors.Where(f => f.Kind is FactorKind.Trait or FactorKind.Skill or FactorKind.Body or FactorKind.Foot or FactorKind.TeamColor or FactorKind.FeatureTeamColor
             && !(f.Kind == FactorKind.Trait && f.IsCore)).OrderByDescending(f => f.Percent));
-        Console.WriteLine("\n%·OVR·BP는 다른 조건이 같을 때의 시세 차이 [추정: 시장 회귀, 인과 아님]. 범위가 0을 포함하면 불확실.");
+        Console.WriteLine("\n%·OVR은 다른 조건을 통제한 시세 연관성 [추정, 인과 아님]. 스탯은 같은 OVR에서 능력치 배분을 바꾼 효과. 범위는 선수 군집·t 보정한 근사치이며 릿지 편향은 포함하지 않습니다.");
         return 0;
     }
 
