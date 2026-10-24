@@ -9,7 +9,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "valuation-audit", "allocation", "mteam", "mhoney"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "valuation-audit", "market-refresh", "allocation", "mteam", "mhoney"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -76,6 +76,33 @@ internal static class SquadCommands
                     Console.WriteLine("  +11 카드 수별 팀 수: " + string.Join("  ", alloc.PlusElevenCounts.OrderByDescending(kv => kv.Key).Select(kv => $"{kv.Key}명 {kv.Value}팀")));
                     return 0;
                 case "factors": return await Factors(squads, option);
+                case "market-refresh":
+                    // Two refreshers would write the same unfinished snapshot; the app's own refresh runs while it is open.
+                    if (System.Diagnostics.Process.GetProcessesByName("FcHelper").Length > 0 && option("force") != "yes")
+                    {
+                        Console.Error.WriteLine("FC Online Helper 앱이 켜져 있습니다. 앱을 트레이에서 종료한 뒤 다시 실행하세요. (무시하려면 --force yes)");
+                        return 4;
+                    }
+                    var before = market.Status;
+                    Console.WriteLine($"현재 시세: {before.Current?.FinishedAt?.ToLocalTime():yyyy-MM-dd HH:mm} 기준 · {before.Cards:N0}장"
+                        + (store.Unfinished() is { } open ? $" · 끝나지 않은 {open.Kind} 갱신 이어받음 (시작 {open.StartedAt.ToLocalTime():MM-dd HH:mm})" : ""));
+                    var lastPrinted = DateTime.MinValue;
+                    market.Changed += () =>
+                    {
+                        if (market.Status.Running is not { } run || DateTime.UtcNow - lastPrinted < TimeSpan.FromSeconds(2)) return;
+                        lastPrinted = DateTime.UtcNow;
+                        Console.Error.Write($"\r갱신 중 {run.Done}/{run.Total} ({(run.Total > 0 ? run.Done * 100 / run.Total : 0)}%) {run.Step}          ");
+                    };
+                    var refreshed = await market.RefreshIfDueAsync(force: true);
+                    Console.Error.WriteLine();
+                    var after = market.Status;
+                    if (!refreshed)
+                    {
+                        Console.Error.WriteLine(after.LastError ?? "갱신하지 못했습니다.");
+                        return 5;
+                    }
+                    Console.WriteLine($"완료: {after.Current?.FinishedAt?.ToLocalTime():yyyy-MM-dd HH:mm} 기준 · {after.Cards:N0}장 · 일별 시세 {store.PriceHistoryDays().Count}일");
+                    return 0;
                 case "valuation-audit":
                     await squads.RankerTeamColorMembersAsync();
                     var auditGrade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);

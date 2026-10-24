@@ -172,6 +172,8 @@ static void PrintUsage() => Console.Error.WriteLine("""
           같은 스펙 대비 싸게 거래되는 선수 (API 키 불필요, 앱이 받아 둔 시세 사용). 세부 조건: --maxovr --foot 5
           --body thin|normal|heavy --height 183-192 --maxpay 28 --stat 속력=130,밸런스=120 --core 0 --name 이름
       fch factors [--pos CB] [--grade 8]
+      fch market-refresh
+          데이터센터 시세를 지금 끝까지 갱신합니다 (앱을 끈 상태에서. 가격만 약 10분, 전체 갱신은 1시간 이상).
       fch market-export [--out market-export.jsonl.gz] [--grades 1,3,5,8,10,11]
           로컬 시세 DB(스냅샷·일별 시세·팀컬러·랭커 사용량)를 분석용 파일로 내보냅니다. 읽기 전용, 앱을 켜 둔 채로 가능.
       fch valuation-audit [--grade 8] [--minovr 135] [--out report.json]
