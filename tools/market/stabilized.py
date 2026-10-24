@@ -83,6 +83,66 @@ def price_panel(series, grade):
     return panel.reindex(sorted(panel.columns), axis=1)
 
 
+def load_graphs(path, grade):
+    """Lines written by `fch market-backfill`: {spId, grade, fetchedAt, values (daily, oldest first)}."""
+    out = []
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            try:
+                o = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a line cut off by an interrupted run
+            if o.get("grade") == grade and o.get("values"):
+                out.append(o)
+    return out
+
+
+def align_graphs(graphs, history):
+    """The graph has no dates. Its last value is taken as the fetch day (KST) plus an offset (−3..+1 days). Every card
+    fetched on the same day shares that offset, so it is the one most cards' own refresh prices agree with (per-card
+    choices would add noise: neighbouring days are similar). Returns (panel of ln price, alignment stats)."""
+    from datetime import datetime, timedelta
+    hist_days = {d: day_of(d) for d in history.columns}
+    prepared = []
+    votes = defaultdict(list)
+    for g in graphs:
+        fetched = datetime.fromisoformat(g["fetchedAt"].replace("Z", "+00:00")) + timedelta(hours=9)
+        end0 = fetched.date()
+        vals = [math.log(v) if v and v > FLOOR else np.nan for v in g["values"]]
+        L, best = len(vals), None
+        if g["spId"] in history.index:
+            known = history.loc[g["spId"]]
+            for off in range(-3, 2):
+                end = end0 + timedelta(days=off)
+                diffs = [abs(vals[L - 1 - (end - dd).days] - known[d]) for d, dd in hist_days.items()
+                         if 0 <= L - 1 - (end - dd).days < L and not np.isnan(vals[L - 1 - (end - dd).days]) and not np.isnan(known[d])]
+                if len(diffs) >= 3:
+                    err = float(np.median(diffs))
+                    if best is None or err < best[1]: best = (off, err)
+        if best is not None: votes[end0].append(best)
+        prepared.append((g["spId"], end0, vals))
+    offsets, agree, errs = {}, [], []
+    for end0, vs in votes.items():
+        offs = [o for o, _ in vs]
+        offsets[end0] = max(set(offs), key=offs.count)
+        agree.append(offs.count(offsets[end0]) / len(offs))
+        errs += [e for o, e in vs if o == offsets[end0]]
+    rows = {}
+    for sp, end0, vals in prepared:
+        end = end0 + timedelta(days=offsets.get(end0, 0))
+        rows[sp] = {(end - timedelta(days=len(vals) - 1 - i)).isoformat(): v for i, v in enumerate(vals)}
+    panel = pd.DataFrame.from_dict(rows, orient="index")
+    panel = panel.reindex(sorted(panel.columns), axis=1)
+    return panel, dict(cards=len(prepared), fetchDays=len(votes), offsets={str(k): v for k, v in offsets.items()},
+                       agreement=float(np.mean(agree)) if agree else None,
+                       medianAbsLogGapToRefreshPrice=float(np.median(errs)) if errs else None,
+                       firstDay=panel.columns[0] if len(panel.columns) else None,
+                       lastDay=panel.columns[-1] if len(panel.columns) else None)
+
+
 # ── statistics ─────────────────────────────────────────────────────────────
 
 def t_quantile(df, p=0.975):
@@ -319,6 +379,35 @@ def compare_audits(old_path, new_path):
 
 # ── report ─────────────────────────────────────────────────────────────────
 
+def analyse(panel, base_u, base_day, families, series, rankers, watch):
+    """Every analysis on one price panel (refresh history or aligned graphs)."""
+    days = list(panel.columns)
+    last = days[-1]
+    week_ago = min(days, key=lambda d: abs((day_of(last) - day_of(d)).days - 7))
+    part = dict(
+        days=days,
+        diagnostics=diagnostics(panel, base_u, base_day),
+        eventStudy=event_study(panel, base_u, base_day, families),
+        lastWeek=dict(start=week_ago, end=last, change=change_between(panel, base_u, week_ago, last, families)),
+        rankerLeadLag=ranker_lead_lag(rankers, panel, base_u),
+        gradeRatios=grade_ratios(series, base_u, watch) if series is not None else [],
+        seasonsSinceBase=season_moves(panel, base_u, base_day, last),
+        seasonsLastWeek=season_moves(panel, base_u, week_ago, last),
+    )
+    # Peak-to-now per trait: the post-patch day with the largest |coefficient|, then the same design from there.
+    peaks = {}
+    for fam, es in part["eventStudy"].items():
+        for t, path in es["paths"].items():
+            post = [p for p in path if p["day"] > base_day]
+            if not post: continue
+            peak = max(post, key=lambda p: abs(p["b"]))
+            if peak["day"] != last:
+                ch = change_between(panel, base_u, peak["day"], last, [fam]).get(fam, {}).get(t)
+                peaks.setdefault(fam, {})[t] = dict(peakDay=peak["day"], peakPct=peak["pct"], nowPct=post[-1]["pct"], sincePeak=ch)
+    part["peakToNow"] = peaks
+    return part
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("export")
@@ -326,6 +415,7 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--old-audit")
     ap.add_argument("--new-audit")
+    ap.add_argument("--graphs", help="price graphs from `fch market-backfill` (fills the days the app did not refresh)")
     ap.add_argument("--watch", default="24EP,CU",
                     help="seasons to follow separately in the grade ratios (default: the EVO class inputs, 2026-10-29)")
     args = ap.parse_args()
@@ -344,39 +434,20 @@ def main():
     unchanged = same[(base.loc[same, "ovr"] == now.loc[same, "ovr"]) & (base.loc[same, "traits"] == now.loc[same, "traits"])]
     base_u = base.loc[unchanged]
 
-    panel = price_panel(series, args.grade)
-    days = list(panel.columns)
-    if base_day not in days:
+    hist = price_panel(series, args.grade)
+    if base_day not in hist.columns:
         raise SystemExit(f"pre-patch day {base_day} missing from the price history")
-    last = days[-1]
-    week_ago = min(days, key=lambda d: abs((day_of(last) - day_of(d)).days - 7))
     families = [f for f in ("attack", "mid", "defence", "gk") if (base_u.family == f).any()]
-
-    seasons_after = [s for s in meta["seasons"] if s["firstSeen"][:10] > base_day]
-    report = dict(
-        export=dict(exportedAt=meta["exportedAt"], latestSnapshot=latest, baseSnapshot=base_snap, baseDay=base_day,
-                    days=days, grade=args.grade, cardsLatest=len(now), cardsBase=len(base), unchangedCards=len(unchanged),
-                    newSeasonsAfterPatch=seasons_after, patch=patch),
-        diagnostics=diagnostics(panel, base_u, base_day),
-        eventStudy=event_study(panel, base_u, base_day, families),
-        lastWeek=dict(start=week_ago, end=last, change=change_between(panel, base_u, week_ago, last, families)),
-        rankerLeadLag=ranker_lead_lag(rankers, panel, base_u),
-        gradeRatios=grade_ratios(series, base_u, args.watch),
-        seasonsSinceBase=season_moves(panel, base_u, base_day, last),
-        seasonsLastWeek=season_moves(panel, base_u, week_ago, last),
-    )
-    report["export"]["watchSeasons"] = args.watch
-    # Peak-to-now per trait: the day with the largest |coefficient| after the patch, then the same design from there.
-    peaks = {}
-    for fam, es in report["eventStudy"].items():
-        for t, path in es["paths"].items():
-            post = [p for p in path if p["day"] > base_day]
-            if not post: continue
-            peak = max(post, key=lambda p: abs(p["b"]))
-            if peak["day"] != last:
-                ch = change_between(panel, base_u, peak["day"], last, [fam]).get(fam, {}).get(t)
-                peaks.setdefault(fam, {})[t] = dict(peakDay=peak["day"], peakPct=peak["pct"], nowPct=post[-1]["pct"], sincePeak=ch)
-    report["peakToNow"] = peaks
+    report = dict(export=dict(exportedAt=meta["exportedAt"], latestSnapshot=latest, baseSnapshot=base_snap, baseDay=base_day,
+                              snapshots=meta["snapshots"], grade=args.grade, cardsLatest=len(now), cardsBase=len(base),
+                              unchangedCards=len(unchanged), patch=patch, watchSeasons=args.watch,
+                              newSeasonsAfterPatch=[s for s in meta["seasons"] if s["firstSeen"][:10] > base_day]))
+    report["history"] = analyse(hist, base_u, base_day, families, series, rankers, args.watch)
+    if args.graphs:
+        graph_panel, stats = align_graphs(load_graphs(args.graphs, args.grade), hist)
+        report["graphAlignment"] = stats
+        if base_day in graph_panel.columns:
+            report["graphs"] = analyse(graph_panel, base_u, base_day, families, None, rankers, args.watch)
     if args.old_audit and args.new_audit:
         report["audits"] = compare_audits(args.old_audit, args.new_audit)
 
@@ -388,12 +459,33 @@ def main():
 
 def print_report(r):
     e = r["export"]
-    print(f"# 시세 안정화 분석 · +{e['grade']} · 기준일(패치 전) {e['baseDay']} · 최신 {e['days'][-1]}")
-    print(f"일별 시세 {len(e['days'])}일 · 최신 스냅샷 카드 {e['cardsLatest']} · 전후 스펙 동일 카드 {e['unchangedCards']}")
+    print(f"# 시세 안정화 분석 · +{e['grade']} · 기준일(패치 전) {e['baseDay']}")
+    print("스냅샷: " + ", ".join(f"#{s['id']} {s['kind']} {s['finishedAt'][:10]}" for s in e["snapshots"]))
+    print(f"최신 스냅샷 카드 {e['cardsLatest']} · 전후 스펙 동일 카드 {e['unchangedCards']}")
     if e["newSeasonsAfterPatch"]:
         print("패치 뒤 처음 보인 시즌: " + ", ".join(f"{s['name']}({s['firstSeen'][:10]})" for s in e["newSeasonsAfterPatch"]))
+    if "graphAlignment" in r:
+        a = r["graphAlignment"]
+        offs = ", ".join(f"{d} 받음 → 끝 {o:+d}일" for d, o in a["offsets"].items())
+        print(f"시세 그래프 {a['cards']}장 · {a['firstDay']} ~ {a['lastDay']} · 날짜 맞춤 {offs} (카드 일치율 {(a['agreement'] or 0):.0%})"
+              f" · 갱신 가격과의 중앙 차이 {(a['medianAbsLogGapToRefreshPrice'] or 0) * 100:.1f}%")
+    for key, title in (("history", "갱신 기록(앱이 받은 날만)"), ("graphs", "시세 그래프(매일)")):
+        if key in r:
+            print(f"\n\n======== {title} ========")
+            print_part(r[key], e)
+    if "audits" in r:
+        print("\n## 가격 수준 비교 (valuation-audit, 이전 → 새)")
+        for x in r["audits"]["traits"]:
+            o, n = x["old"], x["new"]
+            fmt = lambda v: "없음" if v is None else f"{v[0]:+.0f}% ({v[1]:+.0f}~{v[2]:+.0f}, {v[3]}명)"
+            print(f"  {x['trait']} · {x['scope']}: {fmt(o)} → {fmt(n)}")
+
+
+def print_part(r, e):
+    print(f"기간 {r['days'][0]} ~ {r['days'][-1]} ({len(r['days'])}일)")
     print("\n## 시장 전체: 하루 평균 움직임 (중앙값 |Δln 가격|/일)과 지수 (패치 전 대비 중앙값)")
     for d in r["diagnostics"]:
+        if d["typicalDailyMovePct"] is None: continue
         print(f"  {d['day']}  {d['typicalDailyMovePct']:5.2f}%/일  지수 {d['index']:+6.1f}%  ({d['cards']}장, {d['gapDays']}일 간격)")
     print("\n## 특성별 상대 시세 경로 (같은 포지션·시즌·OVR 구간 대비, 패치 전 대비) [추정]")
     for fam, es in r["eventStudy"].items():
@@ -427,7 +519,7 @@ def print_report(r):
             for x in r[key]:
                 print(f"  {x['season']:<10} {x['pct']:+6.1f}% ({x['lo']:+.1f}~{x['hi']:+.1f}, {x['players']}명) {x['verdict']}")
     if r["gradeRatios"]:
-        watch = ",".join(r["export"].get("watchSeasons", []))
+        watch = ",".join(e.get("watchSeasons", []))
         print(f"\n## 강화 가격 비율 (중앙값) · 관찰 시즌 {watch} vs 나머지")
         by_day = defaultdict(dict)
         for g in r["gradeRatios"]: by_day[g["day"]][g["part"]] = g

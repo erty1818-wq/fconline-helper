@@ -174,6 +174,8 @@ static void PrintUsage() => Console.Error.WriteLine("""
       fch factors [--pos CB] [--grade 8]
       fch market-refresh
           데이터센터 시세를 지금 끝까지 갱신합니다 (앱을 끈 상태에서. 가격만 약 10분, 전체 갱신은 1시간 이상).
+      fch market-backfill [--grade 8] [--max 2500] [--out docs/market-value/data/price-graphs.jsonl]
+          데이터센터 시세 그래프(카드별 일별 가격)를 특성 카드·24EP/CU·평점 많은 카드 순으로 받습니다. 2초에 1장, 끊겨도 이어받기.
       fch market-export [--out market-export.jsonl.gz] [--grades 1,3,5,8,10,11]
           로컬 시세 DB(스냅샷·일별 시세·팀컬러·랭커 사용량)를 분석용 파일로 내보냅니다. 읽기 전용, 앱을 켜 둔 채로 가능.
       fch valuation-audit [--grade 8] [--minovr 135] [--out report.json]

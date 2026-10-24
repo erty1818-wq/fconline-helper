@@ -9,7 +9,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "valuation-audit", "market-refresh", "allocation", "mteam", "mhoney"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "valuation-audit", "market-refresh", "market-backfill", "allocation", "mteam", "mhoney"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -76,6 +76,8 @@ internal static class SquadCommands
                     Console.WriteLine("  +11 카드 수별 팀 수: " + string.Join("  ", alloc.PlusElevenCounts.OrderByDescending(kv => kv.Key).Select(kv => $"{kv.Key}명 {kv.Value}팀")));
                     return 0;
                 case "factors": return await Factors(squads, option);
+                case "market-backfill":
+                    return await Backfill(store, new PriceHistoryClient(http, dataCenter), option);
                 case "market-refresh":
                     // Two refreshers would write the same unfinished snapshot; the app's own refresh runs while it is open.
                     if (System.Diagnostics.Process.GetProcessesByName("FcHelper").Length > 0 && option("force") != "yes")
@@ -410,4 +412,61 @@ internal static class SquadCommands
     }
 
     private static bool Flag(string? s) => s is "yes" or "y" or "1" or "true" or "on";
+
+    /// <summary>
+    /// Daily price graphs from the data center for the cards an event study needs (trait cards, the watched seasons,
+    /// then the most rated others), appended line by line to a JSON-lines file so an interrupted run loses nothing;
+    /// re-running skips cards already in the file. One request per card through the shared 2-second limiter.
+    /// </summary>
+    private static async Task<int> Backfill(MarketStore store, PriceHistoryClient graphs, Func<string, string?> option)
+    {
+        var grade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
+        var max = Math.Max(1, Int(option("max"), 2500));
+        var outPath = option("out") ?? "docs/market-value/data/price-graphs.jsonl";
+        var watch = (option("watch") ?? "24EP,CU").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var snapshot = store.LatestFinished()!;
+        var ordered = store.LoadCards(snapshot.Id).Where(c => c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice)
+            .GroupBy(c => c.SpId).Select(g => g.First())
+            .OrderByDescending(c => c.Tags.Any(t => t.StartsWith("trait:", StringComparison.Ordinal)))
+            .ThenByDescending(c => watch.Any(w => c.Season.Contains(w, StringComparison.Ordinal)))
+            .ThenByDescending(c => c.RatingCount)
+            .Take(max).ToList();
+
+        var done = new HashSet<long>();
+        if (File.Exists(outPath))
+        {
+            foreach (var line in await File.ReadAllLinesAsync(outPath))
+            {
+                if (line.Length == 0) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    if (doc.RootElement.TryGetProperty("spId", out var id) && doc.RootElement.GetProperty("grade").GetInt32() == grade) done.Add(id.GetInt64());
+                }
+                catch (JsonException) { } // a line cut off by an interrupted run
+            }
+        }
+        var todo = ordered.Where(c => !done.Contains(c.SpId)).ToList();
+        Console.WriteLine($"시세 그래프 +{grade}: {todo.Count}장 받기 (이미 {done.Count}장) · 2초에 1장이라 약 {todo.Count * 2 / 60}분. 끊겨도 다시 실행하면 이어받습니다.");
+        if (Path.GetDirectoryName(Path.GetFullPath(outPath)) is { } dir) Directory.CreateDirectory(dir);
+
+        var fetched = 0;
+        var failed = 0;
+        await using var w = new StreamWriter(outPath, append: true);
+        foreach (var c in todo)
+        {
+            IReadOnlyList<long> values;
+            try { values = await graphs.DailyPricesAsync(c.SpId, grade); }
+            catch (HttpRequestException) { failed++; continue; }
+            await w.WriteLineAsync(JsonSerializer.Serialize(new
+            {
+                spId = c.SpId, grade, fetchedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture), values,
+            }));
+            await w.FlushAsync();
+            if (++fetched % 25 == 0) Console.Error.Write($"\r{fetched}/{todo.Count} (실패 {failed})          ");
+        }
+        Console.Error.WriteLine();
+        Console.WriteLine($"{outPath}: 새로 {fetched}장, 실패 {failed}장, 합계 {done.Count + fetched}장");
+        return 0;
+    }
 }
