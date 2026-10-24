@@ -37,6 +37,7 @@ if (command == "market-export")
     }
     var outPath = Option("out") ?? $"market-export-{DateTime.Now:yyyyMMdd}.jsonl.gz";
     var exportGrades = Option("grades")?.Split(',').Select(g => int.TryParse(g, out var n) ? n : 0).Where(n => n > 0).ToList();
+    if (Path.GetDirectoryName(Path.GetFullPath(outPath)) is { } outDir) Directory.CreateDirectory(outDir);
     MarketExportSummary summary;
     await using (var file = File.Create(outPath)) summary = MarketExport.Write(dbPath, file, exportGrades);
     Console.WriteLine($"{outPath} ({new FileInfo(outPath).Length / 1024:N0} KB)");
