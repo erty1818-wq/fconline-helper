@@ -178,6 +178,9 @@ def fe_cluster_ols(y, X, cells, clusters, level=0.95):
     cols = [c for c in X.columns if df[c].std() > 0]
     if not cols: return None
     dm = df[cols + ["_y"]] - df.groupby("_cell")[cols + ["_y"]].transform("mean")
+    # A factor that never varies inside a cell is absorbed by the fixed effects and cannot be estimated.
+    cols = [c for c in cols if dm[c].std() > 1e-9 and (df.groupby("_cell")[c].nunique() > 1).sum() >= 3]
+    if not cols: return None
     Xm, ym = dm[cols].to_numpy(float), dm["_y"].to_numpy(float)
     xtx = Xm.T @ Xm
     try:
@@ -188,6 +191,7 @@ def fe_cluster_ols(y, X, cells, clusters, level=0.95):
     e = ym - Xm @ beta
     scores = pd.DataFrame(Xm * e[:, None]).groupby(df["_g"].to_numpy()).sum().to_numpy()
     G, n, k, C = len(scores), len(df), len(cols), df["_cell"].nunique()
+    if G < 20: return None  # too few footballers for clustered errors (t quantile and CR1 break down)
     meat = scores.T @ scores
     factor = G / max(G - 1, 1) * (n - 1) / max(n - k - C, 1)
     V = factor * inv @ meat @ inv
@@ -199,7 +203,7 @@ def fe_cluster_ols(y, X, cells, clusters, level=0.95):
     return dict(coef=out, n=n, G=G, cells=C, players=players, cards=cards)
 
 
-def pct(b): return (math.exp(b) - 1) * 100
+def pct(b): return (math.exp(max(min(b, 20), -20)) - 1) * 100
 
 
 def verdict(lo, hi, players):
@@ -282,7 +286,7 @@ def ranker_lead_lag(rankers, panel, base, max_lag=5):
     usage = defaultdict(dict)  # spId -> {match day: users}
     for ch in rankers:
         if ch["rankFrom"] != min(c["rankFrom"] for c in rankers): continue
-        day = ch["chartDate"]
+        day = ch["chartDate"].replace(".", "-")  # the data center writes 2026.09.23
         for p in ch["picks"]:
             usage[p["spId"]][day] = usage[p["spId"]].get(day, 0) + p["users"]
     if not usage: return None
@@ -309,6 +313,7 @@ def ranker_lead_lag(rankers, panel, base, max_lag=5):
                 if np.isnan(r): continue
                 rows.append(dict(spId=sp, player=sp % 1_000_000, day=b, lag=k, du=du, r=r))
     df = pd.DataFrame(rows)
+    if df.empty: return None  # charts and price days do not overlap
     out = []
     for k, g in df.groupby("lag"):
         fit = fe_cluster_ols(g["r"].to_numpy(), pd.DataFrame({"du": g["du"].to_numpy()}), g["day"].to_numpy(), g["player"].to_numpy())
@@ -364,6 +369,73 @@ def season_moves(panel, base, d0, d1, min_players=10):
     return sorted(out, key=lambda x: x["pct"])
 
 
+def fe_beta(y, X, cells):
+    """Fixed-effect OLS point estimates only (no inference), for the daily factor levels."""
+    df = pd.DataFrame(X).assign(_y=y, _cell=cells).dropna()
+    df = df[df.groupby("_cell")["_y"].transform("size") >= MIN_CELL]
+    cols = [c for c in X.columns if c in df and df[c].std() > 0]
+    if len(df) < 30 or not cols: return {}
+    dm = df[cols + ["_y"]] - df.groupby("_cell")[cols + ["_y"]].transform("mean")
+    cols = [c for c in cols if dm[c].std() > 1e-9 and (df.groupby("_cell")[c].nunique() > 1).sum() >= 3]
+    # Factors carried by the same cards (or by exactly the complementary cards) cannot be told apart: keep the first.
+    seen, keep = [], []
+    for c in cols:
+        if not any(np.allclose(dm[c].to_numpy(), dm[k].to_numpy()) or np.allclose(dm[c].to_numpy(), -dm[k].to_numpy()) for k in seen):
+            seen.append(c); keep.append(c)
+    if not keep: return {}
+    beta, *_ = np.linalg.lstsq(dm[keep].to_numpy(float), dm["_y"].to_numpy(float), rcond=None)
+    return dict(zip(keep, beta))
+
+
+def placebo(panel, base, base_day, last, families, start, announce_day=None, min_players=10):
+    """How unusual is the post-patch move of each trait against its own history?
+
+    Every day the trait's price level relative to similar cards (same family, season, OVR band) is estimated on a
+    balanced set of cards priced every day since `start`. The actual change base_day → last is compared with the same-
+    length change over every pre-announcement window, and the last 7 days with every pre-announcement 7-day change.
+    Overlapping windows: about (pre-period days / horizon) independent ones, so the band itself is rough."""
+    days = [d for d in panel.columns if start <= d <= last]
+    if base_day not in days or len(days) < 40: return None
+    cutoff = announce_day or base_day
+    out = {}
+    for fam in families:
+        cards = base[(base.family == fam) & ~base.outlier]
+        cards = cards.loc[cards.index.intersection(panel.index)]
+        balanced = panel.loc[cards.index, days].notna().all(axis=1)
+        cards = cards[balanced.to_numpy()]
+        if len(cards) < 60: continue
+        players = defaultdict(set)
+        for _, row in cards.iterrows():
+            for t in row.traits: players[t].add(row.player)
+        traits = sorted(t for t, ps in players.items() if len(ps) >= min_players)
+        if not traits: continue
+        X = pd.DataFrame({t: [1.0 if t in tr else 0.0 for tr in cards.traits] for t in traits}, index=cards.index)
+        cells = cards.season.astype(str) + "|" + (cards.ovr // 5 * 5).astype(str)
+        levels = {d: fe_beta(panel.loc[cards.index, d], X, cells) for d in days}
+        L = pd.DataFrame(levels).T.reindex(days)  # day x trait, log points
+        pos = {d: i for i, d in enumerate(days)}
+        h = pos[last] - pos[base_day]
+        pre = [d for d in days if d <= cutoff]
+        res = {}
+        for t in traits:
+            if t not in L: continue
+            series = L[t]
+            actual = series[last] - series[base_day]
+            windows = [series.iloc[i + h] - series.iloc[i] for i in range(len(pre)) if i + h < len(pre)]
+            week = [series.iloc[i + 7] - series.iloc[i] for i in range(len(pre)) if i + 7 < len(pre)]
+            recent = series[last] - series.iloc[pos[last] - 7]
+            if len(windows) < 10: continue
+            sd_h, sd_7 = float(np.std(windows)), float(np.std(week))
+            res[t] = dict(players=len(players[t]), cards=int(X[t].sum()), horizonDays=h,
+                          actualPct=pct(actual), placeboSdPct=sd_h * 100, z=actual / sd_h if sd_h > 0 else None,
+                          shareAsLarge=float(np.mean(np.abs(windows) >= abs(actual))), windows=len(windows),
+                          lastWeekPct=pct(recent), weekSdPct=sd_7 * 100, weekZ=recent / sd_7 if sd_7 > 0 else None,
+                          weekShareAsLarge=float(np.mean(np.abs(week) >= abs(recent))),
+                          path={d: float(series[d]) for d in days})
+        out[fam] = dict(cards=len(cards), days=len(days), traits=res)
+    return out
+
+
 def compare_audits(old_path, new_path):
     old, new = (json.load(open(p, encoding="utf-8")) for p in (old_path, new_path))
     def traits(a): return {(t["Trait"], t["Scope"]): t for t in a.get("Traits", [])}
@@ -383,16 +455,17 @@ def analyse(panel, base_u, base_day, families, series, rankers, watch):
     """Every analysis on one price panel (refresh history or aligned graphs)."""
     days = list(panel.columns)
     last = days[-1]
-    week_ago = min(days, key=lambda d: abs((day_of(last) - day_of(d)).days - 7))
+    earlier = [d for d in days if 4 <= (day_of(last) - day_of(d)).days <= 10]
+    week_ago = min(earlier, key=lambda d: abs((day_of(last) - day_of(d)).days - 7)) if earlier else None
     part = dict(
         days=days,
         diagnostics=diagnostics(panel, base_u, base_day),
         eventStudy=event_study(panel, base_u, base_day, families),
-        lastWeek=dict(start=week_ago, end=last, change=change_between(panel, base_u, week_ago, last, families)),
+        lastWeek=None if week_ago is None else dict(start=week_ago, end=last, change=change_between(panel, base_u, week_ago, last, families)),
         rankerLeadLag=ranker_lead_lag(rankers, panel, base_u),
         gradeRatios=grade_ratios(series, base_u, watch) if series is not None else [],
         seasonsSinceBase=season_moves(panel, base_u, base_day, last),
-        seasonsLastWeek=season_moves(panel, base_u, week_ago, last),
+        seasonsLastWeek=season_moves(panel, base_u, week_ago, last) if week_ago else [],
     )
     # Peak-to-now per trait: the post-patch day with the largest |coefficient|, then the same design from there.
     peaks = {}
@@ -416,6 +489,11 @@ def main():
     ap.add_argument("--old-audit")
     ap.add_argument("--new-audit")
     ap.add_argument("--graphs", help="price graphs from `fch market-backfill` (fills the days the app did not refresh)")
+    ap.add_argument("--since", help="first graph day analysed (default: 6 weeks before the pre-patch day)")
+    ap.add_argument("--placebo-start", default="2026-06-20",
+                    help="first day of the balanced panel for the placebo test (after the 2026-06-11 rebalance)")
+    ap.add_argument("--announce", default="2026-09-27",
+                    help="last day before the patch was announced (official YouTube, 2026-09-28); placebo windows end here")
     ap.add_argument("--watch", default="24EP,CU",
                     help="seasons to follow separately in the grade ratios (default: the EVO class inputs, 2026-10-29)")
     args = ap.parse_args()
@@ -446,8 +524,12 @@ def main():
     if args.graphs:
         graph_panel, stats = align_graphs(load_graphs(args.graphs, args.grade), hist)
         report["graphAlignment"] = stats
+        since = args.since or (day_of(base_day) - pd.Timedelta(days=42)).isoformat()[:10]
+        graph_panel = graph_panel.loc[:, [c for c in graph_panel.columns if c >= since]]
         if base_day in graph_panel.columns:
             report["graphs"] = analyse(graph_panel, base_u, base_day, families, None, rankers, args.watch)
+        full = align_graphs(load_graphs(args.graphs, args.grade), hist)[0]
+        report["placebo"] = placebo(full, base_u, base_day, full.columns[-1], families, args.placebo_start, args.announce)
     if args.old_audit and args.new_audit:
         report["audits"] = compare_audits(args.old_audit, args.new_audit)
 
@@ -473,11 +555,22 @@ def print_report(r):
         if key in r:
             print(f"\n\n======== {title} ========")
             print_part(r[key], e)
+    if r.get("placebo"):
+        print("\n\n======== 플라세보: 패치 뒤 변화가 그 특성의 평소 출렁임보다 큰가 (시세 그래프) ========")
+        for fam, part in r["placebo"].items():
+            print(f"### {FAMILY_KO[fam]} (매일 가격이 있는 카드 {part['cards']}장, {part['days']}일)")
+            for t, x in part["traits"].items():
+                mark = " *9/30 대상" if t in PATCH_TRAITS else ""
+                print(f"  {t}{mark} ({x['players']}명): {x['horizonDays']}일 변화 {x['actualPct']:+.1f}% · 평소 같은 기간 표준편차 ±{x['placeboSdPct']:.1f}%"
+                      f" · z {x['z']:+.1f} · 이만큼 움직인 과거 구간 {x['shareAsLarge']:.0%} ({x['windows']}개)"
+                      f" | 최근 7일 {x['lastWeekPct']:+.1f}% (평소 ±{x['weekSdPct']:.1f}%, 과거 {x['weekShareAsLarge']:.0%})")
     if "audits" in r:
         print("\n## 가격 수준 비교 (valuation-audit, 이전 → 새)")
         for x in r["audits"]["traits"]:
             o, n = x["old"], x["new"]
-            fmt = lambda v: "없음" if v is None else f"{v[0]:+.0f}% ({v[1]:+.0f}~{v[2]:+.0f}, {v[3]}명)"
+            # Factors the model could not estimate are written as "NaN" strings.
+            fmt = lambda v: "없음" if v is None else "표본 부족" if not all(isinstance(x, (int, float)) for x in v[:3]) \
+                else f"{v[0]:+.0f}% ({v[1]:+.0f}~{v[2]:+.0f}, {v[3]}명)"
             print(f"  {x['trait']} · {x['scope']}: {fmt(o)} → {fmt(n)}")
 
 
@@ -498,8 +591,8 @@ def print_part(r, e):
             print(f"  {t}{mark} ({players}명): " + "  ".join(f"{p['day'][5:]} {p['pct']:+.0f}" for p in path))
             last = path[-1]
             print(f"      → 최신 {last['pct']:+.1f}% ({last['lo']:+.1f}~{last['hi']:+.1f}) {verdict(math.log1p(last['lo']/100), math.log1p(last['hi']/100), players)}")
-    lw = r["lastWeek"]
-    print(f"\n## 최근 1주 ({lw['start']} → {lw['end']}) 상대 변화: 0이면 안정")
+    lw = r["lastWeek"] or dict(start=None, end=None, change={})
+    print(f"\n## 최근 1주 ({lw['start']} → {lw['end']}) 상대 변화: 0이면 안정" if lw["start"] else "\n## 최근 1주: 4~10일 전 날짜가 없어 생략")
     for fam, traits in lw["change"].items():
         for t, c in traits.items():
             print(f"  {FAMILY_KO[fam]} {t}: {c['pct']:+.1f}% ({c['lo']:+.1f}~{c['hi']:+.1f}, {c['players']}명) {c['verdict']}")
