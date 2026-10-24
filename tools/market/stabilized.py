@@ -13,8 +13,10 @@ What it computes (attack / mid / defence / GK families, one grade):
      t(G−1) intervals. Days before the pre-patch day are the pre-trend check.
   3. Settling tests per trait: change over the last 7 days and from the peak day to now, with the same design.
   4. Ranker usage versus price: does a change in rankers fielding a card precede its price move (lags 1-5 days)?
-  5. Grade ratios (+10/+8, +5/+8) over time.
-  6. Optional: compare two valuation-audit JSONs (current price levels) factor by factor.
+  5. Grade ratios (+10/+8, +5/+8) over time, for watched seasons (default 24EP, CU: the EVO class of 2026-10-29
+     takes their +8 and higher cards) apart from the rest.
+  6. Season-wide moves against same-family, same-OVR-band cards of other seasons (the event study holds these fixed).
+  7. Optional: compare two valuation-audit JSONs (current price levels) factor by factor.
 """
 import argparse, gzip, json, math
 from collections import defaultdict
@@ -106,7 +108,7 @@ def math_ndtri(p):
     return -x if p > 0.5 else x
 
 
-def fe_cluster_ols(y, X, cells, clusters):
+def fe_cluster_ols(y, X, cells, clusters, level=0.95):
     """OLS of y on X after removing cell means (fixed effects), CR1 errors clustered by footballer, t(G−1) intervals.
     Returns dict name -> (beta, lo, hi, se) in log points, plus n, G, cells."""
     df = pd.DataFrame(X).assign(_y=y, _cell=cells, _g=clusters).dropna()
@@ -130,7 +132,7 @@ def fe_cluster_ols(y, X, cells, clusters):
     factor = G / max(G - 1, 1) * (n - 1) / max(n - k - C, 1)
     V = factor * inv @ meat @ inv
     se = np.sqrt(np.clip(np.diag(V), 0, None))
-    tc = t_quantile(G - 1)
+    tc = t_quantile(G - 1, 1 - (1 - level) / 2)
     out = {c: (beta[i], beta[i] - tc * se[i], beta[i] + tc * se[i], se[i]) for i, c in enumerate(cols)}
     players = {c: int(df.loc[df[c] != 0, "_g"].nunique()) for c in cols}
     cards = {c: int((df[c] != 0).sum()) for c in cols}
@@ -256,20 +258,50 @@ def ranker_lead_lag(rankers, panel, base, max_lag=5):
     return out
 
 
-def grade_ratios(series, base):
+def watched(season, watch):
+    return any(w and w in season for w in watch)
+
+
+def grade_ratios(series, base, watch=()):
+    """Median +10/+8 and +5/+8 price ratios per day, for the watched seasons and for everything else."""
     rows = []
     for s in series:
         p = s["p"]
         if not all(g in p for g in ("5", "8", "10")): continue
-        fam = base.family.get(s["spId"]) if s["spId"] in base.index else None
+        if s["spId"] not in base.index: continue
+        part = "watched" if watched(base.season[s["spId"]], watch) else "other"
         for i, d in enumerate(s["days"]):
             p5, p8, p10 = p["5"][i], p["8"][i], p["10"][i]
             if p5 and p8 and p10 and min(p5, p8, p10) > FLOOR:
-                rows.append(dict(day=d, family=fam, r10=math.log(p10 / p8), r5=math.log(p5 / p8)))
+                rows.append(dict(day=d, part=part, r10=math.log(p10 / p8), r5=math.log(p5 / p8)))
     if not rows: return []
     df = pd.DataFrame(rows)
-    return [dict(day=d, ratio10to8=float(math.exp(g.r10.median())), ratio5to8=float(math.exp(g.r5.median())), cards=len(g))
-            for d, g in df.groupby("day")]
+    return [dict(day=d, part=part, ratio10to8=float(math.exp(g.r10.median())), ratio5to8=float(math.exp(g.r5.median())), cards=len(g))
+            for (d, part), g in df.groupby(["day", "part"])]
+
+
+def season_moves(panel, base, d0, d1, min_players=10):
+    """Each season's price change from d0 to d1 against cards of the same family and OVR band in other seasons, traits
+    held fixed (footballer-clustered). The trait event study absorbs seasons, so season-wide moves show up only here."""
+    cards = base[~base.outlier].loc[base[~base.outlier].index.intersection(panel.index)]
+    y = panel.loc[cards.index, d1] - panel.loc[cards.index, d0]
+    cells = cards.family.astype(str) + "|" + (cards.ovr // 5 * 5).astype(str)
+    # Trait moves are controlled per family, otherwise seasons rich in a rising trait look like rising seasons.
+    keys = [f"{f}:{t}" for f, tr in zip(cards.family, cards.traits) for t in tr]
+    counts = pd.Series(keys).value_counts() if keys else pd.Series(dtype=int)
+    controls = {k: [1.0 if k.split(":", 1)[1] in tr and f == k.split(":", 1)[0] else 0.0 for f, tr in zip(cards.family, cards.traits)]
+                for k in counts[counts >= 8].index}
+    out = []
+    for season, g in cards.groupby("season"):
+        if g.player.nunique() < min_players: continue
+        X = pd.DataFrame({"s": (cards.season == season).astype(float), **controls}, index=cards.index)
+        # ~30 seasons are tested at once, so seasons get 99% intervals to keep chance findings rare.
+        fit = fe_cluster_ols(y, X, cells, cards.player, level=0.99)
+        if fit is None or "s" not in fit["coef"]: continue
+        b, lo, hi, se = fit["coef"]["s"]
+        out.append(dict(season=season, pct=pct(b), lo=pct(lo), hi=pct(hi), players=int(g.player.nunique()), cards=len(g),
+                        verdict=verdict(lo, hi, int(g.player.nunique()))))
+    return sorted(out, key=lambda x: x["pct"])
 
 
 def compare_audits(old_path, new_path):
@@ -294,7 +326,10 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--old-audit")
     ap.add_argument("--new-audit")
+    ap.add_argument("--watch", default="24EP,CU",
+                    help="seasons to follow separately in the grade ratios (default: the EVO class inputs, 2026-10-29)")
     args = ap.parse_args()
+    args.watch = [w.strip() for w in args.watch.split(",") if w.strip()]
 
     meta, cards, series, colours, rankers = load(args.export)
     latest = meta["latestSnapshot"]
@@ -326,8 +361,11 @@ def main():
         eventStudy=event_study(panel, base_u, base_day, families),
         lastWeek=dict(start=week_ago, end=last, change=change_between(panel, base_u, week_ago, last, families)),
         rankerLeadLag=ranker_lead_lag(rankers, panel, base_u),
-        gradeRatios=grade_ratios(series, base_u),
+        gradeRatios=grade_ratios(series, base_u, args.watch),
+        seasonsSinceBase=season_moves(panel, base_u, base_day, last),
+        seasonsLastWeek=season_moves(panel, base_u, week_ago, last),
     )
+    report["export"]["watchSeasons"] = args.watch
     # Peak-to-now per trait: the day with the largest |coefficient| after the patch, then the same design from there.
     peaks = {}
     for fam, es in report["eventStudy"].items():
@@ -383,10 +421,20 @@ def print_report(r):
         print("\n## 랭커 사용 2배 증가 → k일 뒤 시세 (날짜 효과 제거) [추정]")
         for x in r["rankerLeadLag"]:
             print(f"  {x['lag']}일: {x['pctPerDoubling']:+.2f}% ({x['lo']:+.2f}~{x['hi']:+.2f}, n={x['n']})")
+    for title, key in (("패치 전 대비", "seasonsSinceBase"), ("최근 1주", "seasonsLastWeek")):
+        if r.get(key):
+            print(f"\n## 시즌별 상대 시세 ({title}, 같은 포지션 가족·OVR 구간·특성의 다른 시즌 대비, 99% 범위) [추정]")
+            for x in r[key]:
+                print(f"  {x['season']:<10} {x['pct']:+6.1f}% ({x['lo']:+.1f}~{x['hi']:+.1f}, {x['players']}명) {x['verdict']}")
     if r["gradeRatios"]:
-        print("\n## 강화 가격 비율 (중앙값)")
-        for g in r["gradeRatios"]:
-            print(f"  {g['day']}  +10/+8 {g['ratio10to8']:.2f}배 · +5/+8 {g['ratio5to8']:.3f}배 ({g['cards']}장)")
+        watch = ",".join(r["export"].get("watchSeasons", []))
+        print(f"\n## 강화 가격 비율 (중앙값) · 관찰 시즌 {watch} vs 나머지")
+        by_day = defaultdict(dict)
+        for g in r["gradeRatios"]: by_day[g["day"]][g["part"]] = g
+        for d, parts in sorted(by_day.items()):
+            cells = [f"{name} +10/+8 {x['ratio10to8']:.2f} · +5/+8 {x['ratio5to8']:.3f} ({x['cards']}장)"
+                     for name, x in (("관찰", parts.get("watched")), ("나머지", parts.get("other"))) if x]
+            print(f"  {d}  " + "  |  ".join(cells))
 
 
 if __name__ == "__main__":
