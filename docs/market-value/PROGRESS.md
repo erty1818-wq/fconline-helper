@@ -4,7 +4,7 @@
 
 ## 지금 하는 중
 
-- MV-01~MV-05 완료. 체크리스트 1~7·전체 테스트 277개·0.10.3 로컬 및 GitHub 배포까지 확인했다. 원래 Skip 2개는 모두 해제했다. 다음 시장 갱신은 기존 자동 갱신 흐름이 수행하고 새 스냅샷에서 값어치를 다시 학습한다.
+- MV-06 안정화 시장 재분석 (Claude Code, 클라우드 세션): 이 세션은 데이터센터에 접속할 수 없어, 로컬 DB를 내보내는 `fch market-export`와 분석 스크립트 `tools/market/stabilized.py`를 만들었다. **사용자 PC에서 내보내기 파일과 최신 `valuation-audit` JSON을 받아야 분석을 이어갈 수 있다.** 받으면 `python -I tools/market/stabilized.py <파일> --old-audit docs/market-value/AUDIT-0.10.3.json --new-audit <새 감사>`로 돌리고 `STABILIZED.md`에 결과를 쓴다.
 
 ## 상태 표
 
@@ -15,6 +15,7 @@
 | MV-03 | 가성비 찾기·스쿼드 짜기 반영 | 완료 | `b4ba753` | 예측 시세와 환산 OVR이 같은 정규화 모델을 사용 |
 | MV-04 | Claude Code 독립 검수 | 완료 | `539ac6d` | `REVIEW-CLAUDE.md`: 높음 3건(팀컬러 이중 계산, 선수 군집 무시, 가성비=모델 오차), 중간 2건, 낮음 1건, 기각 1건 |
 | MV-05 | Codex 최종 재검수 | 완료 | `4a31b6b`, `2554578` | 체크리스트 1~7·277개 테스트·Skip 0. v0.10.3 로컬 교체·GitHub 실행 파일 공개 확인 |
+| MV-06 | 안정화 시장 재분석 (일별 시세 전체로 이벤트 스터디) | 진행 중 |  | 도구 완료, 사용자 PC의 내보내기 파일 대기 |
 
 ## 확인한 사실
 
@@ -40,3 +41,4 @@
 - 2026-10-03 · Codex MV-05 검증 · 솔루션 Release 빌드 경고·오류 0, 전체 테스트 277개 통과·Skip 0. 최신 원격 태그가 v0.10.2임을 확인했고 앱 버전을 0.10.3으로 올렸다. 로컬 publish와 태그 배포가 남아 있다.
 - 2026-10-03 · Codex MV-05 배포 완료 · `app-latest/FcHelper.exe`를 0.10.3으로 교체하고 재실행·정상 응답·새 오류 로그 없음·승인 아이콘 유지 확인. v0.10.3 태그는 `2554578`이다. [Release 실행](https://github.com/erty1818-wq/fconline-helper/actions/runs/37125780517)이 테스트·publish·release 모두 성공했고 [최신 릴리스](https://github.com/erty1818-wq/fconline-helper/releases/tag/v0.10.3)의 `FcHelper.exe`(203,921,816바이트)를 확인했다. 공개 시각 2026-10-03 22:23:48 KST, SHA-256 `239d787ded861db66111a4f1c01834782642e708c6013a59d517bedf7cb93f5b`.
 - 2026-10-03 · Codex MV-05 원격 검증 · [태그 CI](https://github.com/erty1818-wq/fconline-helper/actions/runs/37125780524)도 성공했다. 원래 있던 임시 `powershell.cmd`는 수정·커밋하지 않았다.
+- 2026-10-24 · Claude Code (클라우드 세션) · MV-06 시작. 9/28 고정 스냅샷과 35일 일별 시세가 사용자 PC에만 있고 이 세션은 데이터센터 접속이 막혀 있다. 읽기 전용 `fch market-export`(스냅샷·일별 시세·팀컬러·랭커 사용량, 닉네임 없음)와 `tools/market/stabilized.py`(시장 지수·하루 변동폭, 특성별 일자 경로와 사전 추세, 최근 1주·정점 대비 변화, 랭커 사용량→시세 시차, 강화 비율, 감사 JSON 비교)를 추가했다. 참값을 아는 합성 DB 5개로 검증: 정점·안정 수준·사전 추세 0을 복원했고 95% 구간 포함률은 수준 24/25, 1주 변화 23/25였다. 여러 특성을 동시에 보므로 20개 중 1개꼴의 우연한 판정이 있을 수 있다.

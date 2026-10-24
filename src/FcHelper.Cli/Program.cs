@@ -26,6 +26,24 @@ for (var i = 1; i < args.Length; i++)
 string? Option(string name) => named.GetValueOrDefault(name);
 
 var apiKey = Option("key") ?? Environment.GetEnvironmentVariable("FCH_API_KEY");
+if (command == "market-export")
+{
+    // Read-only: works while the app is running and never touches the network.
+    var dbPath = Option("db") ?? AppPaths.DatabasePath;
+    if (!File.Exists(dbPath))
+    {
+        Console.Error.WriteLine($"시세 DB가 없습니다: {dbPath}");
+        return 3;
+    }
+    var outPath = Option("out") ?? $"market-export-{DateTime.Now:yyyyMMdd}.jsonl.gz";
+    var exportGrades = Option("grades")?.Split(',').Select(g => int.TryParse(g, out var n) ? n : 0).Where(n => n > 0).ToList();
+    MarketExportSummary summary;
+    await using (var file = File.Create(outPath)) summary = MarketExport.Write(dbPath, file, exportGrades);
+    Console.WriteLine($"{outPath} ({new FileInfo(outPath).Length / 1024:N0} KB)");
+    Console.WriteLine($"스냅샷 {summary.Snapshots}개 · 카드 행 {summary.Cards:N0} · 일별 시세 {summary.Series:N0}장 × {summary.HistoryDays}일 ({summary.FirstDay} ~ {summary.LastDay})"
+        + $" · 팀컬러 {summary.TeamColors} · 랭커 차트 {summary.RankerCharts}");
+    return 0;
+}
 if (SquadCommands.Names.Contains(command))
 {
     // Market data needs no key; ranker stats and opponent lookups use it when present.
@@ -153,6 +171,8 @@ static void PrintUsage() => Console.Error.WriteLine("""
           같은 스펙 대비 싸게 거래되는 선수 (API 키 불필요, 앱이 받아 둔 시세 사용). 세부 조건: --maxovr --foot 5
           --body thin|normal|heavy --height 183-192 --maxpay 28 --stat 속력=130,밸런스=120 --core 0 --name 이름
       fch factors [--pos CB] [--grade 8]
+      fch market-export [--out market-export.jsonl.gz] [--grades 1,3,5,8,10,11]
+          로컬 시세 DB(스냅샷·일별 시세·팀컬러·랭커 사용량)를 분석용 파일로 내보냅니다. 읽기 전용, 앱을 켜 둔 채로 가능.
       fch valuation-audit [--grade 8] [--minovr 135] [--out report.json]
           포지션 가격 요인: 코어 능력치·신특·체형·키가 시세에 주는 영향 (%, OVR 환산, BP) [추정].
       fch squad [--formation 4-2-2-2] [--budget 100억] [--grades 5,8] [--cap 310] [--teamcolor 2002,40515]
