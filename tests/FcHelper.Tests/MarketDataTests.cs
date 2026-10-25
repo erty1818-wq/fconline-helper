@@ -88,36 +88,73 @@ public class PriceModelTests
     [Fact]
     public void Recovers_the_price_rules_it_was_given()
     {
-        var model = PriceModel.Fit("W", 8, Market())!;
+        // A large market: the ridge on the factors other than OVR, salary and season barely moves them (about 10%).
+        var model = PriceModel.Fit("W", 8, Market(3000))!;
         var effects = model.Effects().ToDictionary(e => e.Name);
 
         Assert.True(model.R2 > 0.95);
-        Assert.InRange(effects["양발 (약발 5)"].Percent, 45, 55);
-        Assert.InRange(effects["트릭스터"].Percent, 90, 110);
+        Assert.InRange(effects["OVR +1"].Percent, 38, 42);
+        Assert.InRange(effects["양발 (약발 5)"].Percent, 38, 55);
+        Assert.InRange(effects["트릭스터"].Percent, 75, 110);
         Assert.InRange(effects["속력 +1 (같은 OVR)"].Percent, -2, 2); // speed carries no premium in this market
+    }
+
+    [Fact]
+    public void Ovr_salary_and_season_are_not_shrunk_while_the_other_factors_are()
+    {
+        // MV-08: on a small market the ridge presses weak foot and traits toward 0, but never the OVR (or salary, season).
+        var model = PriceModel.Fit("W", 8, Market(400))!;
+        var effects = model.Effects().ToDictionary(e => e.Name);
+
+        Assert.InRange(effects["OVR +1"].Percent, 38, 42);
+        Assert.InRange(effects["양발 (약발 5)"].Percent, 10, 45); // true +50%, shrunk
+        Assert.InRange(effects["트릭스터"].Percent, 20, 90);       // true +100%, shrunk
     }
 
     [Fact]
     public void Name_priced_cards_are_left_out_of_the_fit_and_traits_are_valued()
     {
-        var cards = Market();
+        var cards = Market(3000);
         // 호날두-style cards: ordinary spec, 20x the price. They must not teach the model anything.
         cards.AddRange(Enumerable.Range(0, 30).Select(i => cards[i] with { SpId = 900_000_000 + i, Name = "크리스티아누 호날두",
             Prices = new Dictionary<int, long> { [1] = 1000, [8] = cards[i].PriceAt(8) * 20 } }));
         var model = PriceModel.Fit("W", 8, cards)!;
 
-        Assert.Equal(400, model.Cards);
+        Assert.Equal(3000, model.Cards);
         var trickster = model.Factors().Single(f => f.Key == "trait:트릭스터");
         Assert.True(trickster.IsCore && trickster.Clear && trickster.Kind == FactorKind.Trait);
-        Assert.InRange(trickster.Percent, 90, 110);
-        Assert.InRange(trickster.OvrEquivalent, 1.8, 2.3); // ×2 ≈ two OVR at +40% per OVR
+        Assert.InRange(trickster.Percent, 75, 110);
+        Assert.InRange(trickster.OvrEquivalent, 1.6, 2.3); // ×2 ≈ two OVR at +40% per OVR
         Assert.True(trickster.BpAtMedian > 0);
     }
 
     [Fact]
-    public void Separates_physical_buckets_and_both_team_colour_kinds()
+    public void Inconsistent_factors_are_listed_but_not_priced()
     {
-        var cards = Market().Select((c, i) =>
+        // MV-07: body type, skill moves and most traits do not set prices consistently; MV-08 leaves them out.
+        var cards = Market(400).Select((c, i) => c with
+        {
+            Tags = new HashSet<string>(c.Tags) { i % 3 == 0 ? "body:thin" : "body:heavy", i % 4 == 0 ? "skill:5" : "skill:4", i % 6 == 0 ? "trait:크로스 포쳐" : "trait:-" },
+            Prices = new Dictionary<int, long> { [1] = 1000, [8] = (long)(c.PriceAt(8) * (i % 6 == 0 ? 3 : 1)) },
+        }).ToList();
+        var model = PriceModel.Fit("W", 8, cards)!;
+        var factors = model.Factors().ToDictionary(f => f.Key);
+
+        foreach (var key in new[] { "body:thin", "skill:5", "trait:크로스 포쳐" })
+        {
+            Assert.False(factors[key].Estimated);
+            Assert.StartsWith("가격 모델에서 뺌", factors[key].Excluded);
+        }
+        Assert.True(factors["trait:트릭스터"].Estimated); // a consistent trait stays
+        var crossPoacher = cards.First(c => c.Tags.Contains("trait:크로스 포쳐"));
+        Assert.Equal(model.Predict(crossPoacher with { Tags = new HashSet<string>() } ), model.Predict(crossPoacher with { Tags = new HashSet<string> { "trait:크로스 포쳐" } }), 6);
+    }
+
+    [Fact]
+    public void Prices_height_and_weight_where_kept_and_affiliation_colours_but_not_feature_colours()
+    {
+        // 센터백 keeps height and weight (user's call, MV-08); 특성 팀컬러 is left out (MV-07: never consistent).
+        var cards = Market(2000).Select((c, i) =>
         {
             var height = new[] { 168, 172, 177, 182 }[i % 4];
             var weight = new[] { 62, 67, 72, 87 }[(i / 4) % 4];
@@ -125,26 +162,37 @@ public class PriceModelTests
                 * (i % 7 == 0 ? 1.4 : 1) * (i % 11 == 0 ? 1.25 : 1);
             return c with
             {
+                Group = "CB",
                 Stats = new Dictionary<string, int>(c.Stats) { ["height"] = height, ["weight"] = weight },
                 Prices = new Dictionary<int, long> { [1] = 1000, [8] = (long)(c.PriceAt(8) * multiplier) },
             };
         }).ToList();
         var affiliation = cards.Where((_, i) => i % 7 == 0).Select(c => c.SpId).ToHashSet();
         var feature = cards.Where((_, i) => i % 11 == 0).Select(c => c.SpId).ToHashSet();
-        var model = PriceModel.Fit("W", 8, cards,
+        IReadOnlyList<MarketMembership> colours =
         [
             new("tc:aff:1", "소속 팀컬러: A", FactorKind.TeamColor, affiliation),
             new("tc:feature:2", "특성 팀컬러: B", FactorKind.FeatureTeamColor, feature),
-        ])!;
+        ];
+        var model = PriceModel.Fit("CB", 8, cards, colours)!;
         var factors = model.Factors().ToDictionary(f => f.Key);
 
         Assert.Equal(FactorKind.Height, factors["height:180-184"].Kind);
         Assert.Equal(FactorKind.Weight, factors["weight:85+"].Kind);
-        Assert.InRange(factors["height:180-184"].Percent, 12, 40);
-        Assert.InRange(factors["weight:85+"].Percent, 10, 30);
+        // True +30% and +20%. Height and weight are shrunk factors, and buckets that split the cards between them shrink
+        // more (their shared part goes into the unshrunk constant), as in MV-07: the direction and order must hold.
+        Assert.InRange(factors["height:180-184"].Percent, 8, 40);
+        Assert.InRange(factors["weight:85+"].Percent, 4, 30);
         Assert.Equal(FactorKind.TeamColor, factors["tc:aff:1"].Kind);
-        Assert.Equal(FactorKind.FeatureTeamColor, factors["tc:feature:2"].Kind);
+        Assert.True(factors["tc:aff:1"].Estimated);
+        Assert.False(factors["tc:feature:2"].Estimated);
+        Assert.NotNull(factors["tc:feature:2"].Excluded);
         Assert.InRange(model.ValidationError, 0, 0.12);
+
+        // A 윙어's height and weight are not priced at all.
+        var winger = PriceModel.Fit("W", 8, cards.Select(c => c with { Group = "W" }), colours)!.Factors();
+        Assert.DoesNotContain(winger, f => f.Kind is FactorKind.Height or FactorKind.Weight && f.Estimated);
+        Assert.Contains(winger, f => f.Key == "height:excluded" && f.Excluded is not null);
     }
 
     [Fact]
@@ -180,10 +228,113 @@ public class PriceModelTests
         var picks = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8, Filter = new CardFilter { MinPrice = 20_000_000, MaxPrice = 200_000_000 } });
 
         Assert.Equal("bargain", picks[0].Card.Name);
-        Assert.InRange(picks[0].Discount, -0.72, -0.62);
+        Assert.InRange(picks[0].Discount, -0.72, -0.55); // a third of the price; the shrunk trait premium moves the expectation a little
         Assert.All(picks, p => Assert.InRange(p.Price, 20_000_000, 200_000_000));
         Assert.All(ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Filter = new CardFilter { MinWeakFoot = 5, Traits = ["트릭스터"] } }),
             p => Assert.True(p.Card.WeakFoot == 5 && p.Card.Tags.Contains("trait:트릭스터")));
+    }
+}
+
+/// <summary>MV-08: enhancement price floors (docs/market-value/DETERMINANTS.md) in the price model and the value finder.</summary>
+public class PriceFloorTests
+{
+    private static MarketCard Card(params (int Grade, long Price)[] prices) => new()
+    {
+        Group = "W", SpId = 1, Name = "c", Season = "S", Ovr1 = 120, Prices = prices.ToDictionary(p => p.Grade, p => p.Price),
+    };
+
+    [Fact]
+    public void Floors_are_the_multiples_of_the_grade_below_with_rounding_room()
+    {
+        Assert.True(PriceModel.AtFloor(Card((5, 1_500_000), (8, 14_250_000)), 8));   // exactly 9.5×
+        Assert.True(PriceModel.AtFloor(Card((5, 1_500_000), (8, 14_300_000)), 8));   // rounded to three digits (+0.35%)
+        Assert.False(PriceModel.AtFloor(Card((5, 1_500_000), (8, 14_600_000)), 8));  // 2.5% above: a real price
+        Assert.False(PriceModel.AtFloor(Card((8, 14_250_000)), 8));                  // no +5 price to compare with
+        Assert.True(PriceModel.AtFloor(Card((3, 1_000_000), (5, 1_500_000)), 5));
+        Assert.True(PriceModel.AtFloor(Card((8, 10_000_000), (10, 21_000_000)), 10));
+        Assert.True(PriceModel.AtFloor(Card((10, 20_000_000), (11, 31_000_000)), 11));
+        Assert.False(PriceModel.AtFloor(Card((1, 1_000_000), (2, 1_000_000)), 2));   // no floor rule at +2
+        Assert.Equal(14_250_000, PriceModel.FloorAt(Card((5, 1_500_000)), 8));
+        Assert.Null(PriceModel.FloorAt(Card((5, 1_500_000)), 1));
+    }
+
+    private static double Normal(Random r) => Math.Sqrt(-2 * Math.Log(1 - r.NextDouble())) * Math.Cos(2 * Math.PI * r.NextDouble());
+
+    [Fact]
+    public void Tobit_recovers_a_known_effect_that_floor_prices_hide()
+    {
+        // ln value = 18 + ln1.4 per OVR + 0.40 for a trait + noise 0.4. The floor (the +5 price × 9.5) follows the
+        // card's spec but not its own noise, so about 28% of the cards show the floor instead of their value.
+        var r = new Random(20261025);
+        var x = new List<double[]>();
+        var y = new List<double>();
+        var cens = new List<bool>();
+        for (var i = 0; i < 3000; i++)
+        {
+            var d = r.Next(-10, 11);
+            var trait = r.NextDouble() < 0.3 ? 1.0 : 0.0;
+            var value = 18 + Math.Log(1.4) * d + 0.40 * trait + Normal(r) * 0.4;
+            var floor = 18 + Math.Log(1.4) * d - 0.25 + Normal(r) * 0.2;
+            x.Add([1, d, trait]);
+            y.Add(Math.Max(value, floor));
+            cens.Add(floor >= value);
+        }
+        var clusters = Enumerable.Range(0, 3000).ToList();
+        bool[] notShrunk = [true, true, true]; // compare the estimators, not the ridge
+        var tobit = PriceModel.RidgeTobit(x, y, clusters, notShrunk, cens);
+        var asValue = PriceModel.RidgeTobit(x, y, clusters, notShrunk);
+
+        Assert.InRange(cens.Count(c => c) / 3000.0, 0.2, 0.36);
+        Assert.InRange(tobit.Beta[2], 0.36, 0.44);         // the true +0.40 comes back
+        Assert.True(asValue.Beta[2] < tobit.Beta[2] - 0.05); // taking the floor as the value understates it
+        Assert.InRange(tobit.Beta[1], Math.Log(1.4) - 0.01, Math.Log(1.4) + 0.01);
+        Assert.InRange(tobit.Sigma, 0.36, 0.44);
+    }
+
+    [Fact]
+    public void Mills_ratio_matches_known_values()
+    {
+        Assert.Equal(0.7978846, PriceModel.Mills(0), 6);   // φ(0)/Φ(0) = 2/√(2π)
+        Assert.Equal(0.2875999, PriceModel.Mills(1), 5);
+        Assert.Equal(8.1213681, PriceModel.Mills(-8), 5);  // stays accurate far in the tail (≈ −a + 1/|a|)
+    }
+
+    [Fact]
+    public void Floor_prices_are_never_value_picks_and_expectations_never_go_below_the_floor()
+    {
+        var rnd = new Random(3);
+        var cards = Enumerable.Range(0, 400).Select(i =>
+        {
+            var ovr = 110 + i % 20;
+            var p8 = 1e8 * Math.Pow(1.4, ovr - 110) * Math.Exp(rnd.NextDouble() * 0.1 - 0.05);
+            return new MarketCard
+            {
+                Group = "W", SpId = 300_000_000 + i, Name = $"p{i}", Season = "S", Pay = 25, Ovr1 = ovr, WeakFoot = 3, RatingCount = 50,
+                Prices = new Dictionary<int, long> { [1] = 1000, [5] = (long)(p8 / 20), [8] = (long)p8 },
+            };
+        }).ToList();
+        // Two cards that look like a third of their spec's price: one is a real bargain, the other sits on its floor
+        // (its +5 is cheap too, and +8 is exactly 9.5 times +5).
+        var basis = cards[0];
+        // The market never lets +8 drop under 9.5×+5, so the bargain's +5 is cheap too (+8 = 12×+5, above the floor).
+        var bargain = basis with { SpId = 1, Name = "bargain", Prices = new Dictionary<int, long> { [1] = 1000, [5] = basis.PriceAt(8) / 3 / 12, [8] = basis.PriceAt(8) / 3 } };
+        var floor5 = basis.PriceAt(8) / 3 / 9.5;
+        var onFloor = basis with { SpId = 2, Name = "floor", Prices = new Dictionary<int, long> { [1] = 1000, [5] = (long)floor5, [8] = (long)Math.Round(floor5 * 9.5) } };
+        cards.AddRange([bargain, onFloor]);
+        var model = PriceModel.Fit("W", 8, cards)!;
+
+        Assert.True(PriceModel.AtFloor(onFloor, 8));
+        Assert.False(PriceModel.AtFloor(bargain, 8));
+        var picks = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8, Filter = new CardFilter { MinRatings = 0 } });
+        Assert.Contains(picks, p => p.Card.Name == "bargain");
+        Assert.DoesNotContain(picks, p => p.Card.Name == "floor");
+        Assert.Equal("bargain", picks[0].Card.Name);
+        Assert.All(cards, c => Assert.True(model.Expected(c) >= (PriceModel.FloorAt(c, 8) ?? 0)));
+
+        // A card the model prices below its floor shows the floor as its expected price.
+        var lowSpec = cards.MinBy(c => model.Predict(c))!;
+        var highFloor = lowSpec with { Prices = new Dictionary<int, long>(lowSpec.Prices) { [5] = (long)(model.Predict(lowSpec) / 5) } };
+        Assert.Equal(PriceModel.FloorAt(highFloor, 8), model.Expected(highFloor));
     }
 }
 

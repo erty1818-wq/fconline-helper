@@ -54,8 +54,8 @@ public partial class ValuePage : UserControl
         var values = await Task.Run(() => squads.Market.TraitValues(grade, floor));
         Factors.ItemsSource = values.Select(t => new FactorRow(t.Trait, t.Scope, t.Estimated ? $"{t.Percent:+0;-0}%" : "—", t.Percent,
             t.Estimated ? $"{t.Low:+0;-0} ~ {t.High:+0;-0}%" : "—", t.Estimated ? $"{t.OvrEquivalent:+0.0;-0.0}" : "—", t.OvrEquivalent, "", t.Cards.ToString(),
-            (!t.Estimated || t.Players < 10 ? "표본 부족 · " : t.Clear ? "" : "불확실 · ")
-            + string.Join(", ", t.ByGroup.Select(g => g.Factor.Estimated ? $"{MarketGroups.Get(g.Group).Name} {g.Factor.Percent:+0;-0}%" : $"{MarketGroups.Get(g.Group).Name} 표본 부족")))
+            t.Excluded ?? ((!t.Estimated || t.Players < 10 ? "표본 부족 · " : t.Clear ? "" : "불확실 · ")
+            + string.Join(", ", t.ByGroup.Select(g => g.Factor.Estimated ? $"{MarketGroups.Get(g.Group).Name} {g.Factor.Percent:+0;-0}%" : $"{MarketGroups.Get(g.Group).Name} 표본 부족"))))
             { Players = t.Players.ToString() }).ToList();
         Status.Text = $"+{grade}{(floor is { } f ? $" · OVR {f}+ 카드" : " · 전체 카드")} · 신특이 있는 카드가 없는 카드보다 비싼 정도 (포지션별 추정을 정밀도로 가중 평균) [추정: 시장 회귀]";
     }
@@ -80,7 +80,7 @@ public partial class ValuePage : UserControl
         Factors.ItemsSource = FactorRow.For(model, group);
         var validation = double.IsNaN(model.ValidationError) ? "표본 부족" : $"{model.ValidationError:P0}";
         Status.Text = $"{group.Name} +{grade}{(floor > 0 ? $" · OVR {floor}+" : "")} · 카드 {model.Cards}장 · 선수 {model.Players}명 · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00} · 검증 중앙오차 {validation}. "
-            + "능력치는 같은 OVR에서 다른 능력치와 배분을 바꾼 연관성, 특성·체형은 없는 카드 대비. 범위는 선수별 군집 보정한 근사치이며 릿지 편향·누락 변수는 포함하지 않습니다 [추정, 인과 아님].";
+            + "능력치는 같은 OVR에서 다른 능력치와 배분을 바꾼 연관성, 특성은 없는 카드 대비. 강화 하한가에 붙은 카드는 '하한 이하'로 보고 학습합니다. 범위는 선수별 군집 보정한 근사치이며 릿지 편향·누락 변수는 포함하지 않습니다 [추정, 인과 아님].";
     }
 
     private async void OnSearch(object sender, RoutedEventArgs e)

@@ -84,9 +84,11 @@ public static class Advisors
         {
             if (!cards.TryGetValue(p.SpId, out var card) || modelOf(card) is not { } model) continue;
             if (!filter.Matches(card, p.Grade, Formations.Normalize(p.Position))) continue;
+            // A floor price is set by the enhancement rule, not demand: never a hidden bargain.
+            if (PriceModel.AtFloor(card, p.Grade)) continue;
             var price = card.PriceAt(p.Grade);
             // Compare at the grade rankers use: the model was fitted at one grade, so scale by the card's own grade curve.
-            var expected = (long)(model.Predict(card) * price / Math.Max(card.PriceAt(model.Grade), 1));
+            var expected = model.ExpectedAt(card, p.Grade);
             result.Add(new HiddenPick(card, p.Position, p.Grade, card.OvrAt(Formations.Normalize(p.Position), p.Grade) ?? card.OvrAt(p.Grade),
                 price, expected, p.Users, p.Share) { ModelError = model.ValidationError, LogErrorScale = model.ValidationLogScale });
         }
@@ -175,7 +177,7 @@ public static class Advisors
             {
                 var card = now[kv.Key.SpId];
                 var model = modelOf(card);
-                var discount = model is null ? 0 : card.PriceAt(model.Grade) / model.Predict(card) - 1;
+                var discount = model is null ? 0 : card.PriceAt(model.Grade) / (double)Math.Max(model.Expected(card), 1) - 1;
                 return new PriceMove(card, grade, kv.Value[grade], card.PriceAt(grade), since, discount);
             })
             .Where(m => m.Now > Grades.FloorPrice && m.Now >= minPrice && m.Before > Grades.FloorPrice)

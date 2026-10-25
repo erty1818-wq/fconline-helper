@@ -14,6 +14,8 @@ public sealed record TraitValue(string Trait, string Scope, double Percent, doub
     IReadOnlyList<(string Group, PriceFactor Factor)> ByGroup)
 {
     public int Players { get; init; }
+    /// <summary>Set when the trait is left out of the price model (MV-07: not a consistent price factor).</summary>
+    public string? Excluded { get; init; }
     public bool Estimated => double.IsFinite(Percent);
     public bool Clear => Estimated && Players >= 10 && (Low > 0 || High < 0);
 }
@@ -223,7 +225,8 @@ public sealed class MarketService(
                 var byGroup = trait.Select(t => (t.Group, t.Factor)).ToList();
                 if (contributingGroups.Count == 0)
                 {
-                    result.Add(new(trait.Key[6..], scope, double.NaN, double.NaN, double.NaN, 0, cardCount, byGroup) { Players = players });
+                    result.Add(new(trait.Key[6..], scope, double.NaN, double.NaN, double.NaN, 0, cardCount, byGroup)
+                        { Players = players, Excluded = trait.Select(x => x.Factor.Excluded).FirstOrDefault(e => e is not null) });
                     continue;
                 }
                 var estimates = trait.Where(x => x.Factor.Estimated).Select(x =>

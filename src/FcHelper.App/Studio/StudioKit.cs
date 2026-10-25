@@ -130,7 +130,8 @@ public sealed record FactorRow(string Name, string Kind, string Percent, double 
     };
 
     private static string VerdictOf(PriceFactor f) =>
-        !f.Estimated || f.Players < 10 ? "표본 부족"
+        f.Excluded is { } excluded ? excluded
+        : !f.Estimated || f.Players < 10 ? "표본 부족"
         : !f.Clear ? "불확실 (범위가 0을 포함)"
         : f.IsInflating && f.Percent < 0 ? "OVR만 올리는 능력치: 같은 OVR이면 싸게 거래"
         : f.Percent > 0 ? "시장이 값을 더 쳐줌" : "시장이 값을 덜 쳐줌";

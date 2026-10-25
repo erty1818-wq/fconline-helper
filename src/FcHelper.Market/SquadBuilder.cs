@@ -310,10 +310,7 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
     /// <summary>The model's expected price at its own grade, carried to another grade along the card's own grade curve.</summary>
     internal static long ExpectedAt(PriceModel? model, MarketCard card, int grade)
     {
-        var price = card.PriceAt(grade);
-        if (model is null) return price;
-        var atModelGrade = card.PriceAt(model.Grade);
-        return atModelGrade > 0 ? (long)(model.Predict(card) * price / atModelGrade) : price;
+        return model is null ? card.PriceAt(grade) : model.ExpectedAt(card, grade);
     }
 
     private sealed class State

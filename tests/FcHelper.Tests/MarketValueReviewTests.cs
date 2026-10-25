@@ -45,9 +45,22 @@ public class MarketValueReviewTests
 
     private static int Footballer(MarketCard c) => (int)(c.SpId % 1_000_000);
 
+    [Fact]
+    public void Feature_team_colours_are_not_priced()
+    {
+        // MV-08: MV-07 found no 특성 팀컬러 with a consistent price premium, so the model leaves them out.
+        var colour = Enumerable.Range(0, 250).Where(p => p % 6 == 0).ToHashSet();
+        var cards = Market(1, colour, Math.Log(1.5));
+        var members = cards.Where(c => colour.Contains(Footballer(c))).Select(c => c.SpId).ToHashSet();
+        var model = PriceModel.Fit("W", 8, cards, [new("tc:feature:9", "특성 팀컬러", FactorKind.FeatureTeamColor, members)])!;
+        var member = cards.First(c => members.Contains(c.SpId));
+
+        Assert.NotNull(model.Factors().Single(f => f.Key == "tc:feature:9").Excluded);
+        Assert.Equal(model.Predict(member with { SpId = 999_000_001 }), model.Predict(member), 6);
+    }
+
     [Theory]
     [InlineData(FactorKind.TeamColor)]
-    [InlineData(FactorKind.FeatureTeamColor)]
     public void Team_colour_membership_is_not_counted_as_playing_premium(FactorKind kind)
     {
         // The market pays +50% for the cards of 42 footballers because they unlock a team colour. Squads add the team
