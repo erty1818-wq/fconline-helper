@@ -15,20 +15,28 @@ public sealed record PriceFactor(string Key, string Name, FactorKind Kind, doubl
     long BpAtMedian, int? Cards, bool IsCore, bool IsInflating)
 {
     public int? Players { get; init; }
-    /// <summary>Why the factor is left out of the price model (MV-07: not a consistent price factor); null when priced.</summary>
+    /// <summary>Traits: footballers with a card with it and one without, the comparisons the premium is measured on (MV-09).</summary>
+    public int? Comparisons { get; init; }
+    /// <summary>Traits: how much the premium grows per OVR above the model's average card, in log points (0.09 ≈ +9%p).</summary>
+    public double PerOvr { get; init; } = double.NaN;
+    /// <summary>The t value behind <see cref="Low"/> and <see cref="High"/>.</summary>
+    public double Critical { get; init; } = 1.96;
+    /// <summary>Why the factor is left out of the price model; null when priced.</summary>
     public string? Excluded { get; init; }
     public bool Estimated => double.IsFinite(Percent);
-    /// <summary>At least ten footballers and a player-clustered interval excluding zero.</summary>
-    public bool Clear => Estimated && (Players is null || Players >= 10) && (Low > 0 || High < 0);
+    /// <summary>At least ten footballers (traits: eight compared within the same footballer) and an interval excluding zero.</summary>
+    public bool Clear => Estimated && (Players is null || Players >= 10) && (Comparisons is null || Comparisons >= 8) && (Low > 0 || High < 0);
 }
 
 /// <summary>
 /// Hedonic price model for one position group at one enhancement grade:
-///   ln(price) ~ OVR + OVR² + salary + season (not shrunk) + weak foot + (stat − OVR) per stat + the consistent tags (ridge)
+///   ln(price) ~ OVR + OVR² + salary + season (not shrunk) + weak foot + (stat − OVR) per stat + tags (ridge) + player (ridge)
 /// A coefficient reads as "everything else equal, this changes the price by X%" in today's market. It is an
 /// association: a tag can also stand in for things the model does not see (feel, team colour, uncollected stats).
-/// MV-08 (docs/market-value/DETERMINANTS.md): only factors MV-07 found consistent are priced; prices sitting on their
-/// enhancement floor (<see cref="Floors"/>) are fitted as "worth at most this" (Tobit EM), not as values.
+/// MV-08: prices sitting on their enhancement floor (<see cref="Floors"/>) are fitted as "worth at most this" (Tobit EM).
+/// MV-09: every footballer with several cards gets his own effect, so a trait is priced by comparing the same
+/// footballer's cards (CH 앙리 with 라인 브레이커 against WG 앙리 without), not different footballers of a season; the
+/// expected price of a card uses what the same footballer's other cards say about him.
 /// </summary>
 public sealed class PriceModel
 {
@@ -57,8 +65,23 @@ public sealed class PriceModel
     /// <summary>Ridge strength on standardised columns for the factors other than OVR, OVR², salary and season (as in MV-07).</summary>
     public const double Ridge = 300;
 
-    /// <summary>The traits MV-07 found consistent (트릭스터 확실, 라인 브레이커 대체로, 체이서 유력); the others are left out.</summary>
-    public static readonly IReadOnlySet<string> PricedTraits = new HashSet<string> { "트릭스터", "라인 브레이커", "체이서" };
+    /// <summary>
+    /// Ridges in the columns' own units (MV-09). In the fit a footballer's effect is hardly shrunk (<see cref="FitPlayerRidge"/>):
+    /// a shrunk one leaves part of the favourites' name value for the traits they hold more often (a true +50% came out
+    /// +98% at ridge 2). The price shown for a card trusts what his n other cards say by n/(n + <see cref="PlayerShrink"/>).
+    /// A trait is shrunk as little as a 0/1 factor in the old least squares (<see cref="Ols"/>, ridge 2).
+    /// </summary>
+    public const double FitPlayerRidge = 0.05, TraitRidge = 2;
+    /// <summary>
+    /// MV-09: attack traits are worth more on better cards (스트라이커 라인 브레이커 +33% at OVR 118, +106% at 122), so each
+    /// trait also gets a trait × OVR column, ridged like the trait itself over a ±5 OVR spread (2 × 25).
+    /// </summary>
+    public const double TraitSlopeRidge = 5;
+    /// <summary>
+    /// MV-09: traits shuffled among the cards of a season (fake traits) reach |t| 2.4–3.2 at the 95th percentile with
+    /// player-clustered errors, not 1.96, so a trait interval uses 3.0.
+    /// </summary>
+    public const double TraitCritical = 3.0;
 
     /// <summary>
     /// Height and weight buckets are priced only where they matter: 스트라이커 and 골키퍼 (MV-07), 수비형 미드 height, and
@@ -69,7 +92,6 @@ public sealed class PriceModel
         ["ST"] = ["height", "weight"], ["CB"] = ["height", "weight"], ["CDM"] = ["height"], ["GK"] = ["weight"],
     };
 
-    private const string NotConsistent = "가격 모델에서 뺌 (MV-07: 같은 시즌·OVR 안에서 일관된 가격 차이 없음)";
     private sealed record PhysicalFeature(string Key, string Name, string Stat, FactorKind Kind, int Min, int Max, int Cards, bool IsCore)
     {
         public bool Has(MarketCard c) => c.Stats.TryGetValue(Stat, out var value) && value >= Min && value <= Max;
@@ -91,6 +113,7 @@ public sealed class PriceModel
     private readonly string[] _stats;
     private readonly PhysicalFeature[] _physical;
     private readonly string[] _tags;
+    private readonly string[] _traitSlopes;
     private readonly long _medianPrice;
     private readonly MarketGroup _group;
     private readonly IReadOnlyDictionary<string, MarketMembership> _memberships;
@@ -106,9 +129,18 @@ public sealed class PriceModel
     private readonly Dictionary<string, int> _counts;
     private readonly Dictionary<string, int> _playerCounts;
     private readonly List<UnpricedFactor> _unpriced = [];
+    private readonly Dictionary<string, int> _comparisons = [];
+    // What the same footballer's other cards say about him (log scale): per training card leaving it out, per footballer.
+    private readonly Dictionary<long, double> _cardEffect = [];
+    private readonly Dictionary<long, double> _playerEffect = [];
     private readonly double _critical;
     /// <summary>Spread of log prices around the model (Tobit sigma).</summary>
     public double Sigma { get; }
+    /// <summary>
+    /// How many cards' worth of doubt a footballer's effect starts with (empirical Bayes: one card's noise σ² over the
+    /// spread τ² of footballers' effects, 0.1–10): with n other cards the price trusts them by n/(n + this).
+    /// </summary>
+    public double PlayerShrink { get; }
     /// <summary>Training cards whose price sat on its enhancement floor.</summary>
     public int FloorCards { get; }
 
@@ -141,7 +173,7 @@ public sealed class PriceModel
         var tagCounts = data.SelectMany(c => c.Tags).GroupBy(t => t).ToDictionary(x => x.Key, x => x.Count());
         foreach (var membership in _memberships.Values)
             tagCounts[membership.Key] = data.Count(c => membership.Members.Contains(c.SpId));
-        // MV-07: body types, skill moves, feature team colours and most traits are not consistent price factors.
+        // MV-07: body types, skill moves and feature team colours are not consistent price factors (the user's call).
         foreach (var tag in tagCounts.Keys.Where(t => ExclusionOf(t) is not null).ToList())
         {
             _unpriced.Add(new(tag, Label(tag), KindOf(tag), tagCounts[tag], data.Where(c => Has(c, tag)).Select(c => c.PlayerId).Distinct().Count(),
@@ -151,6 +183,8 @@ public sealed class PriceModel
         var tagPlayers = tagCounts.Keys.ToDictionary(t => t, t => data.Where(c => Has(c, t)).Select(c => c.PlayerId).Distinct().Count());
         var tagControls = tagCounts.Keys.ToDictionary(t => t, t => data.Where(c => !Has(c, t)).Select(c => c.PlayerId).Distinct().Count());
         bool Supported(string t) => tagPlayers[t] >= MinPlayers && tagControls[t] >= MinPlayers;
+        foreach (var t in tagCounts.Keys.Where(t => t.StartsWith("trait:")))
+            _comparisons[Label(t)] = data.GroupBy(c => c.PlayerId).Count(p => p.Any(c => Has(c, t)) && p.Any(c => !Has(c, t)));
         foreach (var tag in tagCounts.Keys.Where(t => !Supported(t)))
         {
             var kind = KindOf(tag);
@@ -169,12 +203,13 @@ public sealed class PriceModel
             distinctMemberships.Add(membership.Key);
         }
         _tags = [.. ordinaryTags, .. distinctMemberships];
+        _traitSlopes = _tags.Where(t => t.StartsWith("trait:")).ToArray();
         _ovrMean = data.Average(c => c.Ovr1);
 
         _names = ["const", "OVR +1", "OVR²", "양발 (약발 5)", "약발 4", "급여 +1",
             .. _stats.Select(s => $"{MarketGroups.StatNames.GetValueOrDefault(s, s)} +1 (같은 OVR)"),
             .. _physical.Select(p => p.Name),
-            .. _tags.Select(Label), .. _seasons.Select(s => $"season:{s}"), "season:기타"];
+            .. _tags.Select(Label), .. _traitSlopes.Select(t => $"{Label(t)} × OVR +1"), .. _seasons.Select(s => $"season:{s}"), "season:기타"];
         _counts = tagCounts.ToDictionary(kv => Label(kv.Key), kv => kv.Value);
         _playerCounts = tagPlayers.ToDictionary(kv => Label(kv.Key), kv => kv.Value);
         foreach (var p in _physical) _counts[p.Name] = p.Cards;
@@ -191,7 +226,29 @@ public sealed class PriceModel
         // Not shrunk: OVR, OVR², salary and the seasons (shrinking the seasons lets other factors take their premium).
         var seasonStart = _names.Length - _seasons.Length - 1;
         var controls = Enumerable.Range(0, _names.Length).Select(i => i <= 2 || i == 5 || i >= seasonStart).ToList();
-        (_beta, _se, R2, Sigma) = RidgeTobit(x, y, data.Select(c => c.PlayerId).ToList(), controls, censored);
+        var tagStart = 6 + _stats.Length + _physical.Length;
+        var slopeStart = tagStart + _tags.Length;
+        var rawPenalty = Enumerable.Range(0, _names.Length)
+            .Select(i => i >= tagStart && i < slopeStart && _tags[i - tagStart].StartsWith("trait:") ? TraitRidge
+                : i >= slopeStart && i < slopeStart + _traitSlopes.Length ? TraitSlopeRidge : double.NaN).ToList();
+        // A footballer with several cards gets his own effect; one card alone has nothing to compare with.
+        var several = data.GroupBy(c => c.PlayerId).Where(p => p.Count() >= 2).Select((p, i) => (p.Key, i)).ToDictionary(p => p.Key, p => p.i);
+        var effects = data.Select(c => several.TryGetValue(c.PlayerId, out var e) ? e : -1).ToList();
+        double[] completed;
+        (_beta, _se, R2, Sigma, completed) = RidgeTobit(x, y, data.Select(c => c.PlayerId).ToList(), controls, censored, rawPenalty: rawPenalty, effects: effects, effectRidge: FitPlayerRidge);
+        // Leave-one-out: a card's own price must not vouch for itself, or a cheap card would look less cheap.
+        var residual = data.Select((c, i) => completed[i] - Dot(_beta, x[i])).ToList();
+        var footballers = data.Select((c, i) => (c, i)).GroupBy(t => t.c.PlayerId).ToList();
+        var repeated = footballers.Where(p => p.Count() >= 2).ToList();
+        var tau2 = repeated.Count >= 10 ? repeated.Average(p => Math.Pow(p.Average(t => residual[t.i]), 2) - Sigma * Sigma / p.Count()) : 0;
+        PlayerShrink = tau2 > 1e-4 ? Math.Clamp(Sigma * Sigma / tau2, 0.1, 10) : 10;
+        foreach (var p in footballers)
+        {
+            var sum = p.Sum(t => residual[t.i]);
+            var count = p.Count();
+            _playerEffect[p.Key] = sum / (count + PlayerShrink);
+            foreach (var (c, i) in p) _cardEffect[c.SpId] = (sum - residual[i]) / (count - 1 + PlayerShrink);
+        }
         (ValidationError, ValidationLogScale) = validate ? Validate(group, grade, data, memberships) : (double.NaN, double.NaN);
     }
 
@@ -211,7 +268,6 @@ public sealed class PriceModel
     {
         _ when tag.StartsWith("body:") => "가격 모델에서 뺌 (MV-07: 체형은 어느 포지션에서도 가격 차이 없음)",
         _ when tag.StartsWith("skill:") => "가격 모델에서 뺌 (MV-07: 개인기는 카드마다 들쭉날쭉)",
-        _ when tag.StartsWith("trait:") && !PricedTraits.Contains(tag[6..]) => NotConsistent,
         _ when _memberships.TryGetValue(tag, out var m) && m.Kind == FactorKind.FeatureTeamColor => "가격 모델에서 뺌 (MV-07: 특성 팀컬러는 일관된 가격 차이 없음)",
         _ => null,
     };
@@ -256,7 +312,14 @@ public sealed class PriceModel
     }
 
     /// <summary>The model's price for the card, before the enhancement floor.</summary>
-    public double Predict(MarketCard c) => Math.Exp(Dot(_beta, Features(c)));
+    public double Predict(MarketCard c) => Math.Exp(Dot(_beta, Features(c)) + PlayerEffect(c));
+
+    /// <summary>
+    /// How the market prices this footballer beyond his cards' specs (log scale), from his other cards only; 0 when the
+    /// model has seen no other card of him. [추정]
+    /// </summary>
+    public double PlayerEffect(MarketCard c) =>
+        _cardEffect.TryGetValue(c.SpId, out var own) ? own : _playerEffect.GetValueOrDefault(c.PlayerId);
 
     /// <summary>The price to show and compare with: the prediction, but never below the card's floor at this grade.</summary>
     public long Expected(MarketCard c) => Math.Max((long)Predict(c), FloorAt(c, Grade) ?? 0);
@@ -280,12 +343,12 @@ public sealed class PriceModel
         var x = Features(c);
         const int firstPremium = 3; // after const, OVR, OVR²; salary (index 5) is a cost, not a quality
         var tagStart = 6 + _stats.Length + _physical.Length;
-        var end = tagStart + _tags.Length;
+        var end = tagStart + _tags.Length + _traitSlopes.Length;
         double premium = 0;
         for (var i = firstPremium; i < end; i++)
         {
             if (i == 5) continue;
-            if (i >= tagStart && KindOf(_tags[i - tagStart]) is FactorKind.TeamColor or FactorKind.FeatureTeamColor) continue;
+            if (i >= tagStart && i < tagStart + _tags.Length && KindOf(_tags[i - tagStart]) is FactorKind.TeamColor or FactorKind.FeatureTeamColor) continue;
             premium += _beta[i] * x[i];
         }
         var slope = _beta[1] + 2 * _beta[2] * (c.Ovr1 - _ovrMean);
@@ -295,7 +358,7 @@ public sealed class PriceModel
     public IReadOnlyList<PriceEffect> Effects() =>
         _names.Select((n, i) => (n, i))
             .Where(t => t.i > 0 && t.n != "OVR²" && !t.n.StartsWith("season:"))
-            .Select(t => new PriceEffect(t.n, Pct(_beta[t.i]), Pct(_beta[t.i] - _critical * _se[t.i]), Pct(_beta[t.i] + _critical * _se[t.i]),
+            .Select(t => new PriceEffect(t.n, Pct(_beta[t.i]), Pct(_beta[t.i] - CriticalOf(t.i) * _se[t.i]), Pct(_beta[t.i] + CriticalOf(t.i) * _se[t.i]),
                 _se[t.i] > 0 ? _beta[t.i] / _se[t.i] : 0, _counts.TryGetValue(t.n, out var n) ? n : null))
             .ToList();
 
@@ -311,10 +374,14 @@ public sealed class PriceModel
         void Add(int i, string key, FactorKind kind, bool isCore, bool inflating = false)
         {
             var name = _names[i];
-            result.Add(new PriceFactor(key, name, kind, Pct(_beta[i]), Pct(_beta[i] - _critical * _se[i]), Pct(_beta[i] + _critical * _se[i]),
+            var critical = CriticalOf(i);
+            var slopeAt = Array.IndexOf(_traitSlopes, key);
+            result.Add(new PriceFactor(key, name, kind, Pct(_beta[i]), Pct(_beta[i] - critical * _se[i]), Pct(_beta[i] + critical * _se[i]),
                 slope > 0.01 ? _beta[i] / slope : 0, (long)(_medianPrice * (Math.Exp(_beta[i]) - 1)),
                 _counts.TryGetValue(name, out var n) ? n : null, isCore, inflating)
-                { Players = _playerCounts.GetValueOrDefault(name, Players) });
+                { Players = _playerCounts.GetValueOrDefault(name, Players), Critical = critical,
+                  Comparisons = _comparisons.TryGetValue(name, out var compared) ? compared : null,
+                  PerOvr = slopeAt >= 0 ? _beta[6 + _stats.Length + _physical.Length + _tags.Length + slopeAt] : double.NaN });
         }
         Add(3, "foot:5", FactorKind.Foot, true);
         Add(4, "foot:4", FactorKind.Foot, false);
@@ -334,6 +401,14 @@ public sealed class PriceModel
         return result;
     }
 
+    private double CriticalOf(int i)
+    {
+        var tagStart = 6 + _stats.Length + _physical.Length;
+        var isTrait = i >= tagStart && i < tagStart + _tags.Length && _tags[i - tagStart].StartsWith("trait:")
+            || i >= tagStart + _tags.Length && i < tagStart + _tags.Length + _traitSlopes.Length;
+        return isTrait ? Math.Max(TraitCritical, _critical) : _critical;
+    }
+
     /// <summary>Typical (median) price of a traded card of the group at the model's grade.</summary>
     public long MedianPrice => _medianPrice;
 
@@ -345,6 +420,7 @@ public sealed class PriceModel
             x.Add(c.Stats.TryGetValue(s, out var v) ? v - c.Ovr1 : 0);
         foreach (var physical in _physical) x.Add(physical.Has(c) ? 1 : 0);
         foreach (var t in _tags) x.Add(Has(c, t) ? 1 : 0);
+        foreach (var t in _traitSlopes) x.Add(Has(c, t) ? d : 0);
         foreach (var s in _seasons) x.Add(c.Season == s ? 1 : 0);
         x.Add(c.Season != _baseSeason && !_seasons.Contains(c.Season) ? 1 : 0);
         return [.. x];
@@ -355,8 +431,9 @@ public sealed class PriceModel
 
     private static (double Error, double LogScale) Validate(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships)
     {
-        var train = data.Where(c => Fold(c.PlayerId) != 0).ToList();
-        var holdout = data.Where(c => Fold(c.PlayerId) == 0).ToList();
+        // Card folds (MV-09): a held-out card is priced like any card, with what the footballer's other cards say.
+        var train = data.Where(c => Fold(c.SpId) != 0).ToList();
+        var holdout = data.Where(c => Fold(c.SpId) == 0).ToList();
         if (train.Count < 50 || holdout.Count < 10 || train.Select(c => c.PlayerId).Distinct().Count() < 10) return (double.NaN, double.NaN);
         // Feature selection and reference buckets must also use training data only.
         var model = new PriceModel(group, grade, train, memberships, validate: false);
@@ -406,11 +483,19 @@ public sealed class PriceModel
     /// by their expected value below the floor given the current fit. Standard errors are player-clustered (CR1) on the
     /// completed data, so they lean a little narrow for heavily censored groups.
     /// </summary>
-    internal static (double[] Beta, double[] Se, double R2, double Sigma) RidgeTobit(IReadOnlyList<double[]> x, IReadOnlyList<double> y,
-        IReadOnlyList<int> clusters, IReadOnlyList<bool> controls, IReadOnlyList<bool>? censored = null, double lambda = Ridge, int iterations = 60)
+    /// <param name="rawPenalty">Per column, a ridge in the column's own units (an effect seen on n cards keeps about
+    /// n/(n+λ) of its size) instead of <paramref name="lambda"/>; NaN keeps the standardised ridge.</param>
+    /// <param name="effects">Per row, the absorbed effect it belongs to (a player with several cards) or −1: uncentred
+    /// dummies ridged by <paramref name="effectRidge"/>, solved through the Schur complement so many players stay cheap.
+    /// The other coefficients are then compared within an effect (the same player's cards).</param>
+    internal static (double[] Beta, double[] Se, double R2, double Sigma, double[] Completed) RidgeTobit(IReadOnlyList<double[]> x, IReadOnlyList<double> y,
+        IReadOnlyList<int> clusters, IReadOnlyList<bool> controls, IReadOnlyList<bool>? censored = null, double lambda = Ridge, int iterations = 60,
+        IReadOnlyList<double>? rawPenalty = null, IReadOnlyList<int>? effects = null, double effectRidge = FitPlayerRidge)
     {
         var n = x.Count;
         var k = x[0].Length;
+        var group = effects?.ToArray() ?? Enumerable.Repeat(-1, n).ToArray();
+        var effectCount = group.Length == 0 ? 0 : group.Max() + 1;
         var mu = new double[k];
         var sd = new double[k];
         for (var j = 1; j < k; j++)
@@ -434,20 +519,46 @@ public sealed class PriceModel
             for (var p = 0; p < k; p++)
                 for (var q = 0; q < k; q++)
                     a[p, q] += row[p] * row[q];
-        for (var j = 1; j < k; j++) a[j, j] += controls[j] ? 1e-3 : lambda;
+        for (var j = 1; j < k; j++)
+            a[j, j] += rawPenalty is not null && double.IsFinite(rawPenalty[j]) ? rawPenalty[j] / (sd[j] * sd[j]) : controls[j] ? 1e-3 : lambda;
+        // Effects: B[p, g] = Σ z_ip over the effect's rows, D_g = rows + ridge; S = A − B D⁻¹ Bᵀ is what the other columns solve.
+        var bsum = new double[k, effectCount];
+        var d = new double[effectCount];
+        for (var i = 0; i < n; i++)
+        {
+            if (group[i] < 0) continue;
+            d[group[i]] += 1;
+            for (var p = 0; p < k; p++) bsum[p, group[i]] += z[i][p];
+        }
+        for (var g = 0; g < effectCount; g++) d[g] += effectRidge;
+        for (var p = 0; p < k; p++)
+            for (var q = 0; q < k; q++)
+                for (var g = 0; g < effectCount; g++)
+                    a[p, q] -= bsum[p, g] * bsum[q, g] / d[g];
         var inv = Invert(a);
+        // Each row with its effect's shrunk mean taken out: b = S⁻¹ Σ w_i y_i, so these also carry the clustered errors.
+        var w = new double[n][];
+        for (var i = 0; i < n; i++)
+        {
+            w[i] = (double[])z[i].Clone();
+            if (group[i] >= 0) for (var p = 0; p < k; p++) w[i][p] -= bsum[p, group[i]] / d[group[i]];
+        }
 
+        var u = new double[effectCount];
         double[] Solve(double[] target)
         {
-            var zty = new double[k];
+            var wty = new double[k];
             for (var i = 0; i < n; i++)
                 for (var j = 0; j < k; j++)
-                    zty[j] += z[i][j] * target[i];
+                    wty[j] += w[i][j] * target[i];
             var b = new double[k];
-            for (var p = 0; p < k; p++) for (var q = 0; q < k; q++) b[p] += inv[p, q] * zty[q];
+            for (var p = 0; p < k; p++) for (var q = 0; q < k; q++) b[p] += inv[p, q] * wty[q];
+            Array.Clear(u);
+            for (var i = 0; i < n; i++) if (group[i] >= 0) u[group[i]] += target[i] - Dot(b, z[i]);
+            for (var g = 0; g < effectCount; g++) u[g] /= d[g];
             return b;
         }
-        double Fitted(double[] b, int i) => Dot(b, z[i]);
+        double Fitted(double[] b, int i) => Dot(b, z[i]) + (group[i] >= 0 ? u[group[i]] : 0);
 
         var yi = y.ToArray();
         var bz = Solve(yi);
@@ -476,7 +587,7 @@ public sealed class PriceModel
                 double sse = 0;
                 for (var i = 0; i < n; i++) { var e = yi[i] - Fitted(next, i); sse += e * e + (cens[i] ? extra[i] : 0); }
                 sigma = Math.Max(Math.Sqrt(sse / n), 0.05);
-                var change = next.Zip(bz, (u, v) => Math.Abs(u - v)).Max();
+                var change = next.Zip(bz, (p, q) => Math.Abs(p - q)).Max();
                 bz = next;
                 if (change < 1e-6) break;
             }
@@ -491,10 +602,10 @@ public sealed class PriceModel
             sseAll += e * e;
             sst += (yi[i] - mean) * (yi[i] - mean);
             if (!scores.TryGetValue(clusters[i], out var score)) scores[clusters[i]] = score = new double[k];
-            for (var j = 0; j < k; j++) score[j] += e * z[i][j];
+            for (var j = 0; j < k; j++) score[j] += e * w[i][j];
         }
         if (double.IsNaN(sigma)) sigma = Math.Max(Math.Sqrt(sseAll / n), 0.05);
-        var cr1 = scores.Count / (double)Math.Max(scores.Count - 1, 1) * (n - 1) / Math.Max(n - k, 1);
+        var cr1 = scores.Count / (double)Math.Max(scores.Count - 1, 1) * (n - 1) / Math.Max(n - k - effectCount, 1);
         var beta = new double[k];
         var se = new double[k];
         for (var j = 0; j < k; j++)
@@ -511,7 +622,7 @@ public sealed class PriceModel
         }
         // Back to the original columns: the constant absorbs the centring.
         beta[0] = bz[0] - Enumerable.Range(1, k - 1).Sum(j => mu[j] * bz[j] / sd[j]);
-        return (beta, se, sst > 0 ? 1 - sseAll / sst : 0, sigma);
+        return (beta, se, sst > 0 ? 1 - sseAll / sst : 0, sigma, yi);
     }
 
     private static double StdDev(IReadOnlyList<double> v)

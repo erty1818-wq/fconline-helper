@@ -77,7 +77,8 @@ public class PriceModelTests
             var price = 1e8 * Math.Pow(1.4, ovr - 110) * (wf == 5 ? 1.5 : 1) * (trait ? 2 : 1) * Math.Exp(rnd.NextDouble() * 0.1 - 0.05);
             return new MarketCard
             {
-                Group = "W", SpId = 200_000_000 + i, Name = $"p{i}", Season = i % 2 == 0 ? "AAA" : "BBB", Pay = 25, Ovr1 = ovr, WeakFoot = wf,
+                // Two cards per footballer (AAA and BBB), so traits can be compared within the same footballer (MV-09).
+                Group = "W", SpId = (200 + i % 2) * 1_000_000 + i / 2, Name = $"p{i / 2}", Season = i % 2 == 0 ? "AAA" : "BBB", Pay = 25, Ovr1 = ovr, WeakFoot = wf,
                 RatingCount = 50, Prices = new Dictionary<int, long> { [1] = 1000, [8] = (long)price },
                 Stats = new Dictionary<string, int> { ["sprintspeed"] = ovr + i % 7 - 3 },
                 Tags = trait ? new HashSet<string> { "trait:트릭스터" } : [],
@@ -102,13 +103,14 @@ public class PriceModelTests
     [Fact]
     public void Ovr_salary_and_season_are_not_shrunk_while_the_other_factors_are()
     {
-        // MV-08: on a small market the ridge presses weak foot and traits toward 0, but never the OVR (or salary, season).
+        // MV-08: on a small market the ridge presses weak foot toward 0, but never the OVR (or salary, season). MV-09:
+        // traits are only lightly shrunk (ridge 2 in their own units), so a trait seen on 80 cards keeps nearly all of it.
         var model = PriceModel.Fit("W", 8, Market(400))!;
         var effects = model.Effects().ToDictionary(e => e.Name);
 
         Assert.InRange(effects["OVR +1"].Percent, 38, 42);
         Assert.InRange(effects["양발 (약발 5)"].Percent, 10, 45); // true +50%, shrunk
-        Assert.InRange(effects["트릭스터"].Percent, 20, 90);       // true +100%, shrunk
+        Assert.InRange(effects["트릭스터"].Percent, 80, 115);      // true +100%
     }
 
     [Fact]
@@ -129,31 +131,36 @@ public class PriceModelTests
     }
 
     [Fact]
-    public void Inconsistent_factors_are_listed_but_not_priced()
+    public void Body_type_and_skill_moves_are_listed_but_not_priced_while_every_trait_is()
     {
-        // MV-07: body type, skill moves and most traits do not set prices consistently; MV-08 leaves them out.
-        var cards = Market(400).Select((c, i) => c with
+        // MV-07: body type and skill moves do not set prices consistently (left out, the user's call). MV-09: every trait
+        // is priced again, measured within the same footballer: here 크로스 포쳐 cards cost 3×. A large market: on a small one
+        // the shrunk weak foot (it changes between this market's cards of a footballer) leaks into the comparison.
+        var cards = Market(3000).Select((c, i) => c with
         {
-            Tags = new HashSet<string>(c.Tags) { i % 3 == 0 ? "body:thin" : "body:heavy", i % 4 == 0 ? "skill:5" : "skill:4", i % 6 == 0 ? "trait:크로스 포쳐" : "trait:-" },
-            Prices = new Dictionary<int, long> { [1] = 1000, [8] = (long)(c.PriceAt(8) * (i % 6 == 0 ? 3 : 1)) },
+            Tags = new HashSet<string>(c.Tags) { i % 3 == 0 ? "body:thin" : "body:heavy", i % 4 == 0 ? "skill:5" : "skill:4", i % 10 == 1 ? "trait:크로스 포쳐" : "body:normal" },
+            Prices = new Dictionary<int, long> { [1] = 1000, [8] = (long)(c.PriceAt(8) * (i % 10 == 1 ? 3 : 1)) },
         }).ToList();
         var model = PriceModel.Fit("W", 8, cards)!;
         var factors = model.Factors().ToDictionary(f => f.Key);
 
-        foreach (var key in new[] { "body:thin", "skill:5", "trait:크로스 포쳐" })
+        foreach (var key in new[] { "body:thin", "skill:5" })
         {
             Assert.False(factors[key].Estimated);
             Assert.StartsWith("가격 모델에서 뺌", factors[key].Excluded);
         }
-        Assert.True(factors["trait:트릭스터"].Estimated); // a consistent trait stays
-        var crossPoacher = cards.First(c => c.Tags.Contains("trait:크로스 포쳐"));
-        Assert.Equal(model.Predict(crossPoacher with { Tags = new HashSet<string>() } ), model.Predict(crossPoacher with { Tags = new HashSet<string> { "trait:크로스 포쳐" } }), 6);
+        Assert.True(factors["trait:트릭스터"].Estimated);
+        Assert.InRange(factors["trait:크로스 포쳐"].Percent, 160, 240); // true +200%
+        Assert.True(factors["trait:크로스 포쳐"].Comparisons > 8);
+        var body = cards.First(c => c.Tags.Contains("body:thin"));
+        Assert.Equal(model.Predict(body with { Tags = new HashSet<string>(body.Tags.Where(t => t != "body:thin")) }), model.Predict(body), 6);
     }
 
     [Fact]
     public void Prices_height_and_weight_where_kept_and_affiliation_colours_but_not_feature_colours()
     {
-        // 센터백 keeps height and weight (user's call, MV-08); 특성 팀컬러 is left out (MV-07: never consistent).
+        // 센터백 keeps height and weight (user's call, MV-08); 특성 팀컬러 is left out (MV-07: never consistent). One card per
+        // footballer here: height and weight never change between a footballer's cards, so with several his own effect carries them.
         var cards = Market(2000).Select((c, i) =>
         {
             var height = new[] { 168, 172, 177, 182 }[i % 4];
@@ -162,6 +169,7 @@ public class PriceModelTests
                 * (i % 7 == 0 ? 1.4 : 1) * (i % 11 == 0 ? 1.25 : 1);
             return c with
             {
+                SpId = 400_000_000 + i,
                 Group = "CB",
                 Stats = new Dictionary<string, int>(c.Stats) { ["height"] = height, ["weight"] = weight },
                 Prices = new Dictionary<int, long> { [1] = 1000, [8] = (long)(c.PriceAt(8) * multiplier) },
@@ -335,6 +343,93 @@ public class PriceFloorTests
         var lowSpec = cards.MinBy(c => model.Predict(c))!;
         var highFloor = lowSpec with { Prices = new Dictionary<int, long>(lowSpec.Prices) { [5] = (long)(model.Predict(lowSpec) / 5) } };
         Assert.Equal(PriceModel.FloorAt(highFloor, 8), model.Expected(highFloor));
+    }
+}
+
+public class SameFootballerTests
+{
+    private const string Trait = "trait:라인 브레이커";
+
+    /// <summary>
+    /// Three cards per footballer. Popular footballers (one in three) cost 3× on every card and get the trait far more
+    /// often, as the market's favourites get the new traits. ln price = 18 + ln1.4·(OVR − 110) + name + trait·(b + slope·(OVR − 120)).
+    /// </summary>
+    private static List<MarketCard> Market(double trait, double slope = 0, bool ownFootballers = false)
+    {
+        var r = new Random(11);
+        var cards = new List<MarketCard>();
+        for (var p = 0; p < 600; p++)
+        {
+            var popular = p % 3 == 0;
+            for (var s = 0; s < 3; s++)
+            {
+                var ovr = 110 + (p * 7 + s * 3) % 20;
+                var has = s > 0 && r.NextDouble() < (popular ? 0.6 : 0.15);
+                var log = 18 + Math.Log(1.4) * (ovr - 110) + (popular ? Math.Log(3) : 0) + (has ? trait + slope * (ovr - 120) : 0)
+                    + (r.NextDouble() - 0.5) * 0.2;
+                cards.Add(new MarketCard
+                {
+                    Group = "W", SpId = ownFootballers ? (300 + s) * 1_000_000 + p * 3 + s : (300 + s) * 1_000_000 + p, Name = $"p{p}",
+                    Season = $"S{s}", Pay = 25, Ovr1 = ovr, WeakFoot = 3, RatingCount = 50,
+                    Prices = new Dictionary<int, long> { [1] = 1000, [8] = (long)Math.Exp(log) },
+                    Tags = has ? new HashSet<string> { Trait } : [],
+                });
+            }
+        }
+        return cards;
+    }
+
+    [Fact]
+    public void A_trait_is_priced_within_the_same_footballer_not_from_the_popular_footballers_holding_it()
+    {
+        var model = PriceModel.Fit("W", 8, Market(Math.Log(1.5)))!;
+        var trait = model.Factors().Single(f => f.Key == Trait);
+        Assert.InRange(trait.Percent, 40, 60); // true +50%
+        Assert.True(trait.Comparisons > 100 && trait.Clear);
+
+        // Without seeing who is who (every card its own footballer) the favourites' name value is taken for the trait.
+        var blind = PriceModel.Fit("W", 8, Market(Math.Log(1.5), ownFootballers: true))!;
+        Assert.True(blind.Factors().Single(f => f.Key == Trait).Percent > 100);
+    }
+
+    [Fact]
+    public void A_cards_own_price_does_not_vouch_for_itself()
+    {
+        // One card of a popular footballer sells at half its worth: what the model says about him comes from his two
+        // other cards, so halving this card's price leaves it (nearly) unchanged and the card tops the value list.
+        var cards = Market(Math.Log(1.5));
+        var i = cards.FindIndex(c => c.Name == "p3" && c.Season == "S0");
+        var fair = PriceModel.Fit("W", 8, cards)!;
+        cards[i] = cards[i] with { Prices = new Dictionary<int, long> { [1] = 1000, [8] = cards[i].PriceAt(8) / 2 } };
+        var model = PriceModel.Fit("W", 8, cards)!;
+
+        Assert.InRange(model.PlayerEffect(cards[i]) - fair.PlayerEffect(cards[i]), -0.02, 0.02);
+        // Name values spread far more than one card's noise here, so two other cards are trusted almost fully (ln3 apart).
+        var other = cards.First(c => c.Name == "p4" && c.Season == "S0");
+        Assert.InRange(model.PlayerEffect(cards[i]) - model.PlayerEffect(other), Math.Log(3) * 0.85, Math.Log(3) * 1.1);
+        var picks = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8, Filter = new CardFilter { MinRatings = 0 } });
+        var pick = picks.MinBy(p => p.Discount)!;
+        Assert.Equal(cards[i].SpId, pick.Card.SpId);
+        Assert.InRange(pick.Discount, -0.6, -0.4); // about −50%
+    }
+
+    [Fact]
+    public void A_trait_premium_can_grow_with_ovr()
+    {
+        // +50% at OVR 120 and +8 log points per OVR: +16% at 110, +115% at 129.
+        var model = PriceModel.Fit("W", 8, Market(Math.Log(1.5), slope: 0.08))!;
+        var trait = model.Factors().Single(f => f.Key == Trait);
+        Assert.InRange(trait.PerOvr, 0.06, 0.10);
+    }
+
+    [Fact]
+    public void Trait_intervals_use_the_stricter_critical_value()
+    {
+        // Fake traits shuffled within seasons pass |t| 1.96 far more often than 5% with clustered errors (MV-09).
+        var model = PriceModel.Fit("W", 8, Market(Math.Log(1.5)))!;
+        var trait = model.Factors().Single(f => f.Key == Trait);
+        Assert.Equal(PriceModel.TraitCritical, trait.Critical);
+        Assert.True(model.Factors().Single(f => f.Key == "foot:5").Critical < 2.1);
     }
 }
 

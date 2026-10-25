@@ -233,7 +233,7 @@ public sealed class MarketService(
                 {
                     var b = Math.Log(1 + x.Factor.Percent / 100);
                     var half = (Math.Log(1 + x.Factor.High / 100) - Math.Log(1 + x.Factor.Low / 100)) / 2;
-                    var se = half / PriceModel.Critical95(x.Model.Players - 1);
+                    var se = half / x.Factor.Critical;
                     return (x.Group, x.Factor, B: b, Se: Math.Max(se, 1e-3), Half: half);
                 }).ToList();
                 var fixedWeights = estimates.Select(e => 1 / (e.Se * e.Se)).ToList();
@@ -252,7 +252,7 @@ public sealed class MarketService(
                 var mean = sumB / sumW;
                 // Position groups can contain the same cards, so their errors are correlated. Never claim a narrower
                 // interval than the most precise single group even when the fixed/random-effects formula would.
-                var half = Math.Max(PriceModel.Critical95(players - 1) / Math.Sqrt(sumW), estimates.Min(e => e.Half));
+                var half = Math.Max(Math.Max(PriceModel.TraitCritical, PriceModel.Critical95(players - 1)) / Math.Sqrt(sumW), estimates.Min(e => e.Half));
                 result.Add(new TraitValue(trait.Key[6..], scope, (Math.Exp(mean) - 1) * 100, (Math.Exp(mean - half) - 1) * 100,
                     (Math.Exp(mean + half) - 1) * 100, sumOvr / sumW, cardCount, byGroup) { Players = players });
             }

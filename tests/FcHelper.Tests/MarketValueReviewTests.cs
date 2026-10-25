@@ -56,7 +56,9 @@ public class MarketValueReviewTests
         var member = cards.First(c => members.Contains(c.SpId));
 
         Assert.NotNull(model.Factors().Single(f => f.Key == "tc:feature:9").Excluded);
-        Assert.Equal(model.Predict(member with { SpId = 999_000_001 }), model.Predict(member), 6);
+        // The same spec without the membership (a new SpId is a new footballer, so compare without the footballer's effect).
+        var twin = member with { SpId = 999_000_001 };
+        Assert.Equal(Math.Log(model.Predict(twin)) - model.PlayerEffect(twin), Math.Log(model.Predict(member)) - model.PlayerEffect(member), 6);
     }
 
     [Theory]
