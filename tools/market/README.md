@@ -1,8 +1,22 @@
 # 시세 분석 · 가성비 찾기 (개인용)
 
 > **앱에 들어갔다.** 트레이 → **가성비 찾기** 창에서 포지션·강화·가격대로 검색하고, 시세는 앱이 **자동으로 갱신**한다
-> (하루 1번, 새 시즌은 공식 시즌 목록으로 감지해 바로, 게임 중에는 미룸). 명령줄은 `fch value --pos W --grade 8 --min 1억 --max 30억`.
-> 이 폴더의 Python 도구는 분석 실험용으로 남겨 둔다 (앱과 같은 모델).
+> (하루 1번, 새 시즌은 공식 시즌 목록으로 감지해 바로, 게임 중에는 미룸). 명령줄은 `fch value --pos W --grade 11 --min 1억 --max 30억`.
+> MV-10부터 기본 +11·OVR 140, +10은 같은 카드 범위인 OVR 138. 현재 앱 모형과 검증은 `fch`를 기준으로 본다. 예전 `model.py`·`value.py`는 초기 분석 실험용이며 현재 앱과 같은 모형이 아니다.
+
+## MV-10 재현 (+8·+10·+11)
+
+Python 3.10+와 numpy, .NET 10이 필요하다. 원본 SQLite는 읽기 전용으로 열고 시장 테이블만 사본으로 만든다. 시세·실거래 구분, 특성 모양·가짜 특성·전체 5묶음 결과는 [`MV-10.md`](../../docs/market-value/MV-10.md)에 기록했다.
+
+```powershell
+python tools/market/mv10.py --phase liquidity --out artifacts/mv10/liquidity.json --prepare-db artifacts/mv10/market.db
+python tools/market/mv10.py --db artifacts/mv10/market.db --out artifacts/mv10/fe-final.json --draws 60
+./tools/market/mv10_cli.ps1 -DatabaseCopy artifacts/mv10/market.db
+python tools/market/mv10_report.py --input artifacts/mv10 --out docs/market-value/MV-10.md --json docs/market-value/data/mv10-summary-20261026.json.gz
+python -m unittest discover -s tools/market -p test_mv10.py
+```
+
+`mv10.py`는 같은 선수·시즌 고정효과와 하한 토빗의 독립 분석, `mv10_cli.ps1`은 앱의 실제 세부 능력치·팀컬러·선수 효과 모형 비교다. 모든 컷은 +1 OVR, 모든 강화는 같은 카드 해시 5묶음이다. 네트워크·API 키를 쓰지 않는다. 사본이 이미 있으면 `--prepare-db`를 빼거나 새 경로를 지정한다. CLI는 `MarketStore`를 초기화하므로 원본 DB를 넘기지 않는다.
 
 FC온라인 **공식 데이터센터**(fconline.nexon.com)의 선수 목록으로
 1. 능력치·약발·특성·개인기·체형이 가격에 미치는 영향을 계산하고 (`analyze.py`)
@@ -56,7 +70,7 @@ python value.py --pos CB --grade 8 --min 5억 --max 20억 --skill 5
 
 ## 알아둘 점
 
-- +1 강화 가격은 대부분 거래 하한가(1,000 BP 근처)라 분석에 쓰지 않는다. +5 이상은 하한가가 없다.
+- 강화 하한 배수는 +5 ≥ 1.5×+3, +8 ≥ 9.5×+5, +10 ≥ 2.1×+8, +11 ≥ 1.55×+10이다. 하한에 붙은 시세와 실거래 수요를 구분한다. 현재 앱은 하한 카드를 토빗으로 학습한다.
 - 목록 검색은 한 번에 최대 200명이라 포지션 × OVR 하나씩 잘라서 받는다.
 - 능력치는 포지션마다 핵심 8개만 받는다 (`harvest.py`의 `GROUPS`).
 - 체형은 ST와 윙어만, 개인기는 5·6성만 표시한다.

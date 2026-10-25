@@ -12,11 +12,16 @@ public partial class ValuePage : UserControl
         InitializeComponent();
         GroupBox.ItemsSource = MarketGroups.All;
         GradeBox.ItemsSource = Grades.Tradable.Select(g => $"+{g}").ToList();
-        GradeBox.SelectedIndex = 7;
+        GradeBox.SelectedIndex = MarketDefaults.Grade - 1;
         GroupBox.SelectedIndex = 0;
     }
 
     private MarketGroup Group => (MarketGroup)GroupBox.SelectedItem;
+
+    private void OnGradeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (GradeBox.SelectedIndex >= 0) Filters.SetGrade(GradeBox.SelectedIndex + 1);
+    }
 
     private void OnGroupChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -57,7 +62,7 @@ public partial class ValuePage : UserControl
             t.Excluded ?? ((!t.Estimated || t.Players < 10 ? "표본 부족 · " : t.Clear ? "" : "불확실 · ")
             + string.Join(", ", t.ByGroup.Select(g => g.Factor.Estimated ? $"{MarketGroups.Get(g.Group).Name} {g.Factor.Percent:+0;-0}%" : $"{MarketGroups.Get(g.Group).Name} 표본 부족"))))
             { Players = t.Players.ToString() }).ToList();
-        Status.Text = $"+{grade}{(floor is { } f ? $" · OVR {f}+ 카드" : " · 전체 카드")} · 신특이 있는 카드가 없는 카드보다 비싼 정도 (포지션별 추정을 정밀도로 가중 평균) [추정: 시장 회귀]";
+        Status.Text = $"+{grade}{(floor is { } f ? $" · OVR {f}+ 카드" : " · 전체 카드")} · 프리미엄은 +1 OVR {PriceModel.TraitTopOvr} (+{grade} OVR {PriceModel.TraitTopOvr - Grades.Bonus[1] + Grades.Bonus[grade]}) 기준 · 포지션별 추정을 정밀도로 가중 평균 [추정: 시장 회귀]";
     }
 
     private async Task ShowFactorsAsync()

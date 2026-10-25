@@ -15,6 +15,7 @@
                 </DockPanel>
                 <WrapPanel>
                     <StackPanel Margin="0,0,14,6"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="PositionBox" SelectionChanged="OnPositionChanged" /></StackPanel>
+                    <StackPanel Margin="0,0,14,6"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" SelectionChanged="OnGradeChanged" ToolTip="이 강화로 랭커가 실제 사용한 카드만 찾습니다." /></StackPanel>
                     <StackPanel Margin="0,0,14,6"><TextBlock Text="최소 사용 랭커 수" Style="{StaticResource FieldLabel}" /><TextBox x:Name="UsersBox" Width="80" Text="10" /></StackPanel>
                 </WrapPanel>
                 <studio:FilterPanel x:Name="Filters" />

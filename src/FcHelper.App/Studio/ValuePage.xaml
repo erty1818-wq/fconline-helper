@@ -16,7 +16,7 @@
                 </DockPanel>
                 <WrapPanel>
                     <StackPanel Margin="0,0,14,6"><TextBlock Text="포지션" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GroupBox" DisplayMemberPath="Name" SelectionChanged="OnGroupChanged" MinWidth="130" /></StackPanel>
-                    <StackPanel Margin="0,0,14,6"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" MinWidth="70" /></StackPanel>
+                    <StackPanel Margin="0,0,14,6"><TextBlock Text="강화" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="GradeBox" MinWidth="70" SelectionChanged="OnGradeChanged" ToolTip="실사용 기본 +11 · +10도 선택할 수 있습니다." /></StackPanel>
                     <StackPanel Margin="0,0,14,6" VerticalAlignment="Bottom" Orientation="Horizontal">
                         <ToggleButton x:Name="CardsView" Style="{StaticResource Chip}" Content="가성비 카드" IsChecked="True" Click="OnView" Checked="OnView" />
                         <ToggleButton x:Name="FactorsView" Style="{StaticResource Chip}" Content="가격 요인 (이 포지션)" Click="OnView" Checked="OnView" />

@@ -19,7 +19,7 @@ public sealed class SquadService(
     public const int OfficialMatch = 50;
     public static readonly TimeSpan ChartTtl = TimeSpan.FromHours(12);
     /// <summary>The model grade used for premiums and expected prices when a request spans several grades.</summary>
-    public const int ModelGrade = 8;
+    public const int ModelGrade = MarketDefaults.Grade;
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly SemaphoreSlim _chartGate = new(1, 1);
@@ -479,10 +479,12 @@ public sealed class SquadService(
     // ── analyses ───────────────────────────────────────────────────────────
 
     public async Task<IReadOnlyList<HiddenPick>> HiddenRankerPicksAsync(string? position = null, CardFilter? filter = null,
-        int minUsers = 10, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default)
+        int minUsers = 10, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default, int? grade = MarketDefaults.Grade)
     {
+        filter ??= new CardFilter { MinOvr = MarketDefaults.MinOvr(grade ?? ModelGrade), MinRatings = 0 };
         var chart = await ChartAsync(rankFrom, rankTo, ct: ct);
-        return chart is null ? [] : Advisors.HiddenRankerPicks(chart.Picks, EnsurePool().BySpId, c => ModelOf(c), filter, minUsers, position);
+        return chart is null ? [] : Advisors.HiddenRankerPicks(chart.Picks.Where(p => grade is null || p.Grade == grade), EnsurePool().BySpId,
+            c => market.ModelFor(new ValueQuery { Group = c.Group, Grade = grade ?? ModelGrade, Filter = filter }), filter, minUsers, position);
     }
 
     public GradeAdvice? Grade(long spId, string position, int? from = null, int? to = null) =>

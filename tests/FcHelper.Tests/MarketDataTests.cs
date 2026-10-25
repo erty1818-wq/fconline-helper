@@ -238,7 +238,9 @@ public class PriceModelTests
         Assert.Equal("bargain", picks[0].Card.Name);
         Assert.InRange(picks[0].Discount, -0.72, -0.55); // a third of the price; the shrunk trait premium moves the expectation a little
         Assert.All(picks, p => Assert.InRange(p.Price, 20_000_000, 200_000_000));
-        Assert.All(ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Filter = new CardFilter { MinWeakFoot = 5, Traits = ["트릭스터"] } }),
+        var filtered = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8, Filter = new CardFilter { MinWeakFoot = 5, Traits = ["트릭스터"] } });
+        Assert.NotEmpty(filtered);
+        Assert.All(filtered,
             p => Assert.True(p.Card.WeakFoot == 5 && p.Card.Tags.Contains("trait:트릭스터")));
     }
 }
@@ -352,7 +354,7 @@ public class SameFootballerTests
 
     /// <summary>
     /// Three cards per footballer. Popular footballers (one in three) cost 3× on every card and get the trait far more
-    /// often, as the market's favourites get the new traits. ln price = 18 + ln1.4·(OVR − 110) + name + trait·(b + slope·max(0, OVR − 118)).
+    /// often, as the market's favourites get the new traits. Trait growth begins at the configured +1 OVR hinge.
     /// </summary>
     private static List<MarketCard> Market(double trait, double slope = 0, bool ownFootballers = false)
     {
@@ -365,7 +367,7 @@ public class SameFootballerTests
             {
                 var ovr = 110 + (p * 7 + s * 3) % 20;
                 var has = s > 0 && r.NextDouble() < (popular ? 0.6 : 0.15);
-                var log = 18 + Math.Log(1.4) * (ovr - 110) + (popular ? Math.Log(3) : 0) + (has ? trait + slope * Math.Max(0, ovr - 118) : 0)
+                var log = 18 + Math.Log(1.4) * (ovr - 110) + (popular ? Math.Log(3) : 0) + (has ? trait + slope * Math.Max(0, ovr - PriceModel.TraitHinge) : 0)
                     + (r.NextDouble() - 0.5) * 0.2;
                 cards.Add(new MarketCard
                 {
@@ -416,12 +418,12 @@ public class SameFootballerTests
     [Fact]
     public void A_trait_premium_grows_on_the_top_cards()
     {
-        // +50% up to OVR 118, then +20 log points per OVR: about +230% at 127.
+        // +50% up to OVR 115, then +20 log points per OVR: about +508% at 122.
         var model = PriceModel.Fit("W", 8, Market(Math.Log(1.5), slope: 0.20))!;
         var trait = model.Factors().Single(f => f.Key == Trait);
         Assert.InRange(trait.PercentBelowHinge, 40, 60);
         Assert.InRange(trait.PerOvr, 0.17, 0.23);
-        Assert.InRange(trait.Percent, 190, 280); // shown for an OVR 122 card: ×1.5·e^0.8 ≈ +234%
+        Assert.InRange(trait.Percent, 450, 570); // shown for an OVR 122 card: ×1.5·e^1.4 ≈ +508%
     }
 
     [Fact]

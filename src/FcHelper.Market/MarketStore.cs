@@ -282,7 +282,7 @@ public sealed class MarketStore
     // ── price history ──────────────────────────────────────────────────────
 
     /// <summary>Grades kept in the daily price history: enough for trends at the grades people buy at.</summary>
-    public static readonly int[] HistoryGrades = [1, 5, 8, 10];
+    public static readonly int[] HistoryGrades = [1, 5, 8, 10, 11];
     public const int HistoryDays = 35;
 
     /// <summary>Stores the prices of a finished snapshot under its day and drops days older than <see cref="HistoryDays"/>.</summary>

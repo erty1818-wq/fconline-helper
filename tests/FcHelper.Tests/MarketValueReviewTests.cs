@@ -160,7 +160,7 @@ public class MarketValueReviewTests
         }
         store.FinishSnapshot(snapshot, now);
         var service = new MarketService(new NoRequests(), store, _ => Task.FromResult("[]"));
-        var value = Assert.Single(service.TraitValues());
+        var value = Assert.Single(service.TraitValues(8));
         Assert.Equal(6, value.Players);
         Assert.Equal(rare.Count, value.Cards);
         Assert.Equal(2, value.ByGroup.Count);

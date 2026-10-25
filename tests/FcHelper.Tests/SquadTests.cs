@@ -173,7 +173,7 @@ public class SquadBuilderTests
     [Fact]
     public void Strongest_uses_the_budget_and_never_repeats_a_footballer()
     {
-        var plan = Builder(Market()).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000_000 })[0];
+        var plan = Builder(Market()).Build(new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000_000 })[0];
 
         Assert.Equal(11, plan.Slots.Count);
         Assert.True(plan.TotalPrice <= 1_000_000_000);
@@ -185,7 +185,7 @@ public class SquadBuilderTests
     [Fact]
     public void Value_mode_spends_less_than_strongest_for_nearly_the_same_ovr()
     {
-        var request = new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 };
+        var request = new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 };
         var strongest = Builder(Market()).Build(request)[0];
         var value = Builder(Market()).Build(request with { Mode = SquadMode.Value })[0];
 
@@ -200,6 +200,7 @@ public class SquadBuilderTests
         var mine = cards.First(c => c.Positions.ContainsKey("GK") && c.Ovr1 == 125);
         var plan = Builder(cards).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 200_000_000, SalaryCap = 11 * 25,
             Locked = new Dictionary<int, LockedCard> { [0] = new(mine.SpId, 8, Owned: true) },
         })[0];
@@ -217,7 +218,7 @@ public class SquadBuilderTests
         var plan = Builder(cards).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, Grades = [5, 8] })[0];
         Assert.All(plan.Slots, s => Assert.Contains(s.Grade, new[] { 5, 8 }));
 
-        var e = Assert.Throws<InvalidOperationException>(() => Builder(cards).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000 }));
+        var e = Assert.Throws<InvalidOperationException>(() => Builder(cards).Build(new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000 }));
         Assert.Contains("예산", e.Message);
     }
 
@@ -230,6 +231,7 @@ public class SquadBuilderTests
 
         var plan = Builder(cards).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(tc, members)],
         })[0];
 
@@ -247,6 +249,7 @@ public class SquadBuilderTests
 
         var plan = Builder(cards).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(tc, members)], OnlyAffiliationMembers = false,
         })[0];
 
@@ -256,6 +259,7 @@ public class SquadBuilderTests
         // By default a 소속 squad is members only: here only three slots have members, so it cannot be built.
         Assert.Throws<InvalidOperationException>(() => Builder(cards).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(tc, members)],
         }));
     }
@@ -300,7 +304,7 @@ public class SquadBuilderTests
     public void Excluded_cards_are_not_used_at_that_grade()
     {
         var cards = Market();
-        var request = new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 4_000_000_000 };
+        var request = new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 4_000_000_000 };
         var first = Builder(cards).Build(request)[0];
         var gk = first.Slots.Single(s => s.Position == "GK");
 
@@ -313,7 +317,7 @@ public class SquadBuilderTests
     public void Ranker_allocation_moves_the_money_to_the_strikers()
     {
         var cards = Market();
-        var request = new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000_000 };
+        var request = new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000_000 };
         var free = Builder(cards).Build(request)[0];
         // Rankers put 30% of the squad on each striker and little on the rest.
         var roles = new[] { "GK", "FB", "CB", "CDM", "CAM" }.ToDictionary(r => r, r => new RoleShare(r, 10, 0.03, 0.005, 0.05, 25, 20, 30, 130));
@@ -336,6 +340,7 @@ public class SquadBuilderTests
 
         var plan = Builder(cards).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 4_000_000_000, TeamColors = [new TeamColorTarget(tc, members)],
         })[0];
 
@@ -352,6 +357,7 @@ public class SquadBuilderTests
 
         var plan = Builder(cards).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = [new TeamColorTarget(feature, members)],
         })[0];
 
@@ -379,7 +385,7 @@ public class SquadBuilderTests
         // An old season of a striker: at +8 only OVR 125, almost free — the squad takes it only if nothing else fits.
         var junk = Card("ST", 110, 10_000);
         cards.Add(junk);
-        var plan = Builder(cards).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000_000, Mode = SquadMode.Value })[0];
+        var plan = Builder(cards).Build(new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 1_000_000_000, Mode = SquadMode.Value })[0];
         Assert.DoesNotContain(plan.Slots, s => s.Card.SpId == junk.SpId);
     }
 
@@ -392,6 +398,7 @@ public class SquadBuilderTests
         var usage = new RankerUsage([new RankerPick("GK", gk.SpId, gk.Name, 8, 140, 25, 50, 0.5)]);
         var plans = new SquadBuilder(cards, _ => null, usage).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000, RankerPicksOnly = true,
         });
         Assert.Equal(11, plans[0].Slots.Count); // too few ranker cards per slot: widened to all of them, not "no card"
@@ -407,6 +414,7 @@ public class SquadBuilderTests
         var squads = Enumerable.Range(1, 6).Select(i => new RankerSquad(i, $"r{i}", 0, [new RankerSquadPlayer(twin.SpId, 8, "ST")])).ToList();
         var plan = Builder(cards).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 700_000_000, Mode = SquadMode.Balanced,
             ColorUsage = new ColorCardUsage("테스트", squads),
         })[0];
@@ -422,6 +430,7 @@ public class SquadBuilderTests
         var feature = new TeamColor(40190, "테스트 트레블", TeamColorCategory.Feature, 5, [new(1, 5, 0, ["골 결정력 +2"])]);
         var plan = Builder(cards).Build(new SquadRequest
         {
+            Grades = [8],
             Formation = Formations.Find("4-2-2-2")!, Budget = 5_000_000_000, TeamColors = [new TeamColorTarget(feature, members)],
         })[0];
         Assert.True(plan.Slots.Count(s => members.Contains(s.Card.SpId)) >= 5);
@@ -435,12 +444,12 @@ public class SquadBuilderTests
         var cb = Card("CB", 128, 30_000_000);
         cb = cb with { Positions = new Dictionary<string, int> { ["CB"] = 128, ["CDM"] = 128 } };
         cards.Add(cb);
-        var plan = Builder(cards).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 })[0];
+        var plan = Builder(cards).Build(new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 })[0];
         Assert.DoesNotContain(plan.Slots, s => s.Card.SpId == cb.SpId && s.Position == "CDM");
 
         // Rankers field it at CDM: then it may go there.
         var usage = new RankerUsage([new RankerPick("CDM", cb.SpId, cb.Name, 8, 143, 25, 80, 0.4)]);
-        var withRankers = new SquadBuilder(cards, _ => null, usage).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 })[0];
+        var withRankers = new SquadBuilder(cards, _ => null, usage).Build(new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 })[0];
         Assert.Contains(withRankers.Slots, s => s.Card.SpId == cb.SpId);
     }
 
@@ -455,7 +464,7 @@ public class SquadBuilderTests
         var weak = Card("GK", 110, 1_000_000); // 125 at +8, nobody plays it
         cards.Add(weak);
         var usage = new RankerUsage([new RankerPick("GK", oldKeeper.SpId, oldKeeper.Name, 8, 112, 24, 300, 0.6)]);
-        var request = new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 };
+        var request = new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 2_000_000_000 };
         var offered = new SquadBuilder(cards, _ => null, usage).CandidatesAt(request, 0).Select(c => c.Card.SpId).ToHashSet();
         Assert.Contains(oldKeeper.SpId, offered);
         Assert.DoesNotContain(weak.SpId, offered);
@@ -478,7 +487,7 @@ public class SquadBuilderTests
         var korea = cards.Select(c => c.SpId).ToHashSet(); // the whole eleven is Korea
         var tc = new TeamColor(2019, "대한민국", TeamColorCategory.Affiliation, 11, [new(1, 3, 1, []), new(3, 8, 3, [])]);
         var targets = new[] { new TeamColorTarget(tc, korea) };
-        var plan = Builder(cards).Build(new SquadRequest { Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = targets })[0];
+        var plan = Builder(cards).Build(new SquadRequest { Grades = [8], Formation = Formations.Find("4-2-2-2")!, Budget = 400_000_000, TeamColors = targets })[0];
         var current = Advisors.WithTeamColors(plan.Slots.Select(x => x with { Owned = true }).ToList(), targets);
         // A far stronger striker from elsewhere: two swaps would still leave 9 Korea cards (level kept), but it is not Korea.
         var foreign = Card("ST", 135, 50_000_000);

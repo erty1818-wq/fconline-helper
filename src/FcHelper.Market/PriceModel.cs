@@ -2,6 +2,14 @@ namespace FcHelper.Market;
 
 public sealed record PriceEffect(string Name, double Percent, double Low, double High, double T, int? Cards);
 
+/// <summary>One held-out card, priced without training on it. Prices include the enhancement floor.</summary>
+public sealed record PriceValidationRow(MarketCard Card, int Grade, int Fold, long Expected)
+{
+    public double LogResidual => Math.Log(Card.PriceAt(Grade) / (double)Math.Max(Expected, 1));
+    public double Error => Math.Abs(Math.Exp(-LogResidual) - 1);
+    public bool AtFloor => PriceModel.AtFloor(Card, Grade);
+}
+
 public enum FactorKind { Stat, Height, Weight, Trait, Skill, Body, Foot, Salary, TeamColor, FeatureTeamColor }
 
 /// <summary>A separately priced team-colour membership. Affiliation and feature colours must not be merged.</summary>
@@ -78,19 +86,18 @@ public sealed class PriceModel
     /// </summary>
     public const double FitPlayerRidge = 0.05, TraitRidge = 2;
     /// <summary>
-    /// MV-09: a trait is worth little on an ordinary card and a lot on a top one (UC 스트라이커 at OVR 125: trait cards
-    /// 2.8–15.8억, 셰우첸코 without one 1억; WG 셰우첸코 at 119 costs the same with 크로스 포쳐 as NO7 without). So each
-    /// trait also gets a column that grows by 1 per +1 OVR above <see cref="TraitHinge"/> (+1 OVR). Against a straight
-    /// line over all OVRs the hinge priced the top strikers without a trait right (median −0.19 instead of −0.67 log)
-    /// without hurting the lower cards (5 card folds, +8, OVR 115+).
+    /// MV-10: the +11 five-card-fold audit moves the hinge from 118 to 115. At a +1 OVR 115 training cut, top
+    /// strikers without a trait move from −0.12 to +0.02 log residual, CF −0.22 to −0.09 and W −0.17 to −0.09,
+    /// with little change in overall error. The shape is a market association, not measured playing strength.
     /// </summary>
-    public const int TraitHinge = 118;
-    /// <summary>The card a trait's premium is shown for: +1 OVR 122 (+8 OVR 137), the playable top of the market.</summary>
+    public const int TraitHinge = 115;
+    /// <summary>The card a trait's premium is shown for: +1 OVR 122 (+11 OVR 143), the playable top of the market.</summary>
     public const int TraitTopOvr = 122;
     public const double TraitSlopeRidge = 5;
     /// <summary>
-    /// MV-09: traits shuffled among the cards of a season (fake traits) reach |t| 2.4–3.2 at the 95th percentile with
-    /// player-clustered errors, not 1.96, so a trait interval uses 3.0.
+    /// MV-10: 60 within-season fake-trait draws per +11 position/cut, with the 115 hinge, give pooled |t| 95th
+    /// percentiles at most 2.63 (old hinge: 3.11). Keep 3.0. Rare individual traits can still need wider intervals;
+    /// this empirical pointwise safeguard is neither simultaneous nor causal inference.
     /// </summary>
     public const double TraitCritical = 3.0;
 
@@ -125,6 +132,8 @@ public sealed class PriceModel
     private readonly PhysicalFeature[] _physical;
     private readonly string[] _tags;
     private readonly string[] _traitSlopes;
+    private readonly int? _traitHinge;
+    private readonly bool _linearTraits;
     private readonly long _medianPrice;
     private readonly MarketGroup _group;
     private readonly IReadOnlyDictionary<string, MarketMembership> _memberships;
@@ -168,8 +177,11 @@ public sealed class PriceModel
     /// <summary>Robust spread of holdout log-price errors; used to compare price gaps across position models.</summary>
     public double ValidationLogScale { get; }
 
-    private PriceModel(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships, bool validate = true)
+    private PriceModel(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships, bool validate = true,
+        int? traitHinge = TraitHinge, bool linearTraits = false)
     {
+        _traitHinge = traitHinge;
+        _linearTraits = linearTraits;
         _memberships = (memberships ?? []).ToDictionary(m => m.Key);
         Group = group;
         Grade = grade;
@@ -219,7 +231,7 @@ public sealed class PriceModel
             distinctMemberships.Add(membership.Key);
         }
         _tags = [.. ordinaryTags, .. distinctMemberships];
-        _traitSlopes = _tags.Where(t => t.StartsWith("trait:")).ToArray();
+        _traitSlopes = traitHinge is null && !linearTraits ? [] : _tags.Where(t => t.StartsWith("trait:")).ToArray();
         _ovrMean = data.Average(c => c.Ovr1);
 
         _names = ["const", "OVR +1", "OVR²", "양발 (약발 5)", "약발 4", "급여 +1",
@@ -265,16 +277,17 @@ public sealed class PriceModel
             _playerEffect[p.Key] = sum / (count + PlayerShrink);
             foreach (var (c, i) in p) _cardEffect[c.SpId] = (sum - residual[i]) / (count - 1 + PlayerShrink);
         }
-        (ValidationError, ValidationLogScale) = validate ? Validate(group, grade, data, memberships) : (double.NaN, double.NaN);
+        (ValidationError, ValidationLogScale) = validate ? Validate(group, grade, data, memberships, traitHinge, linearTraits) : (double.NaN, double.NaN);
     }
 
     /// <returns>Null when there are too few traded cards to fit.</returns>
     /// <remarks>Name-priced cards (<see cref="MarketGroups.PriceOutliers"/>) are left out of the fit; they are still priced by it.</remarks>
     /// <param name="memberships">Separate affiliation and feature team-colour memberships to price.</param>
-    public static PriceModel? Fit(string group, int grade, IEnumerable<MarketCard> cards, IReadOnlyList<MarketMembership>? memberships = null)
+    public static PriceModel? Fit(string group, int grade, IEnumerable<MarketCard> cards, IReadOnlyList<MarketMembership>? memberships = null, bool validate = true,
+        int? traitHinge = TraitHinge, bool linearTraits = false)
     {
         var data = cards.Where(c => c.Group == group && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
-        return data.Count < 60 || data.Select(c => c.PlayerId).Distinct().Count() < 10 ? null : new PriceModel(group, grade, data, memberships);
+        return data.Count < 60 || data.Select(c => c.PlayerId).Distinct().Count() < 10 ? null : new PriceModel(group, grade, data, memberships, validate, traitHinge, linearTraits);
     }
 
     private string Label(string tag) => _memberships.TryGetValue(tag, out var membership) ? membership.Name : MarketGroups.TagLabel(tag);
@@ -394,7 +407,7 @@ public sealed class PriceModel
             var slopeAt = Array.IndexOf(_traitSlopes, key);
             // A trait: its premium on a top card, the base plus the hinge's growth, with the pair's joint error.
             var weights = new Dictionary<int, double> { [i] = 1 };
-            if (slopeAt >= 0) weights[6 + _stats.Length + _physical.Length + _tags.Length + slopeAt] = TraitTopOvr - TraitHinge;
+            if (slopeAt >= 0) weights[6 + _stats.Length + _physical.Length + _tags.Length + slopeAt] = TraitMultiplier(TraitTopOvr);
             var b = weights.Sum(w => w.Value * _beta[w.Key]);
             var se = slopeAt >= 0 ? StandardError(weights) : _se[i];
             result.Add(new PriceFactor(key, name, kind, Pct(b), Pct(b - critical * se), Pct(b + critical * se),
@@ -453,23 +466,45 @@ public sealed class PriceModel
             x.Add(c.Stats.TryGetValue(s, out var v) ? v - c.Ovr1 : 0);
         foreach (var physical in _physical) x.Add(physical.Has(c) ? 1 : 0);
         foreach (var t in _tags) x.Add(Has(c, t) ? 1 : 0);
-        foreach (var t in _traitSlopes) x.Add(Has(c, t) ? Math.Max(0, c.Ovr1 - TraitHinge) : 0);
+        foreach (var t in _traitSlopes) x.Add(Has(c, t) ? TraitMultiplier(c.Ovr1) : 0);
         foreach (var s in _seasons) x.Add(c.Season == s ? 1 : 0);
         x.Add(c.Season != _baseSeason && !_seasons.Contains(c.Season) ? 1 : 0);
         return [.. x];
     }
 
     private static double Pct(double b) => (Math.Exp(b) - 1) * 100;
+    private double TraitMultiplier(int ovr) => _linearTraits ? ovr - 118 : Math.Max(0, ovr - (_traitHinge ?? TraitHinge));
     private static double Dot(double[] a, double[] b) { double s = 0; for (var i = 0; i < a.Length; i++) s += a[i] * b[i]; return s; }
 
-    private static (double Error, double LogScale) Validate(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships)
+    /// <summary>
+    /// Reproducible five-fold card audit. Each fold selects its own features and player effects from the other four;
+    /// neither the held-out price nor its censored latent value enters training. The UI's cheaper single holdout is
+    /// unchanged. Use the returned rows to compare the same OVR population, traits and non-floor cards (MV-10).
+    /// </summary>
+    public static IReadOnlyList<PriceValidationRow> CrossValidate(string group, int grade, IEnumerable<MarketCard> cards,
+        IReadOnlyList<MarketMembership>? memberships = null, int? traitHinge = TraitHinge, bool linearTraits = false)
+    {
+        var data = cards.Where(c => c.Group == group && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var result = new List<PriceValidationRow>();
+        for (var fold = 0; fold < 5; fold++)
+        {
+            var train = data.Where(c => Fold(c.SpId) != fold).ToList();
+            if (train.Count < 50 || train.Select(c => c.PlayerId).Distinct().Count() < 10) continue;
+            var model = new PriceModel(group, grade, train, memberships, validate: false, traitHinge: traitHinge, linearTraits: linearTraits);
+            result.AddRange(data.Where(c => Fold(c.SpId) == fold).Select(c => new PriceValidationRow(c, grade, fold, model.Expected(c))));
+        }
+        return result;
+    }
+
+    private static (double Error, double LogScale) Validate(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships,
+        int? traitHinge, bool linearTraits)
     {
         // Card folds (MV-09): a held-out card is priced like any card, with what the footballer's other cards say.
         var train = data.Where(c => Fold(c.SpId) != 0).ToList();
         var holdout = data.Where(c => Fold(c.SpId) == 0).ToList();
         if (train.Count < 50 || holdout.Count < 10 || train.Select(c => c.PlayerId).Distinct().Count() < 10) return (double.NaN, double.NaN);
         // Feature selection and reference buckets must also use training data only.
-        var model = new PriceModel(group, grade, train, memberships, validate: false);
+        var model = new PriceModel(group, grade, train, memberships, validate: false, traitHinge: traitHinge, linearTraits: linearTraits);
         // Against what the model shows: a floor price is only wrong by the part of the prediction above the floor.
         var residuals = holdout.Select(c => Math.Log(c.PriceAt(grade)) - Math.Log(Math.Max(model.Expected(c), 1))).ToList();
         var errors = residuals.Select(e => Math.Abs(Math.Exp(-e) - 1)).Order().ToList();
@@ -784,7 +819,7 @@ public sealed record CardFilter
     public long MinPrice { get; init; }
     public long MaxPrice { get; init; } = long.MaxValue;
     /// <summary>
-    /// Cards below this OVR are not playable at the top: e.g. 135 + 적응도 5 + 팀컬러·강화 팀컬러 8 = 148.
+    /// OVR at the chosen enhancement grade, before adaptability, team colours and training.
     /// </summary>
     public int? MinOvr { get; init; }
     public int? MaxOvr { get; init; }
@@ -841,7 +876,7 @@ public sealed record CardFilter
 public sealed record ValueQuery
 {
     public required string Group { get; init; }
-    public int Grade { get; init; } = 8;
+    public int Grade { get; init; } = MarketDefaults.Grade;
     public CardFilter Filter { get; init; } = new();
 }
 

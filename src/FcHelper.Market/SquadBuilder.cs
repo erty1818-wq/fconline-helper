@@ -20,7 +20,7 @@ public sealed record SquadRequest
     /// <summary>Squad salary cap (sum of the eleven starters' 급여).</summary>
     public int SalaryCap { get; init; } = int.MaxValue;
     /// <summary>Grades a card may be bought at; several = the optimiser also picks the grade.</summary>
-    public IReadOnlyList<int> Grades { get; init; } = [8];
+    public IReadOnlyList<int> Grades { get; init; } = [MarketDefaults.Grade];
     public SquadMode Mode { get; init; } = SquadMode.Strongest;
     /// <summary>Slots filled already: slot index → card and grade. Owned cards cost nothing.</summary>
     public IReadOnlyDictionary<int, LockedCard> Locked { get; init; } = new Dictionary<int, LockedCard>();
@@ -202,10 +202,9 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
         var placed = list.Where(c => c.Card.PlaysAsMain(position) || RankersPlayHere(c)).ToList();
         if (Enough(placed)) list = placed;
         // Cards too weak to be played at this level (e.g. an old cheap season of the right footballer) are left out
-        // while the slot keeps enough others: OVR 135 at the grade, 140 for keepers (the user's playable floor). Cards
+        // while the slot keeps enough others: +11 OVR 140 (the same +1 OVR population at other grades). Cards
         // rankers really field there stay (old-season keepers such as COC or HOT at high grades).
-        var floor = (Formations.Normalize(position) == "GK" ? PlayableGkOvr : PlayableOvr) - floorDrop;
-        var playable = list.Where(c => c.Ovr >= floor || RankersPlayHere(c)).ToList();
+        var playable = list.Where(c => c.Ovr >= MarketDefaults.MinOvr(c.Grade) - floorDrop || RankersPlayHere(c)).ToList();
         if (Enough(playable)) list = playable;
         if (r.RankerPicksOnly) list = RankerUsed(list, position, r);
         if (r.Allocation?.For(position) is { } share)
@@ -246,8 +245,8 @@ public sealed class SquadBuilder(IReadOnlyList<MarketCard> cards, Func<MarketCar
     /// <summary>Distinct footballers a slot keeps at least, so eleven different players under the salary cap stay possible.</summary>
     private const int MinPool = 6;
 
-    /// <summary>The lowest OVR at the bought grade a squad card is taken at (135 + 적응도 5 + team colours ≈ 148 in game).</summary>
-    public const int PlayableOvr = 135, PlayableGkOvr = 140;
+    /// <summary>The playable floor at the default +11 grade; other grades keep the same +1 OVR population.</summary>
+    public const int PlayableOvr = 140, PlayableGkOvr = 140;
 
     /// <summary>
     /// 랭커가 쓰는 카드만: the cards rankers field in this role (rankers of the chosen 소속 colour when known, else the

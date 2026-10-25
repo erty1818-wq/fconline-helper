@@ -103,7 +103,7 @@ public sealed class MarketService(
             if (kind == RefreshKind.Full) store.SetValue(SchemaKey, MarketGroups.SchemaVersion, Now);
             store.RecordPriceHistory(snapshot, Now);
             store.AddSeasons(newSeasons, Now);
-            lock (_models) { _models.Clear(); _cards.Clear(); }
+            lock (_models) { _models.Clear(); _playable.Clear(); _cards.Clear(); }
             return true;
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
@@ -172,8 +172,8 @@ public sealed class MarketService(
     private readonly Dictionary<(long, string, int, int), PriceModel?> _playable = [];
 
     /// <summary>
-    /// A model of the playable market only: cards at or above <paramref name="minOvr"/> at the grade (e.g. 130 when
-    /// searching 135+). Cheap low-OVR cards price stats and traits differently; null when too few cards.
+    /// A model of the playable market only: cards at or above <paramref name="minOvr"/> at the grade (e.g. +11 136
+    /// when searching 140+). Cheap low-OVR cards price stats and traits differently; null when too few cards.
     /// </summary>
     public PriceModel? ModelAbove(string group, int grade, int minOvr)
     {
@@ -181,7 +181,6 @@ public sealed class MarketService(
         if (snap is null) return null;
         lock (_models)
         {
-            if (_models.Count == 0) _playable.Clear(); // refit together with the full models
             var key = (snap.Id, group, grade, minOvr);
             if (!_playable.TryGetValue(key, out var model))
                 _playable[key] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group).Where(c => c.OvrAt(grade) >= minOvr), _memberships);
@@ -203,14 +202,14 @@ public sealed class MarketService(
     /// precision (inverse variance on the log scale), so a group with many such cards counts more. [추정: 시장 회귀]
     /// </summary>
     /// <param name="minOvr">Only the playable market (OVR at the grade), or null for all cards.</param>
-    public IReadOnlyList<TraitValue> TraitValues(int grade = 8, int? minOvr = null)
+    public IReadOnlyList<TraitValue> TraitValues(int grade = MarketDefaults.Grade, int? minOvr = null)
     {
         var result = new List<TraitValue>();
         if (store.LatestFinished() is not { } snapshot) return result;
         foreach (var (scope, groups) in TraitScopes)
         {
             var factors = groups
-                .Select(g => (Group: g, Model: minOvr is { } lo ? ModelAbove(g, grade, lo - PlayableMargin) : Model(g, grade)))
+                .Select(g => (Group: g, Model: minOvr is { } lo ? ModelFor(new ValueQuery { Group = g, Grade = grade, Filter = new() { MinOvr = lo } }) : Model(g, grade)))
                 .Where(x => x.Model is not null)
                 .SelectMany(x => x.Model!.Factors().Where(f => f.Kind == FactorKind.Trait).Select(f => (x.Group, Model: x.Model!, Factor: f)))
                 .ToList();
@@ -261,10 +260,11 @@ public sealed class MarketService(
     }
 
     /// <summary>
-    /// A search at OVR ≥ x is priced by the cards from x − 5 up: the top alone is too thin (+8 스트라이커 at 135+: 164 cards,
-    /// holdout error 69% against 38% from 130+). The price factors and trait averages use the same model.
+    /// A search at OVR ≥ x is priced by cards from x − 4 up (+11 140 search, 136 training = +1 OVR 115).
+    /// MV-10: five-card-fold errors on the same top-card population favour four points over five across positions.
+    /// The price factors and trait averages use the same model.
     /// </summary>
-    public const int PlayableMargin = 5;
+    public const int PlayableMargin = 4;
 
     /// <summary>The model a search uses: the playable market around its OVR floor, else the whole group.</summary>
     public PriceModel? ModelFor(ValueQuery q) =>

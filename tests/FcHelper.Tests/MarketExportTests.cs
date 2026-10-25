@@ -63,7 +63,7 @@ public class MarketExportTests
         Assert.Equal(2, series.Count);
         var s1 = series.Single(s => s.GetProperty("spId").GetInt64() == 100000001);
         Assert.Equal([100_000_000L, 110_000_000L, 120_000_000L], s1.GetProperty("p").GetProperty("8").EnumerateArray().Select(p => p.GetInt64()));
-        Assert.False(s1.GetProperty("p").TryGetProperty("11", out _)); // history keeps only MarketStore.HistoryGrades
+        Assert.Equal(3, s1.GetProperty("p").GetProperty("11").GetArrayLength()); // +11 is kept in daily history (MV-10)
 
         var colour = lines.Single(l => l.GetProperty("t").GetString() == "teamColor");
         Assert.Equal([100000001L], colour.GetProperty("members").EnumerateArray().Select(m => m.GetInt64()));

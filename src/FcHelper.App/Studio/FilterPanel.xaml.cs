@@ -19,7 +19,8 @@ public sealed record TeamColorFilterChoice(int Id, string Name)
 public partial class FilterPanel : UserControl
 {
     private const string Any = "상관없음";
-    private int _defaultMinOvr = 135;
+    private int _grade = MarketDefaults.Grade;
+    private int _defaultMinOvr = MarketDefaults.MinOvr();
     private Task? _teamColorsTask;
 
     public FilterPanel()
@@ -129,8 +130,17 @@ public partial class FilterPanel : UserControl
             box.ItemsSource = new[] { new Choice(Any, "") }.Concat(stats).ToList();
             box.SelectedIndex = 0;
         }
-        _defaultMinOvr = group?.Key == "GK" ? 140 : 135;
+        _defaultMinOvr = MarketDefaults.MinOvr(_grade);
         MinOvrBox.Text = _defaultMinOvr.ToString();
+    }
+
+    /// <summary>Follow the default OVR population when changing grade; preserve a manually entered OVR.</summary>
+    public void SetGrade(int grade)
+    {
+        var followDefault = MinOvrBox.Text == _defaultMinOvr.ToString();
+        _grade = grade;
+        _defaultMinOvr = MarketDefaults.MinOvr(grade);
+        if (followDefault) MinOvrBox.Text = _defaultMinOvr.ToString();
     }
 
     private Task EnsureTeamColorsAsync(SquadService? squads, Action<string>? status = null)

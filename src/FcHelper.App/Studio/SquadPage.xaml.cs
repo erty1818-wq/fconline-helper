@@ -50,7 +50,7 @@ public partial class SquadPage : UserControl
         FormationBox.SelectionChanged += async (_, _) => await OnFormationChangedAsync();
         foreach (var g in new[] { 5, 6, 7, 8, 9, 10, 11 })
         {
-            var chip = new ToggleButton { Content = $"+{g}", Tag = g, Style = (Style)FindResource("Chip"), IsChecked = g == 8 };
+            var chip = new ToggleButton { Content = $"+{g}", Tag = g, Style = (Style)FindResource("Chip"), IsChecked = g == MarketDefaults.Grade };
             _grades.Add(chip);
             GradeChips.Children.Add(chip);
         }
@@ -267,7 +267,7 @@ public partial class SquadPage : UserControl
     private (int, int) RankRange => RankBox.SelectedIndex switch { 1 => (1, 1000), 2 => (1, 100), _ => (1, 10000) };
     private Formation CurrentFormation => Formations.Find((string)FormationBox.SelectedItem)!;
     /// <summary>The grade new cards come in at: the first chosen grade chip.</summary>
-    private int DefaultGrade => _grades.FirstOrDefault(g => g.IsChecked == true)?.Tag as int? ?? 8;
+    private int DefaultGrade => _grades.FirstOrDefault(g => g.IsChecked == true)?.Tag as int? ?? MarketDefaults.Grade;
     private IReadOnlySet<int> UsedPlayers(int except = -1) =>
         _working.Where((s, i) => s is not null && i != except).Select(s => s!.Card.PlayerId).ToHashSet();
 

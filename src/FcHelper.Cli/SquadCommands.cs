@@ -9,7 +9,7 @@ using FcHelper.Services;
 /// <summary>Squad and market commands: they read the market data the app keeps fresh; only ranker stats and opponent lookups use the API key.</summary>
 internal static class SquadCommands
 {
-    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "valuation-audit", "market-refresh", "market-backfill", "allocation", "mteam", "mhoney"];
+    public static readonly string[] Names = ["squad", "picks", "grade", "salary", "movers", "formation", "teamcolor", "upgrade", "tailor", "value", "factors", "traits", "valuation-audit", "market-validate", "market-refresh", "market-backfill", "allocation", "mteam", "mhoney"];
 
     public static async Task<int> RunAsync(string command, List<string> positional, Func<string, string?> option, string? apiKey)
     {
@@ -19,6 +19,7 @@ internal static class SquadCommands
         var store = new MarketStore(dbPath);
         var lists = new DataCenterListClient(http, dataCenter);
         var market = new MarketService(lists, store, _ => Task.FromResult("[]"));
+        if (Flag(option("offline"))) market.SetValueMemberships(CachedMemberships(store));
         FcOnlineApi? api = string.IsNullOrWhiteSpace(apiKey) ? null : new FcOnlineApi(http, apiKey, new RateLimiter(5));
         var squads = new SquadService(market, store, new DataCenterChartClient(http, dataCenter),
             new TeamColorCache(store, new DataCenterTeamColorClient(http, dataCenter, lists)), api,
@@ -40,11 +41,12 @@ internal static class SquadCommands
         {
             switch (command)
             {
+                case "market-validate": return await ValidateMarket(store, option);
                 case "squad": return await Squad(squads, option, rankFrom, rankTo);
                 case "value": return await Value(squads, option);
                 case "mhoney":
-                    var honey = await squads.ManagerHoneyAsync(option("pos") ?? "ST", Int(option("grade"), 8), Price(option("min"), 0), Price(option("max"), long.MaxValue),
-                        Int(option("minovr"), 135), Int(option("matches"), 20));
+                    var honey = await squads.ManagerHoneyAsync(option("pos") ?? "ST", Int(option("grade"), MarketDefaults.Grade), Price(option("min"), 0), Price(option("max"), long.MaxValue),
+                        Int(option("minovr"), MarketDefaults.MinOvr(Int(option("grade"), MarketDefaults.Grade))), Int(option("matches"), 20));
                     foreach (var h in honey.Take(Int(option("top"), 15)))
                         Console.WriteLine($"  {(h.IsHoney ? "🐝" : "  ")} {h.Card.Name,-10} {h.Card.Season,-8} OVR {h.Ovr} · {Bp.Format(h.Price),7} · {h.Stats.MatchCount}경기 골 {h.Stats.Goal:0.00} 도움 {h.Stats.Assist:0.00} · 활약 {h.Score:0.0} (가격대 {h.Expected:0.0}) · {h.Ratio:0.00}배");
                     Console.WriteLine($"{honey.Count}장 · 감독모드 ranker-stats [계산]");
@@ -106,9 +108,9 @@ internal static class SquadCommands
                     Console.WriteLine($"완료: {after.Current?.FinishedAt?.ToLocalTime():yyyy-MM-dd HH:mm} 기준 · {after.Cards:N0}장 · 일별 시세 {store.PriceHistoryDays().Count}일");
                     return 0;
                 case "valuation-audit":
-                    await squads.RankerTeamColorMembersAsync();
-                    var auditGrade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
-                    int? auditFloor = option("minovr") is { } af ? Int(af, 135) : null;
+                    if (!Flag(option("offline"))) await squads.RankerTeamColorMembersAsync();
+                    var auditGrade = Math.Clamp(Int(option("grade"), MarketDefaults.Grade), 1, Grades.MaxTradable);
+                    int? auditFloor = option("minovr") is { } af ? Int(af, MarketDefaults.MinOvr(auditGrade)) : null;
                     var report = new
                     {
                         Snapshot = store.LatestFinished(),
@@ -126,9 +128,9 @@ internal static class SquadCommands
                     else Console.WriteLine(json);
                     return 0;
                 case "traits":
-                    await squads.RankerTeamColorMembersAsync();
-                    var tgrade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
-                    foreach (var minOvr in new int?[] { null, option("minovr") is { } mo ? Int(mo, 135) : 135 })
+                    if (!Flag(option("offline"))) await squads.RankerTeamColorMembersAsync();
+                    var tgrade = Math.Clamp(Int(option("grade"), MarketDefaults.Grade), 1, Grades.MaxTradable);
+                    foreach (var minOvr in new int?[] { null, option("minovr") is { } mo ? Int(mo, MarketDefaults.MinOvr(tgrade)) : MarketDefaults.MinOvr(tgrade) })
                     {
                         Console.WriteLine($"\n■ 신특 평균 값어치 · +{tgrade} · {(minOvr is { } m ? $"OVR {m}+ 카드만" : "전체 카드")} [추정]");
                         foreach (var t in squads.Market.TraitValues(tgrade, minOvr))
@@ -138,19 +140,19 @@ internal static class SquadCommands
                     }
                     return 0;
                 case "picks":
-                    foreach (var h in (await squads.HiddenRankerPicksAsync(option("pos"), await Filter(squads, option, 0),
-                                 Int(option("users"), 10), rankFrom, rankTo)).Take(Int(option("top"), 15)))
+                    foreach (var h in (await squads.HiddenRankerPicksAsync(option("pos"), await Filter(squads, option, MarketDefaults.MinOvr(Math.Clamp(Int(option("grade"), MarketDefaults.Grade), 1, Grades.MaxTradable))),
+                                 Int(option("users"), 10), rankFrom, rankTo, grade: Math.Clamp(Int(option("grade"), MarketDefaults.Grade), 1, Grades.MaxTradable))).Take(Int(option("top"), 15)))
                         Console.WriteLine($"{h.Position,-4} {h.Card.Name,-10} {h.Card.Season,-8} +{h.Grade,-2} OVR {h.Ovr} · 랭커 {h.Users}명({h.Share:P1}) · 시세 {Bp.Format(h.Price),7} · 예상 {Bp.Format(h.Expected),7} · {h.Discount:+0%;-0%} · 중앙오차 {PriceEvidence.ErrorLabel(h.ModelError)} · {PriceEvidence.Label(h.EvidenceScore)}");
                     Console.WriteLine("랭커 사용 = 데일리 차트(전날 공식경기). 예상가 = 같은 스펙 카드의 오늘 시세 [추정].");
                     return 0;
                 case "grade": return Grade(squads, option);
                 case "salary":
-                    foreach (var s in squads.SalaryEfficiency(option("pos") ?? "ST", Int(option("grade"), 8), Price(option("min"), 0), Price(option("max"), long.MaxValue),
+                    foreach (var s in squads.SalaryEfficiency(option("pos") ?? "ST", Int(option("grade"), MarketDefaults.Grade), Price(option("min"), 0), Price(option("max"), long.MaxValue),
                                  Int(option("minovr"), 0)).Take(Int(option("top"), 15)))
                         Console.WriteLine($"{s.Card.Name,-10} {s.Card.Season,-8} OVR {s.Ovr} (환산 {s.EffectiveOvr:0.0}) · 급여 {s.Pay} · 급여당 {s.OvrPerPay:0.00} · 시세 {Bp.Format(s.Price)}");
                     return 0;
                 case "movers":
-                    var moves = squads.PriceMoves(Int(option("grade"), 8), Int(option("days"), 7), Price(option("min"), 10_000_000));
+                    var moves = squads.PriceMoves(Int(option("grade"), MarketDefaults.Grade), Int(option("days"), 7), Price(option("min"), 10_000_000));
                     if (moves.Count == 0) Console.WriteLine("비교할 과거 시세가 아직 없습니다. 하루 이상 자동 갱신이 쌓이면 보입니다.");
                     foreach (var m in moves.Take(10).Concat(moves.TakeLast(5)))
                         Console.WriteLine($"{m.Card.Name,-10} {m.Card.Season,-8} +{m.Grade} {Bp.Format(m.Before),7} → {Bp.Format(m.Now),7} ({m.Change:+0%;-0%}, {m.Since:M/d} 대비) · 스펙 대비 {m.Discount:+0%;-0%}");
@@ -189,7 +191,7 @@ internal static class SquadCommands
             Formation = formation,
             Budget = Price(option("budget"), long.MaxValue),
             SalaryCap = cap,
-            Grades = (option("grades") ?? "8").Split(',').Select(g => Int(g, 8)).ToList(),
+            Grades = (option("grades") ?? MarketDefaults.Grade.ToString(CultureInfo.InvariantCulture)).Split(',').Select(g => Int(g, MarketDefaults.Grade)).ToList(),
             TeamColors = targets,
             Allocation = option("alloc") is "no" or "0" ? null : await squads.RankerAllocationAsync(),
             RankerPicksOnly = option("ranker-only") is "yes" or "y" or "1",
@@ -223,11 +225,126 @@ internal static class SquadCommands
         return Formations.GroupOf(Formations.Normalize(key));
     }
 
+    /// <summary>Match the app's saved top affiliation colours without refreshing any network cache.</summary>
+    private static IReadOnlyList<MarketMembership> CachedMemberships(MarketStore store)
+    {
+        var catalog = store.LoadTeamColors();
+        var chart = store.LatestChart(1, 10000)?.Chart;
+        if (chart is null) return [];
+        var colors = chart.TeamColors.Select(u => catalog.FirstOrDefault(c => c.Category == TeamColorCategory.Affiliation
+            && (u.Id > 0 ? c.Id == u.Id : c.Name == u.Name))).Where(c => c is not null).Take(SquadService.RankerTeamColors);
+        return colors.Select(c => new MarketMembership($"tc:aff:{c!.Id}", $"소속 팀컬러: {c.Name}", FactorKind.TeamColor,
+            store.LoadTeamColorMembers(c.Id))).ToList();
+    }
+
+    private static async Task<int> ValidateMarket(MarketStore store, Func<string, string?> option)
+    {
+        var snapshot = store.LatestFinished()!;
+        var cards = store.LoadCards(snapshot.Id);
+        var memberships = option("tc") is "no" or "0" ? [] : CachedMemberships(store);
+        var groups = (option("positions") ?? "ST,CF,W,CAM,CM,CDM,FB,CB,GK").Split(',');
+        var grades = (option("grades") ?? "8,10,11").Split(',').Select(g => Math.Clamp(Int(g, 11), 1, Grades.MaxTradable));
+        var cuts = (option("cuts") ?? "110,115,120").Split(',').Select(c => Int(c, 115)).ToList();
+        var auditHinge = Int(option("hinge"), PriceModel.TraitHinge);
+        var reports = new List<object>();
+        object Summarize(IEnumerable<PriceValidationRow> input)
+        {
+            var rows = input.ToList();
+            double? Median(IEnumerable<double> inputValues)
+            {
+                var sorted = inputValues.Order().ToArray();
+                return sorted.Length == 0 ? null : (sorted[(sorted.Length - 1) / 2] + sorted[sorted.Length / 2]) / 2;
+            }
+            return new { Cards = rows.Count, MedianError = Median(rows.Select(r => r.Error)),
+                MedianLogActualExpected = Median(rows.Select(r => r.LogResidual)) };
+        }
+        foreach (var group in groups)
+        foreach (var grade in grades)
+        foreach (var cut in cuts)
+        {
+            var data = cards.Where(c => c.Group == group && c.Ovr1 >= cut).ToList();
+            var model = PriceModel.Fit(group, grade, data, memberships, traitHinge: auditHinge);
+            if (model is null) continue;
+            var rows = PriceModel.CrossValidate(group, grade, data, memberships, traitHinge: auditHinge);
+            var top = rows.Where(r => r.Card.Ovr1 >= 120 && !r.AtFloor).ToList();
+            var focus = new[] { "크로스 포쳐", "라인 브레이커", "트릭스터", "스피드스터" };
+            object Split(IEnumerable<PriceValidationRow> input)
+            {
+                var free = input.Where(r => r.Card.Ovr1 >= 120 && !r.AtFloor).ToList();
+                return new { All = Summarize(input),
+                    TopWithTrait = Summarize(free.Where(r => r.Card.Tags.Any(t => t.StartsWith("trait:")))),
+                    TopWithoutTrait = Summarize(free.Where(r => !r.Card.Tags.Any(t => t.StartsWith("trait:")))) };
+            }
+            var shapes = new Dictionary<string, object>();
+            if (Flag(option("shapes")))
+            {
+                foreach (var (name, hinge, linear) in new (string, int?, bool)[] {
+                    ("constant", null, false), ("linear", null, true), ("hinge115", 115, false),
+                    ("hinge118", 118, false), ("hinge120", 120, false), ("hinge122", 122, false) })
+                    shapes[name] = Split(PriceModel.CrossValidate(group, grade, data, memberships, hinge, linear));
+            }
+            var placebo = new Dictionary<string, object>();
+            if (option("draws") is { } drawsText)
+            {
+                var draws = Math.Max(40, Int(drawsText, 60));
+                var seed = 20261026 + grade * 1000 + cut * 10 + Array.IndexOf(groups, group);
+                var random = new Random(seed);
+                var nullT = new Dictionary<string, List<double>>();
+                var eligible = data.Where(c => c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+                for (var draw = 0; draw < draws; draw++)
+                {
+                    var shuffled = new List<MarketCard>();
+                    foreach (var season in eligible.GroupBy(c => c.Season))
+                    {
+                        var source = season.ToArray();
+                        var bundles = source.Select(c => c.Tags.Where(t => t.StartsWith("trait:")).ToArray()).ToArray();
+                        random.Shuffle(bundles);
+                        shuffled.AddRange(source.Select((c, i) => c with { Tags = c.Tags.Where(t => !t.StartsWith("trait:")).Concat(bundles[i]).ToHashSet() }));
+                    }
+                    var fake = PriceModel.Fit(group, grade, shuffled, memberships, validate: false, traitHinge: auditHinge)!;
+                    foreach (var f in fake.Factors().Where(f => f.Kind == FactorKind.Trait && f.Estimated))
+                    {
+                        var b = Math.Log(1 + f.Percent / 100);
+                        var se = (Math.Log(1 + f.High / 100) - Math.Log(1 + f.Low / 100)) / (2 * f.Critical);
+                        if (se <= 1e-10 || !double.IsFinite(se)) continue;
+                        if (!nullT.TryGetValue(f.Name, out var values)) nullT[f.Name] = values = [];
+                        values.Add(Math.Abs(b / se));
+                    }
+                }
+                object NullSummary(IEnumerable<double> values)
+                {
+                    var v = values.Order().ToArray();
+                    var index = .95 * (v.Length - 1);
+                    var p95 = v[(int)index] + (v[(int)Math.Ceiling(index)] - v[(int)index]) * (index - (int)index);
+                    return new { Draws = draws, Seed = seed, Tests = v.Length, AbsT95 = p95,
+                        FalsePositive196 = v.Count(t => t > 1.96) / (double)v.Length, FalsePositive3 = v.Count(t => t > 3) / (double)v.Length };
+                }
+                foreach (var (trait, values) in nullT) placebo[trait] = NullSummary(values);
+                if (nullT.Count > 0) placebo["pooled"] = NullSummary(nullT.Values.SelectMany(v => v));
+            }
+            reports.Add(new { Group = group, Grade = grade, MinOvr1 = cut, model.Cards, model.Players, model.FloorCards,
+                ValidatedCards = rows.Count, CompleteValidation = rows.Count == model.Cards, FoldCount = rows.Select(r => r.Fold).Distinct().Count(),
+                SingleHoldoutError = model.ValidationError, All = Summarize(rows),
+                Playable = Summarize(rows.Where(r => r.Card.Ovr1 >= MarketDefaults.MinOvr1)),
+                TopWithTrait = Summarize(top.Where(r => r.Card.Tags.Any(t => t.StartsWith("trait:")))),
+                TopWithoutTrait = Summarize(top.Where(r => !r.Card.Tags.Any(t => t.StartsWith("trait:")))),
+                TopByTrait = focus.ToDictionary(t => t, t => Summarize(top.Where(r => r.Card.Tags.Contains($"trait:{t}")))),
+                Factors = model.Factors().Where(f => f.Kind == FactorKind.Trait), Shapes = shapes, Placebo = placebo });
+            Console.Error.WriteLine($"{group} +{grade} · +1 OVR {cut}+ · {rows.Count}장 5묶음 검증 완료");
+        }
+        var report = new { Snapshot = snapshot, Memberships = memberships.Select(m => m.Key),
+            TraitHinge = auditHinge, PriceModel.TraitTopOvr, PriceModel.TraitCritical, MarketService.PlayableMargin, Models = reports };
+        var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });
+        if (option("out") is { } output) await File.WriteAllTextAsync(output, json);
+        else Console.WriteLine(json);
+        return 0;
+    }
+
     private static async Task<int> Value(SquadService squads, Func<string, string?> option)
     {
         var group = MarketGroups.Get(GroupKey(option));
-        var grade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
-        var filter = await Filter(squads, option, group.Key == "GK" ? 140 : 135);
+        var grade = Math.Clamp(Int(option("grade"), MarketDefaults.Grade), 1, Grades.MaxTradable);
+        var filter = await Filter(squads, option, MarketDefaults.MinOvr(grade));
         if (squads.Market.ModelFor(new ValueQuery { Group = group.Key, Grade = grade, Filter = filter }) is not { } model) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
         var picks = squads.Market.FindValue(new ValueQuery { Group = group.Key, Grade = grade, Filter = filter });
         Console.WriteLine($"{group.Name} +{grade} · {picks.Count}장 · OVR {filter.MinOvr}+{(filter.Members is null ? "" : " · 랭커 팀컬러 20")} · R² {model.R2:0.00} (카드 {model.Cards}장)");
@@ -245,11 +362,11 @@ internal static class SquadCommands
     private static async Task<int> Factors(SquadService squads, Func<string, string?> option)
     {
         var group = MarketGroups.Get(GroupKey(option));
-        var grade = Math.Clamp(Int(option("grade"), 8), 1, Grades.MaxTradable);
+        var grade = Math.Clamp(Int(option("grade"), MarketDefaults.Grade), 1, Grades.MaxTradable);
         // Membership of the rankers' 20 team colours is priced too (members fetched once a week).
-        if (option("tc") is not ("no" or "0")) await squads.RankerTeamColorMembersAsync();
-        // --minovr 135: only the playable market (OVR at the grade), where the video's rules are about.
-        var minOvr = option("minovr") is { } m ? Int(m, 0) : 0;
+        if (!Flag(option("offline")) && option("tc") is not ("no" or "0")) await squads.RankerTeamColorMembersAsync();
+        // --minovr is the training OVR at this grade; default matches the value finder's playable model.
+        var minOvr = option("minovr") is { } m ? Int(m, 0) : MarketDefaults.MinOvr(grade) - MarketService.PlayableMargin;
         var model = minOvr > 0 ? squads.Market.ModelAbove(group.Key, grade, minOvr) : squads.Market.Model(group.Key, grade);
         if (model is null) { Console.Error.WriteLine("이 포지션·강화의 시세 데이터가 부족합니다."); return 3; }
         Console.WriteLine($"{group.Name} +{grade}{(minOvr > 0 ? $" · OVR {minOvr}+" : "")} · 카드 {model.Cards}장 · 선수 {model.Players}명 (호날두·호나우두·굴리트 제외) · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00}"
@@ -363,7 +480,7 @@ internal static class SquadCommands
         if (formation is not null && await squads.FormationAdviceAsync(formation) is { Best.Count: > 0 } adv)
             Console.WriteLine("  랭커 전적상 유리한 포메이션: " + string.Join(", ", adv.Best.Select(m => $"{m.Formation} ({m.WinRate:P0}, {m.Games}경기)")));
         if (needs.Count == 0) { Console.WriteLine("뚜렷한 맞춤 포인트가 없습니다."); return 0; }
-        foreach (var g in squads.Tailored(needs, Int(option("grade"), 8), Price(option("max"), long.MaxValue), 4).GroupBy(t => t.Need))
+        foreach (var g in squads.Tailored(needs, Int(option("grade"), MarketDefaults.Grade), Price(option("max"), long.MaxValue), 4).GroupBy(t => t.Need))
         {
             Console.WriteLine($"\n{g.First().Reason}");
             foreach (var t in g) Console.WriteLine($"  {t.Position,-4} {t.Card.Name,-10} {t.Card.Season,-8} +{t.Grade} OVR {t.Ovr} · {Bp.Format(t.Price)} · {string.Join(" ", t.Card.Tags.Select(MarketGroups.TagLabel))}");

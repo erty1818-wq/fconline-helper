@@ -11,7 +11,7 @@
             <StackPanel Margin="0,0,14,6">
                 <TextBlock Text="OVR (강화 반영)" Style="{StaticResource FieldLabel}" />
                 <StackPanel Orientation="Horizontal">
-                    <TextBox x:Name="MinOvrBox" Width="55" ToolTip="이보다 낮은 카드는 뺍니다. 기본 135 = 적응도 +5, 팀컬러·강화 팀컬러 +8을 받아 148" />
+                    <TextBox x:Name="MinOvrBox" Width="55" ToolTip="선택한 강화의 OVR입니다. 기본 +11 OVR 140 = +1 OVR 119. +10으로 바꾸면 같은 카드 범위인 OVR 138을 씁니다. 직접 입력한 값은 유지합니다." />
                     <TextBlock Text="~" Margin="5,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
                     <TextBox x:Name="MaxOvrBox" Width="55" />
                 </StackPanel>

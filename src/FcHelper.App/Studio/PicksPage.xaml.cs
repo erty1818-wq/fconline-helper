@@ -9,12 +9,19 @@ public partial class PicksPage : UserControl
     public PicksPage()
     {
         InitializeComponent();
+        GradeBox.ItemsSource = Grades.Tradable.Select(g => $"+{g}").ToList();
+        GradeBox.SelectedIndex = MarketDefaults.Grade - 1;
         PositionBox.ItemsSource = new[] { "전체" }.Concat(StudioKit.RatedPositions).ToList();
         PositionBox.SelectedIndex = 0;
     }
 
     private void OnPositionChanged(object sender, SelectionChangedEventArgs e) =>
         Filters.SetGroup(PositionBox.SelectedIndex > 0 ? MarketGroups.Get(Formations.GroupOf(Formations.Normalize((string)PositionBox.SelectedItem))) : null);
+
+    private void OnGradeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (GradeBox.SelectedIndex >= 0) Filters.SetGrade(GradeBox.SelectedIndex + 1);
+    }
 
     private async void OnFind(object sender, RoutedEventArgs e)
     {
@@ -24,7 +31,7 @@ public partial class PicksPage : UserControl
             if (await Filters.BuildAsync(squads, 0, s => Status.Text = s) is not { } filter) return;
             Status.Text = "찾는 중… (처음에는 랭커 데이터를 받느라 1분쯤 걸립니다)";
             var position = PositionBox.SelectedIndex > 0 ? (string)PositionBox.SelectedItem : null;
-            var found = await squads.HiddenRankerPicksAsync(position, filter, StudioKit.IntOr(UsersBox, 10));
+            var found = await squads.HiddenRankerPicksAsync(position, filter, StudioKit.IntOr(UsersBox, 10), grade: GradeBox.SelectedIndex + 1);
             var bad = await squads.IlliquidAsync(found.Take(30).Select(p => (p.Card.SpId, p.Grade)), new Progress<string>(m => Status.Text = $"상위 30장 {m}"));
             var picks = found.Where(p => !bad.Contains((p.Card.SpId, p.Grade))).ToList();
             Results.ItemsSource = picks.Take(300).Select(p => new PickRow(p.Position, p.Card.Name, p.Card.Season, $"+{p.Grade}", p.Ovr, p.Users,
