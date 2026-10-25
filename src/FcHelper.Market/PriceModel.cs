@@ -17,8 +17,13 @@ public sealed record PriceFactor(string Key, string Name, FactorKind Kind, doubl
     public int? Players { get; init; }
     /// <summary>Traits: footballers with a card with it and one without, the comparisons the premium is measured on (MV-09).</summary>
     public int? Comparisons { get; init; }
-    /// <summary>Traits: how much the premium grows per OVR above the model's average card, in log points (0.09 ≈ +9%p).</summary>
+    /// <summary>Traits: how much the premium grows per OVR above <see cref="PriceModel.TraitHinge"/>, in log points (0.09 ≈ +9%p).</summary>
     public double PerOvr { get; init; } = double.NaN;
+    /// <summary>
+    /// Traits: the premium on a card at or under <see cref="PriceModel.TraitHinge"/>. <see cref="Percent"/>, the interval and
+    /// the verdict of a trait are for a top card (<see cref="PriceModel.TraitTopOvr"/>), where traits are bought.
+    /// </summary>
+    public double PercentBelowHinge { get; init; } = double.NaN;
     /// <summary>The t value behind <see cref="Low"/> and <see cref="High"/>.</summary>
     public double Critical { get; init; } = 1.96;
     /// <summary>Why the factor is left out of the price model; null when priced.</summary>
@@ -73,9 +78,15 @@ public sealed class PriceModel
     /// </summary>
     public const double FitPlayerRidge = 0.05, TraitRidge = 2;
     /// <summary>
-    /// MV-09: attack traits are worth more on better cards (스트라이커 라인 브레이커 +33% at OVR 118, +106% at 122), so each
-    /// trait also gets a trait × OVR column, ridged like the trait itself over a ±5 OVR spread (2 × 25).
+    /// MV-09: a trait is worth little on an ordinary card and a lot on a top one (UC 스트라이커 at OVR 125: trait cards
+    /// 2.8–15.8억, 셰우첸코 without one 1억; WG 셰우첸코 at 119 costs the same with 크로스 포쳐 as NO7 without). So each
+    /// trait also gets a column that grows by 1 per +1 OVR above <see cref="TraitHinge"/> (+1 OVR). Against a straight
+    /// line over all OVRs the hinge priced the top strikers without a trait right (median −0.19 instead of −0.67 log)
+    /// without hurting the lower cards (5 card folds, +8, OVR 115+).
     /// </summary>
+    public const int TraitHinge = 118;
+    /// <summary>The card a trait's premium is shown for: +1 OVR 122 (+8 OVR 137), the playable top of the market.</summary>
+    public const int TraitTopOvr = 122;
     public const double TraitSlopeRidge = 5;
     /// <summary>
     /// MV-09: traits shuffled among the cards of a season (fake traits) reach |t| 2.4–3.2 at the 95th percentile with
@@ -125,6 +136,9 @@ public sealed class PriceModel
     private readonly double _ovrMean;
     private readonly double[] _beta;
     private readonly double[] _se;
+    // Per footballer, his cards' pull on the coefficients (clustered): any combination's variance is Σ (a·row)².
+    private readonly double[][] _influence;
+    private readonly long _topMedianPrice;
     private readonly string[] _names;
     private readonly Dictionary<string, int> _counts;
     private readonly Dictionary<string, int> _playerCounts;
@@ -167,6 +181,8 @@ public sealed class PriceModel
         _physical = PhysicalFeatures(data, g);
         var prices = data.Select(c => c.PriceAt(grade)).Order().ToList();
         _medianPrice = prices[prices.Count / 2];
+        var topPrices = data.Where(c => c.Ovr1 >= TraitTopOvr).Select(c => c.PriceAt(grade)).Order().ToList();
+        _topMedianPrice = topPrices.Count >= 5 ? topPrices[topPrices.Count / 2] : _medianPrice;
         var seasonCounts = data.GroupBy(c => c.Season).ToDictionary(x => x.Key, x => x.Count());
         _baseSeason = seasonCounts.MaxBy(kv => kv.Value).Key;
         _seasons = seasonCounts.Where(kv => kv.Value >= MinSeasonCards && kv.Key != _baseSeason).Select(kv => kv.Key).Order().ToArray();
@@ -209,7 +225,7 @@ public sealed class PriceModel
         _names = ["const", "OVR +1", "OVR²", "양발 (약발 5)", "약발 4", "급여 +1",
             .. _stats.Select(s => $"{MarketGroups.StatNames.GetValueOrDefault(s, s)} +1 (같은 OVR)"),
             .. _physical.Select(p => p.Name),
-            .. _tags.Select(Label), .. _traitSlopes.Select(t => $"{Label(t)} × OVR +1"), .. _seasons.Select(s => $"season:{s}"), "season:기타"];
+            .. _tags.Select(Label), .. _traitSlopes.Select(t => $"{Label(t)} × OVR {TraitHinge} 위 +1"), .. _seasons.Select(s => $"season:{s}"), "season:기타"];
         _counts = tagCounts.ToDictionary(kv => Label(kv.Key), kv => kv.Value);
         _playerCounts = tagPlayers.ToDictionary(kv => Label(kv.Key), kv => kv.Value);
         foreach (var p in _physical) _counts[p.Name] = p.Cards;
@@ -235,7 +251,7 @@ public sealed class PriceModel
         var several = data.GroupBy(c => c.PlayerId).Where(p => p.Count() >= 2).Select((p, i) => (p.Key, i)).ToDictionary(p => p.Key, p => p.i);
         var effects = data.Select(c => several.TryGetValue(c.PlayerId, out var e) ? e : -1).ToList();
         double[] completed;
-        (_beta, _se, R2, Sigma, completed) = RidgeTobit(x, y, data.Select(c => c.PlayerId).ToList(), controls, censored, rawPenalty: rawPenalty, effects: effects, effectRidge: FitPlayerRidge);
+        (_beta, _se, R2, Sigma, completed, _influence) = RidgeTobit(x, y, data.Select(c => c.PlayerId).ToList(), controls, censored, rawPenalty: rawPenalty, effects: effects, effectRidge: FitPlayerRidge);
         // Leave-one-out: a card's own price must not vouch for itself, or a cheap card would look less cheap.
         var residual = data.Select((c, i) => completed[i] - Dot(_beta, x[i])).ToList();
         var footballers = data.Select((c, i) => (c, i)).GroupBy(t => t.c.PlayerId).ToList();
@@ -376,12 +392,18 @@ public sealed class PriceModel
             var name = _names[i];
             var critical = CriticalOf(i);
             var slopeAt = Array.IndexOf(_traitSlopes, key);
-            result.Add(new PriceFactor(key, name, kind, Pct(_beta[i]), Pct(_beta[i] - critical * _se[i]), Pct(_beta[i] + critical * _se[i]),
-                slope > 0.01 ? _beta[i] / slope : 0, (long)(_medianPrice * (Math.Exp(_beta[i]) - 1)),
+            // A trait: its premium on a top card, the base plus the hinge's growth, with the pair's joint error.
+            var weights = new Dictionary<int, double> { [i] = 1 };
+            if (slopeAt >= 0) weights[6 + _stats.Length + _physical.Length + _tags.Length + slopeAt] = TraitTopOvr - TraitHinge;
+            var b = weights.Sum(w => w.Value * _beta[w.Key]);
+            var se = slopeAt >= 0 ? StandardError(weights) : _se[i];
+            result.Add(new PriceFactor(key, name, kind, Pct(b), Pct(b - critical * se), Pct(b + critical * se),
+                slope > 0.01 ? b / slope : 0, (long)((slopeAt >= 0 ? _topMedianPrice : _medianPrice) * (Math.Exp(b) - 1)),
                 _counts.TryGetValue(name, out var n) ? n : null, isCore, inflating)
                 { Players = _playerCounts.GetValueOrDefault(name, Players), Critical = critical,
                   Comparisons = _comparisons.TryGetValue(name, out var compared) ? compared : null,
-                  PerOvr = slopeAt >= 0 ? _beta[6 + _stats.Length + _physical.Length + _tags.Length + slopeAt] : double.NaN });
+                  PerOvr = slopeAt >= 0 ? _beta[6 + _stats.Length + _physical.Length + _tags.Length + slopeAt] : double.NaN,
+                  PercentBelowHinge = slopeAt >= 0 ? Pct(_beta[i]) : double.NaN });
         }
         Add(3, "foot:5", FactorKind.Foot, true);
         Add(4, "foot:4", FactorKind.Foot, false);
@@ -399,6 +421,17 @@ public sealed class PriceModel
         result.AddRange(_unpriced.Select(f => new PriceFactor(f.Key, f.Name, f.Kind, double.NaN, double.NaN, double.NaN, 0, 0,
             f.Cards, f.IsCore, false) { Players = f.Players, Excluded = f.Excluded }));
         return result;
+    }
+
+    private double StandardError(IReadOnlyDictionary<int, double> weights)
+    {
+        double variance = 0;
+        foreach (var row in _influence)
+        {
+            var s = weights.Sum(w => w.Value * row[w.Key]);
+            variance += s * s;
+        }
+        return Math.Sqrt(variance);
     }
 
     private double CriticalOf(int i)
@@ -420,7 +453,7 @@ public sealed class PriceModel
             x.Add(c.Stats.TryGetValue(s, out var v) ? v - c.Ovr1 : 0);
         foreach (var physical in _physical) x.Add(physical.Has(c) ? 1 : 0);
         foreach (var t in _tags) x.Add(Has(c, t) ? 1 : 0);
-        foreach (var t in _traitSlopes) x.Add(Has(c, t) ? d : 0);
+        foreach (var t in _traitSlopes) x.Add(Has(c, t) ? Math.Max(0, c.Ovr1 - TraitHinge) : 0);
         foreach (var s in _seasons) x.Add(c.Season == s ? 1 : 0);
         x.Add(c.Season != _baseSeason && !_seasons.Contains(c.Season) ? 1 : 0);
         return [.. x];
@@ -488,7 +521,7 @@ public sealed class PriceModel
     /// <param name="effects">Per row, the absorbed effect it belongs to (a player with several cards) or −1: uncentred
     /// dummies ridged by <paramref name="effectRidge"/>, solved through the Schur complement so many players stay cheap.
     /// The other coefficients are then compared within an effect (the same player's cards).</param>
-    internal static (double[] Beta, double[] Se, double R2, double Sigma, double[] Completed) RidgeTobit(IReadOnlyList<double[]> x, IReadOnlyList<double> y,
+    internal static (double[] Beta, double[] Se, double R2, double Sigma, double[] Completed, double[][] Influence) RidgeTobit(IReadOnlyList<double[]> x, IReadOnlyList<double> y,
         IReadOnlyList<int> clusters, IReadOnlyList<bool> controls, IReadOnlyList<bool>? censored = null, double lambda = Ridge, int iterations = 60,
         IReadOnlyList<double>? rawPenalty = null, IReadOnlyList<int>? effects = null, double effectRidge = FitPlayerRidge)
     {
@@ -608,21 +641,26 @@ public sealed class PriceModel
         var cr1 = scores.Count / (double)Math.Max(scores.Count - 1, 1) * (n - 1) / Math.Max(n - k - effectCount, 1);
         var beta = new double[k];
         var se = new double[k];
-        for (var j = 0; j < k; j++)
+        // Each cluster's pull on the original-scale coefficients, CR1 included: Var(a·β) = Σ_g (a·influence_g)².
+        var influence = scores.Values.Select(score =>
         {
-            double variance = 0;
-            foreach (var score in scores.Values)
+            var row = new double[k];
+            for (var j = 0; j < k; j++)
             {
                 double s = 0;
                 for (var q = 0; q < k; q++) s += inv[j, q] * score[q];
-                variance += s * s;
+                row[j] = s * Math.Sqrt(Math.Max(cr1, 0)) / sd[j];
             }
-            se[j] = Math.Sqrt(Math.Max(variance * cr1, 0)) / sd[j];
+            return row;
+        }).ToArray();
+        for (var j = 0; j < k; j++)
+        {
+            se[j] = Math.Sqrt(influence.Sum(row => row[j] * row[j]));
             beta[j] = bz[j] / sd[j];
         }
-        // Back to the original columns: the constant absorbs the centring.
+        // Back to the original columns: the constant absorbs the centring (its influence row is not used).
         beta[0] = bz[0] - Enumerable.Range(1, k - 1).Sum(j => mu[j] * bz[j] / sd[j]);
-        return (beta, se, sst > 0 ? 1 - sseAll / sst : 0, sigma, yi);
+        return (beta, se, sst > 0 ? 1 - sseAll / sst : 0, sigma, yi, influence);
     }
 
     private static double StdDev(IReadOnlyList<double> v)

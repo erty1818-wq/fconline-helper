@@ -130,11 +130,15 @@ public sealed record FactorRow(string Name, string Kind, string Percent, double 
     };
 
     private static string VerdictOf(PriceFactor f) =>
-        f.Excluded is { } excluded ? excluded
+        (f.Excluded is { } excluded ? excluded
         : !f.Estimated || f.Players < 10 ? "표본 부족"
+        : f.Comparisons < 8 ? "표본 부족 (같은 선수 비교 8명 미만)"
         : !f.Clear ? "불확실 (범위가 0을 포함)"
         : f.IsInflating && f.Percent < 0 ? "OVR만 올리는 능력치: 같은 OVR이면 싸게 거래"
-        : f.Percent > 0 ? "시장이 값을 더 쳐줌" : "시장이 값을 덜 쳐줌";
+        : f.Percent > 0 ? "시장이 값을 더 쳐줌" : "시장이 값을 덜 쳐줌")
+        + (f.Estimated && double.IsFinite(f.PercentBelowHinge)
+            ? $" · OVR {PriceModel.TraitHinge}(+1) 이하 {f.PercentBelowHinge:+0;-0}%, 그 위 +1마다 {f.PerOvr * 100:+0;-0}%p (표는 OVR {PriceModel.TraitTopOvr} 카드)"
+            : "");
 }
 
 public sealed record SalaryRow(string Name, string Season, int Ovr, string Effective, int Pay, string PerPay, string Price, string Tags);

@@ -71,7 +71,7 @@ public partial class ValuePage : UserControl
         catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException or InvalidOperationException) { }
         // The playable market (OVR floor of the filter), else the whole group.
         var floor = int.TryParse(Filters.MinOvrText, out var lo) ? lo : 0;
-        if (((floor > 0 ? market.ModelAbove(group.Key, grade, floor) : null) ?? market.Model(group.Key, grade)) is not { } model)
+        if (((floor > 0 ? market.ModelAbove(group.Key, grade, floor - MarketService.PlayableMargin) : null) ?? market.Model(group.Key, grade)) is not { } model)
         {
             Status.Text = "이 포지션·강화 단계는 거래되는 카드가 너무 적습니다.";
             Factors.ItemsSource = null;
@@ -79,7 +79,7 @@ public partial class ValuePage : UserControl
         }
         Factors.ItemsSource = FactorRow.For(model, group);
         var validation = double.IsNaN(model.ValidationError) ? "표본 부족" : $"{model.ValidationError:P0}";
-        Status.Text = $"{group.Name} +{grade}{(floor > 0 ? $" · OVR {floor}+" : "")} · 카드 {model.Cards}장 · 선수 {model.Players}명 · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00} · 검증 중앙오차 {validation}. "
+        Status.Text = $"{group.Name} +{grade}{(floor > 0 ? $" · OVR {floor - MarketService.PlayableMargin}+ 카드로 계산" : "")} · 카드 {model.Cards}장 · 선수 {model.Players}명 · 중간 가격 {Bp.Format(model.MedianPrice)} · R² {model.R2:0.00} · 검증 중앙오차 {validation}. "
             + "능력치는 같은 OVR에서 다른 능력치와 배분을 바꾼 연관성, 특성은 없는 카드 대비. 강화 하한가에 붙은 카드는 '하한 이하'로 보고 학습합니다. 범위는 선수별 군집 보정한 근사치이며 릿지 편향·누락 변수는 포함하지 않습니다 [추정, 인과 아님].";
     }
 

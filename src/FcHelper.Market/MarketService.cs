@@ -210,7 +210,7 @@ public sealed class MarketService(
         foreach (var (scope, groups) in TraitScopes)
         {
             var factors = groups
-                .Select(g => (Group: g, Model: minOvr is { } lo ? ModelAbove(g, grade, lo) : Model(g, grade)))
+                .Select(g => (Group: g, Model: minOvr is { } lo ? ModelAbove(g, grade, lo - PlayableMargin) : Model(g, grade)))
                 .Where(x => x.Model is not null)
                 .SelectMany(x => x.Model!.Factors().Where(f => f.Kind == FactorKind.Trait).Select(f => (x.Group, Model: x.Model!, Factor: f)))
                 .ToList();
@@ -260,9 +260,15 @@ public sealed class MarketService(
         return result;
     }
 
+    /// <summary>
+    /// A search at OVR ≥ x is priced by the cards from x − 5 up: the top alone is too thin (+8 스트라이커 at 135+: 164 cards,
+    /// holdout error 69% against 38% from 130+). The price factors and trait averages use the same model.
+    /// </summary>
+    public const int PlayableMargin = 5;
+
     /// <summary>The model a search uses: the playable market around its OVR floor, else the whole group.</summary>
     public PriceModel? ModelFor(ValueQuery q) =>
-        (q.Filter.MinOvr is { } lo ? ModelAbove(q.Group, q.Grade, lo - 5) : null) ?? Model(q.Group, q.Grade);
+        (q.Filter.MinOvr is { } lo ? ModelAbove(q.Group, q.Grade, lo - PlayableMargin) : null) ?? Model(q.Group, q.Grade);
 
     public IReadOnlyList<ValuePick> FindValue(ValueQuery q)
     {

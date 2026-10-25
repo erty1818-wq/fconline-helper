@@ -260,7 +260,7 @@ internal static class SquadCommands
             Console.WriteLine($"\n[{title}]");
             foreach (var f in list)
                 Console.WriteLine($"  {f.Name,-22} " + (f.Estimated ? $"{f.Percent:+0.0;-0.0}% ({f.Low:+0;-0}~{f.High:+0;-0}%) OVR {f.OvrEquivalent:+0.0;-0.0}" : "표본 부족")
-                    + $"{(double.IsFinite(f.PerOvr) ? $" · OVR +1마다 {f.PerOvr * 100:+0;-0}%p" : "")}{(f.Comparisons is { } cmp ? $" · 같은 선수 비교 {cmp}명" : "")}"
+                    + $"{(double.IsFinite(f.PerOvr) ? $" · OVR {PriceModel.TraitTopOvr} 카드 기준 (OVR {PriceModel.TraitHinge} 이하 {f.PercentBelowHinge:+0;-0}%, 그 위 +1마다 {f.PerOvr * 100:+0;-0}%p)" : "")}{(f.Comparisons is { } cmp ? $" · 같은 선수 비교 {cmp}명" : "")}"
                     + $"{(f.Cards is { } n ? $"  {n}장" : "")} · 선수 {f.Players}명{(f.Clear ? "" : "  (불확실)")}{(f.IsInflating ? "  뻥스탯" : "")}");
         }
         Print("핵심 신특", factors.Where(f => f.Kind == FactorKind.Trait && f.IsCore));
