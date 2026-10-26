@@ -314,10 +314,11 @@ public partial class App : Application
 
             // On the matchmaking screen the nicknames sit side by side; in a match (the screen was missed) they are on the
             // scoreboard, which is read enlarged, and under the bottom panels.
-            var candidates = MatchScreen.LooksLikeMatchScreen(lines)
-                ? MatchScreen.OpponentCandidates(lines, Settings.MyNickname)
+            var guesses = MatchScreen.LooksLikeMatchScreen(lines)
+                ? await _reader.ReadNicknamesAsync(frame, MatchScreen.OpponentLines(lines, Settings.MyNickname),
+                    MatchScreen.OpponentCandidates(lines, Settings.MyNickname), Settings.MyNickname)
                 : await InGameCandidatesAsync(frame, lines);
-            var nickname = candidates.Count == 0 ? null : await Service.FindExistingNicknameAsync(candidates);
+            var nickname = await Service.FindReadNicknameAsync(guesses);
 
             var search = ShowSearchBeside(area);
             if (nickname is not null)
@@ -326,9 +327,9 @@ public partial class App : Application
             }
             else
             {
-                search.Prompt(candidates.Count > 0
-                    ? "화면에서 상대 닉네임을 읽지 못했습니다. 직접 입력해 주세요."
-                    : "매칭 화면(팀 정보)이나 경기 화면(점수판)에서 눌러 주세요.", candidates.FirstOrDefault());
+                search.Prompt(guesses.Count > 0
+                    ? $"닉네임 판독이 불확실합니다. 후보: {string.Join(" · ", guesses.Take(3).Select(g => g.Text))}. 확인 후 검색해 주세요."
+                    : "매칭 화면(팀 정보)이나 경기 화면(점수판)에서 눌러 주세요.", guesses.FirstOrDefault()?.Text);
             }
         }
         catch (Exception ex) when (ex is NexonApiException or HttpRequestException or TaskCanceledException)
@@ -342,13 +343,23 @@ public partial class App : Application
     }
 
     /// <summary>Opponent candidates from the in-game scoreboard (3× then 4×) and the bottom panels, then the plain read.</summary>
-    private async Task<IReadOnlyList<string>> InGameCandidatesAsync(Drawing.Bitmap frame, IReadOnlyList<OcrLine> lines)
+    private async Task<IReadOnlyList<NicknameGuess>> InGameCandidatesAsync(Drawing.Bitmap frame, IReadOnlyList<OcrLine> lines)
     {
         var passes = new List<IReadOnlyList<OcrLine>>();
+        var source = new List<OcrLine>();
         foreach (var region in new[] { InGameScreen.Scoreboard, InGameScreen.ScoreboardLarge, InGameScreen.BottomNames })
-            passes.Add(await _reader!.ReadRegionAsync(frame, region));
+        {
+            var read = await _reader!.ReadRegionAsync(frame, region);
+            passes.Add(read);
+            source.AddRange(ScreenReader.InFrame(read, region));
+        }
         var found = InGameScreen.OpponentCandidates(passes, Settings.MyNickname);
-        return found.Count > 0 ? found : MatchScreen.OpponentCandidates(lines, Settings.MyNickname);
+        if (found.Count == 0)
+        {
+            found = MatchScreen.OpponentCandidates(lines, Settings.MyNickname);
+            source = MatchScreen.OpponentLines(lines, Settings.MyNickname).ToList();
+        }
+        return await _reader!.ReadNicknamesAsync(frame, source, found, Settings.MyNickname);
     }
 
     private static void SaveCapture(Drawing.Bitmap frame, IReadOnlyList<OcrLine> lines)

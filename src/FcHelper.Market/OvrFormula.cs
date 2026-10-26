@@ -97,7 +97,8 @@ public static class FinalOvrMath
     {
         var pos = Formations.Normalize(position);
         grade = Math.Clamp(grade, 1, 13);
-        var listed = card.Positions.TryGetValue(pos, out var l) ? l : ability?.Positions.GetValueOrDefault(pos) is > 0 and var a ? a : card.Ovr1;
+        var listedPosition = card.Positions.TryGetValue(pos, out var l) ? l : ability?.Positions.GetValueOrDefault(pos) is > 0 and var a ? a : (int?)null;
+        var listed = listedPosition ?? PositionRatings.At(card, pos, 1) ?? card.Ovr1;
         var gradeBonus = Grades.Bonus[grade] - Grades.Bonus[1];
         var adapt = Math.Clamp(adaptability, 1, MaxAdaptability) - 1;
         var (all, detail) = ColorStats(levels);
@@ -105,17 +106,19 @@ public static class FinalOvrMath
         var uniform = gradeBonus + adapt + all;
         var weights = OvrFormula.Of(pos);
 
-        if (ability is not null && weights.Count > 0)
+        var knownStats = ability?.Stats is { } fetched && PositionRatings.Complete(pos, fetched) ? fetched : null;
+        if (knownStats is null && PositionRatings.Stats(card) is var collected && PositionRatings.Complete(pos, collected)) knownStats = collected;
+        if (knownStats is not null && weights.Count > 0)
         {
-            var p0 = OvrFormula.Points(pos, ability.Stats);
+            var p0 = OvrFormula.Points(pos, knownStats);
             // The fitted formula reproduces the listed figure; if a card ever disagrees, keep the listed one and add the steps.
-            var exact = p0 / 100 == listed;
+            var exact = listedPosition is not null && p0 / 100 == listed;
             var baseValue = exact ? p0 / 100 : listed;
             var pUniform = p0 + 100 * uniform;
             var pDetail = pUniform + weights.Sum(kv => kv.Value * detail.GetValueOrDefault(kv.Key));
             var pTrained = pDetail + weights.Sum(kv => kv.Value * training.GetValueOrDefault(kv.Key));
             var shift = baseValue - p0 / 100;
-            var stats = ability.Stats.ToDictionary(kv => kv.Key, kv => kv.Value + uniform + detail.GetValueOrDefault(kv.Key) + training.GetValueOrDefault(kv.Key));
+            var stats = knownStats.ToDictionary(kv => kv.Key, kv => kv.Value + uniform + detail.GetValueOrDefault(kv.Key) + training.GetValueOrDefault(kv.Key));
             return new FinalOvr(listed, gradeBonus, adapt, all, pDetail / 100 - pUniform / 100, pTrained / 100 - pDetail / 100, pTrained / 100 + shift, exact,
                 exact ? 100 - pTrained % 100 : null, stats);
         }

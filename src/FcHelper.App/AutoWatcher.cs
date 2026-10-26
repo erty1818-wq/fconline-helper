@@ -65,15 +65,21 @@ public sealed class AutoWatcher : IDisposable
             if (clock is not null)
             {
                 if (!_watch.NeedsOpponent || now < _retryAt) return;
-                var passes = new List<IReadOnlyList<OcrLine>> { await reader.ReadRegionAsync(frame, InGameScreen.Scoreboard), board };
-                passes.Add(await reader.ReadRegionAsync(frame, InGameScreen.BottomNames));
-                await ResolveAsync(service, InGameScreen.OpponentCandidates(passes, _app.Settings.MyNickname), fromMatchScreen: false, area);
+                var small = await reader.ReadRegionAsync(frame, InGameScreen.Scoreboard);
+                var bottom = await reader.ReadRegionAsync(frame, InGameScreen.BottomNames);
+                var passes = new List<IReadOnlyList<OcrLine>> { small, board, bottom };
+                var source = ScreenReader.InFrame(small, InGameScreen.Scoreboard)
+                    .Concat(ScreenReader.InFrame(board, InGameScreen.ScoreboardLarge)).Concat(ScreenReader.InFrame(bottom, InGameScreen.BottomNames)).ToList();
+                var guesses = await reader.ReadNicknamesAsync(frame, source, InGameScreen.OpponentCandidates(passes, _app.Settings.MyNickname), _app.Settings.MyNickname);
+                await ResolveAsync(service, guesses, fromMatchScreen: false, area);
             }
             else if (_looks++ % 2 == 0 && now >= _matchScreenRestUntil && now >= _retryAt)
             {
                 var lines = await reader.ReadAsync(frame);
                 if (!MatchScreen.LooksLikeMatchScreen(lines)) return;
-                if (await ResolveAsync(service, MatchScreen.OpponentCandidates(lines, _app.Settings.MyNickname), fromMatchScreen: true, area))
+                var guesses = await reader.ReadNicknamesAsync(frame, MatchScreen.OpponentLines(lines, _app.Settings.MyNickname),
+                    MatchScreen.OpponentCandidates(lines, _app.Settings.MyNickname), _app.Settings.MyNickname);
+                if (await ResolveAsync(service, guesses, fromMatchScreen: true, area))
                     _matchScreenRestUntil = now + MatchScreenRest;
             }
         }
@@ -89,9 +95,9 @@ public sealed class AutoWatcher : IDisposable
     }
 
     /// <returns>True when a real nickname was found among the candidates.</returns>
-    private async Task<bool> ResolveAsync(Services.FcHelperService service, IReadOnlyList<string> candidates, bool fromMatchScreen, System.Drawing.Rectangle area)
+    private async Task<bool> ResolveAsync(Services.FcHelperService service, IReadOnlyList<NicknameGuess> candidates, bool fromMatchScreen, System.Drawing.Rectangle area)
     {
-        var nickname = candidates.Count == 0 ? null : await service.FindExistingNicknameAsync(candidates);
+        var nickname = await service.FindReadNicknameAsync(candidates);
         if (nickname is null)
         {
             _retryAt = DateTime.UtcNow + RetryAfter;

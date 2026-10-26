@@ -10,7 +10,7 @@ public sealed record OcrLine(string Text, double X, double Y, double Width, doub
 /// <summary>
 /// Finds the opponent's nickname on the matchmaking screen ("팀 정보" tab: both nicknames on one row, mine on the
 /// left, the opponent's on the right). Works on relative positions, so it does not depend on the game resolution.
-/// Returns candidates rather than one answer: the API's id lookup decides which of them is a real user.
+/// Returns candidate readings and boxes for a focused reread; account existence alone cannot confirm the spelling.
 /// </summary>
 public static class MatchScreen
 {
@@ -37,6 +37,12 @@ public static class MatchScreen
         lines.Any(l => Compact(l.Text) is "VS" or "vs") && lines.Any(l => Compact(l.Text).Contains("팀정보"));
 
     public static IReadOnlyList<string> OpponentCandidates(IReadOnlyList<OcrLine> lines, string? myNickname)
+        => OpponentLines(lines, myNickname).SelectMany(l => CandidatesFrom(l.Text))
+            .Where(c => myNickname is null || !string.Equals(c, Compact(myNickname), StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxCandidates).ToList();
+
+    /// <summary>The original-image boxes to reread without shrinking the whole frame.</summary>
+    public static IReadOnlyList<OcrLine> OpponentLines(IReadOnlyList<OcrLine> lines, string? myNickname)
     {
         var me = string.IsNullOrWhiteSpace(myNickname) ? null : FindLine(lines, myNickname);
         IEnumerable<OcrLine> ordered;
@@ -59,10 +65,6 @@ public static class MatchScreen
         var managerNames = UnderManagerLabel(lines);
         return ordered
             .Where(l => !IsUiText(l.Text) && !managerNames.Contains(l))
-            .SelectMany(l => CandidatesFrom(l.Text))
-            .Where(c => myNickname is null || !string.Equals(c, Compact(myNickname), StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(MaxCandidates)
             .ToList();
     }
 

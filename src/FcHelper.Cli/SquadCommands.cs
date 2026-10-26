@@ -68,6 +68,12 @@ internal static class SquadCommands
                         Console.WriteLine($"  #{i + 1,-2} {r.TeamColor,-14} 랭커 {r.Rankers,4}명 ({r.Share:P1}) · 평균 {Bp.Format(r.AverageValue),8} · 최고 {r.Richest.Nickname}({Bp.Format(r.Richest.TeamValue)}) · 최저 {r.Poorest.Nickname}({Bp.Format(r.Poorest.TeamValue)})");
                     return 0;
                 case "allocation":
+                    if (Flag(option("refresh")))
+                    {
+                        var fresh = await squads.RankerSquadsAsync(refresh: true, progress: new Progress<string>(m => Console.Error.Write($"\r{m}          ")));
+                        Console.Error.WriteLine();
+                        Console.WriteLine($"랭커 표본 새로 수집: {fresh.Count}팀 · {store.GetValue("ranker.squads")?.UpdatedAt.ToLocalTime():yyyy-MM-dd HH:mm} 기준");
+                    }
                     var alloc = await squads.RankerAllocationAsync(progress: new Progress<string>(m => Console.Error.Write($"\r{m}          ")));
                     Console.Error.WriteLine();
                     if (alloc is null) { Console.Error.WriteLine("랭커 스쿼드를 받지 못했습니다 (API 키 필요)."); return 3; }
@@ -174,6 +180,12 @@ internal static class SquadCommands
             Console.Error.WriteLine(e.Message);
             return 4;
         }
+        catch (NexonApiException e)
+        {
+            Console.Error.WriteLine(e.IsRateLimited ? "API 조회 한도에 도달했습니다. 요청을 완료하지 못했습니다."
+                : e.IsAuthError ? "API 인증을 확인하지 못했습니다. 요청을 완료하지 못했습니다." : $"API 조회 실패: {e.ErrorName}");
+            return 5;
+        }
         return 1;
     }
 
@@ -202,13 +214,15 @@ internal static class SquadCommands
             : await squads.BuildAsync(request with { Mode = mode switch { "balanced" => SquadMode.Balanced, "value" => SquadMode.Value, "ranker" => SquadMode.RankerPicks, _ => SquadMode.Strongest } }, rankFrom, rankTo);
         foreach (var p in plans)
         {
-            Console.WriteLine($"\n■ {p.Label} · {p.Formation.Name} · 총 {Bp.Format(p.TotalPrice)} · 급여 {p.TotalPay}/{cap} · 평균 OVR {p.AverageOvr:0.0} · 환산 {p.AverageEffectiveOvr:0.0}"
+            Console.WriteLine($"\n■ {p.Label} · {p.Formation.Name} · 총 {Bp.Format(p.TotalPrice)} · 급여 {p.TotalPay}/{cap} · 평균 인게임 OVR {p.AveragePlayingOvr:0.0} · 환산 {p.AverageEffectiveOvr:0.0} [추정]"
                 + string.Concat(p.TeamColors.Select(t => $" · {TeamColorText(t)}")));
+            if (p.SelectionNote is { Length: > 0 } note) Console.WriteLine(note);
             foreach (var s in p.Slots)
-                Console.WriteLine($"  {s.Position,-4} {s.Card.Name,-10} {s.Card.Season,-8} +{s.Grade,-2} OVR {s.Ovr + s.TeamColorBonus,5:0.#}{(s.TeamColorBonus > 0 ? "*" : " ")} 환산 {s.EffectiveOvr,5:0.0} · {Bp.Format(s.Price),7} · 급여 {s.Pay,2}"
+                Console.WriteLine($"  {s.Position,-4} {s.Card.Name,-10} {s.Card.Season,-8} +{s.Grade,-2} OVR {s.ShownOvr,5:0.#}{(s.Final?.Exact == false ? " [추정]" : "")}{(s.TeamColorBonus > 0 ? "*" : " ")} 환산 {s.EffectiveOvr,5:0.0} · {Bp.Format(s.Price),7} · 급여 {s.Pay,2}"
                     + (s.RankerUsers > 0 ? $" · 랭커 {s.RankerUsers}명" : "") + (s.Discount < -0.15 ? $" · 스펙 대비 {s.Discount:P0}" : ""));
         }
         Console.WriteLine("\n환산 OVR = OVR + 시장이 약발·특성·개인기·능력치에 매기는 값(OVR 단위) [추정]. * = 팀컬러 보너스 포함.");
+        Console.WriteLine("인게임 OVR은 강화·적응도 5·팀컬러를 합산한 값이며, 세부 스탯으로 확인하지 못한 값은 [추정]입니다.");
         Console.WriteLine("팀컬러: 소속 보너스는 선발 전원, 특성 보너스는 해당 카드만. 개별 능력치 보너스의 OVR 환산은 [추정].");
         return 0;
     }

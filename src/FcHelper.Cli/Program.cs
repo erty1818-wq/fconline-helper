@@ -183,6 +183,7 @@ static void PrintUsage() => Console.Error.WriteLine("""
       fch valuation-audit [--grade 11] [--minovr 140] [--out report.json]
           포지션 가격 요인: 코어 능력치·신특·체형·키가 시세에 주는 영향 (%, OVR 환산, BP) [추정].
       fch squad [--formation 4-2-2-2] [--budget 100억] [--grades 11] [--cap 310] [--teamcolor 2002,40515]
+      fch allocation --refresh yes  (랭커 스쿼드 새로 받기; 저장된 표본은 성공한 뒤 교체)
           스쿼드 추천. 급여 한도는 공식 스쿼드메이커에서 읽은 값이 기본. 팀컬러는 소속,특성 번호.
       fch upgrade --me <닉네임> [--budget 10억] [--pcroom yes] [--topclass yes] [--coupon 10] [--coupon-max 5억]
           내 스쿼드 교체 추천. 판매 수수료는 공식 계산식 (기본 40%, PC방·TOP CLASS·쿠폰 할인).

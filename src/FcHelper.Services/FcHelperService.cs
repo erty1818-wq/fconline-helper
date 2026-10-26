@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FcHelper.Analysis;
+using FcHelper.Core;
 using FcHelper.Core.Models;
 using FcHelper.Data;
 using FcHelper.NexonApi;
@@ -248,6 +249,13 @@ public sealed class FcHelperService(
             if (user is not null) return user.Nickname;
         }
         return null;
+    }
+
+    /// <summary>An existing different account is not proof that an OCR reading was right.</summary>
+    public async Task<string?> FindReadNicknameAsync(IReadOnlyList<NicknameGuess> guesses, CancellationToken ct = default)
+    {
+        if (!NicknameReadings.Confident(guesses)) return null;
+        return (await ResolveUserAsync(guesses[0].Text, ct))?.Nickname;
     }
 
     private async Task<CachedUser?> ResolveUserAsync(string nickname, CancellationToken ct)

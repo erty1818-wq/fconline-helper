@@ -10,7 +10,7 @@
             <StackPanel>
                 <DockPanel Margin="0,0,0,10">
                     <Button x:Name="BuildButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="AI 추천 스쿼드" Click="OnBuild"
-                            ToolTip="4가지 방식(최강·균형·가성비·랭커픽)으로 짜서 비교합니다. 고정한 선수는 그대로 둡니다." />
+                            ToolTip="예산대 인기 소속 중 11명 팀컬러를 완성하고, 인게임 OVR과 가격으로 4가지 안을 비교합니다. 고정한 선수는 그대로 둡니다." />
                     <ToggleButton x:Name="ConditionsToggle" DockPanel.Dock="Right" Style="{StaticResource Chip}" Content="조건 접기" IsChecked="True"
                                   Margin="0,0,10,0" VerticalAlignment="Center" Click="OnToggleConditions" ToolTip="조건을 접으면 피치가 커집니다" />
                     <StackPanel>
@@ -39,7 +39,7 @@
                         <WrapPanel x:Name="GradeChips" />
                     </StackPanel>
                     <StackPanel Margin="0,0,14,6">
-                        <TextBlock Text="소속 팀컬러 (11명 모두 해당 선수로, 랭커 인기 20)" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="소속 팀컬러 (자동 또는 직접 선택 · 11명 필수)" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="TeamColorBox" MinWidth="170" DisplayMemberPath="Label" SelectionChanged="OnTeamColorChanged" />
                     </StackPanel>
                     <StackPanel Margin="0,0,14,6">
@@ -61,7 +61,7 @@
             </StackPanel>
         </Border>
 
-        <TextBlock x:Name="Status" DockPanel.Dock="Top" Foreground="{StaticResource Warn}" Margin="0,0,0,6" />
+        <TextBlock x:Name="Status" DockPanel.Dock="Top" Foreground="{StaticResource Warn}" Margin="0,0,0,6" TextWrapping="Wrap" />
 
         <!-- Pitch on the left at full height (like the official squad maker); plans, library and the slot panel on the right. -->
         <Grid x:Name="MainGrid">

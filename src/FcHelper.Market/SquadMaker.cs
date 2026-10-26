@@ -29,7 +29,7 @@ public sealed class SquadMaker(SquadService squads, RankerUsage? rankers = null)
         }
         else
         {
-            ovr = card.OvrAt(grade);
+            ovr = PositionRatings.At(card, pos, grade) ?? card.OvrAt(grade);
         }
         return new SquadSlot(index, pos, card, grade, ovr, model?.PremiumInOvr(card) ?? 0, 0,
             card.PriceAt(grade), SquadBuilder.ExpectedAt(model, card, grade), card.Pay, rankers?.Users(pos, card.SpId) ?? 0,
@@ -104,23 +104,27 @@ public sealed class SquadMaker(SquadService squads, RankerUsage? rankers = null)
 
     /// <summary>
     /// Moves a hand-made eleven to another formation: each player keeps a slot of the same position if there is one,
-    /// else of the same role (LB → RB, CAM → CM …); the rest are left empty.
+    /// then prefers the new slot's playing role. Complete stats allow a positional move (ST → CF, CAM → LM)
+    /// without losing players when switching 4-2-2-2 to 4-2-2-1-1. Keepers and outfield players never exchange roles.
     /// </summary>
     public IReadOnlyList<SquadSlot?> Remap(IReadOnlyList<SquadSlot?> from, Formation to)
     {
         var result = new SquadSlot?[to.Slots.Length];
         var left = from.Where(s => s is not null).Cast<SquadSlot>().ToList();
-        foreach (var pass in new Func<SquadSlot, string, bool>[]
+        foreach (var pass in new Func<SquadSlot, int, bool>[]
                  {
-                     (s, p) => s.Position == p,
-                     (s, p) => RankerAllocation.RoleOf(s.Position) == RankerAllocation.RoleOf(p),
-                     (s, p) => s.Card.OvrAt(p, s.Grade) is not null,
+                     (s, i) => Formations.Normalize(s.Position) == Formations.Normalize(to.Slots[i]),
+                     (s, i) => SquadRoles.Preferred(s.Card, to, i) && PositionRatings.At(s.Card, to.Slots[i], s.Grade) is not null,
+                     (s, i) => s.Card.OvrAt(Formations.Normalize(to.Slots[i]), s.Grade) is not null,
+                     (s, i) => PositionRatings.At(s.Card, to.Slots[i], s.Grade) is not null,
                  })
         {
             for (var i = 0; i < result.Length; i++)
             {
                 if (result[i] is not null) continue;
-                var pick = left.FirstOrDefault(s => pass(s, to.Slots[i]));
+                var pick = left.Where(s => (s.Position == "GK") == (to.Slots[i] == "GK") && pass(s, i))
+                    .OrderByDescending(s => SquadRoles.Preferred(s.Card, to, i))
+                    .ThenByDescending(s => PositionRatings.At(s.Card, to.Slots[i], s.Grade)).FirstOrDefault();
                 if (pick is null) continue;
                 left.Remove(pick);
                 result[i] = Slot(i, to.Slots[i], pick.Card, pick.Grade, pick.Owned, pick.Locked);

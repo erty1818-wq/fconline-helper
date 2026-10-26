@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using FcHelper.Market;
+using FcHelper.NexonApi;
 
 namespace FcHelper.App.Studio;
 
@@ -24,9 +25,11 @@ public partial class SquadPage : UserControl
     private readonly List<ToggleButton> _grades = [];
     private SquadSlot?[] _working = new SquadSlot?[11];
     private Spot[] _spots = Formations.LayoutOf(Formations.All[0].Name).ToArray();
-    private readonly Stack<(SquadSlot?[] Slots, Spot[] Spots, string[] Positions, string Formation, string DisplayName)> _undo = new();
+    private readonly Stack<(SquadSlot?[] Slots, Spot[] Spots, string[] Positions, string Formation, string DisplayName, int AffiliationId)> _undo = new();
     private bool _restoring;
     private IReadOnlyList<AppliedTeamColor> _workingColors = [];
+    private int _chosenAffiliationId;
+    private int WorkingAffiliationId => TeamColorBox.SelectedItem is TeamColorItem { Id: > 0 } item ? item.Id : _chosenAffiliationId;
     private SquadMaker? _maker;
     private RankerAllocation? _allocation;
     private int? _selected;
@@ -62,7 +65,7 @@ public partial class SquadPage : UserControl
         }
         RankBox.ItemsSource = new[] { "상위 10,000명", "상위 1,000명", "상위 100명" };
         RankBox.SelectedIndex = 0;
-        TeamColorBox.ItemsSource = new[] { new TeamColorItem("없음", 0) };
+        TeamColorBox.ItemsSource = new[] { new TeamColorItem("자동 (예산대 인기 소속)", 0) };
         TeamColorBox.SelectedIndex = 0;
         FeatureBox.ItemsSource = new[] { new TeamColorItem("없음", 0) };
         FeatureBox.SelectedIndex = 0;
@@ -121,7 +124,7 @@ public partial class SquadPage : UserControl
     private void Remember()
     {
         if (_restoring) return;
-        _undo.Push((_working.ToArray(), _spots.ToArray(), _positions.ToArray(), (string)FormationBox.SelectedItem, FormationName.Text));
+        _undo.Push((_working.ToArray(), _spots.ToArray(), _positions.ToArray(), (string)FormationBox.SelectedItem, FormationName.Text, _chosenAffiliationId));
         if (_undo.Count > 30)
         {
             var keep = _undo.Take(30).Reverse().ToList();
@@ -134,11 +137,12 @@ public partial class SquadPage : UserControl
     private async void OnUndo(object sender, RoutedEventArgs e)
     {
         if (_undo.Count == 0) return;
-        var (slots, spots, positions, formation, displayName) = _undo.Pop();
+        var (slots, spots, positions, formation, displayName, affiliationId) = _undo.Pop();
         _restoring = true;
         _working = slots;
         _spots = spots;
         _positions = positions;
+        _chosenAffiliationId = affiliationId;
         FormationBox.SelectedItem = formation;
         FormationName.Text = displayName;
         _restoring = false;
@@ -184,7 +188,7 @@ public partial class SquadPage : UserControl
     }
 
     private sealed record SavedSlot(long SpId, int Grade, bool Owned, bool Locked);
-    private sealed record SavedSquad(string Name, string Formation, List<SavedSlot?> Slots, DateTime SavedAt, List<Spot>? Spots = null);
+    private sealed record SavedSquad(string Name, string Formation, List<SavedSlot?> Slots, DateTime SavedAt, List<Spot>? Spots = null, int AffiliationId = 0);
     private const string LibraryKey = "squad.library";
 
     private List<SavedSquad> Library()
@@ -216,7 +220,7 @@ public partial class SquadPage : UserControl
         library.Add(new SavedSquad(name, (string)FormationBox.SelectedItem,
             _working.Select(s => s is null ? null : new SavedSlot(s.Card.SpId, s.Grade, s.Owned, s.Locked)).ToList(),
             DateTime.Now,
-            _spots.ToList()));
+            _spots.ToList(), WorkingAffiliationId));
         StudioKit.App.Db?.SetValue(LibraryKey, JsonSerializer.Serialize(library));
         LoadLibrary();
         LibraryBox.SelectedItem = name;
@@ -249,6 +253,7 @@ public partial class SquadPage : UserControl
 
         _working = saved.Slots.Select((x, i) => x is not null && squads.Card(x.SpId) is { } card && i < _positions.Length
             ? maker.Slot(i, _positions[i], card, x.Grade, x.Owned, x.Locked) : null).ToArray();
+        _chosenAffiliationId = saved.AffiliationId;
         _manual = true;
         _selected = null;
         await RefreshWorkingAsync();
@@ -299,6 +304,7 @@ public partial class SquadPage : UserControl
     /// </summary>
     private async void OnTeamColorChanged(object sender, SelectionChangedEventArgs e)
     {
+        _chosenAffiliationId = 0;
         await RefreshWorkingAsync();
         if (TeamColorBox.SelectedItem is not TeamColorItem { Id: > 0 } item || StudioKit.Squads is not { } squads) return;
         var name = _catalog.FirstOrDefault(t => t.Id == item.Id)?.Name;
@@ -335,14 +341,14 @@ public partial class SquadPage : UserControl
         {
             _catalog = await squads.TeamColorsAsync();
             var popular = await squads.PopularTeamColorsAsync();
-            var items = new List<TeamColorItem> { new("없음", 0) };
+            var items = new List<TeamColorItem> { new("자동 (예산대 인기 소속)", 0) };
             items.AddRange(popular.Select(p => new TeamColorItem($"{p.Color.Name} (랭커 {p.Usage.Share:P0})", p.Color.Id)));
             TeamColorBox.ItemsSource = items;
             TeamColorBox.SelectedIndex = 0;
         }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException or TaskCanceledException)
         {
-            // The list stays at "없음"; building still works.
+            // Automatic selection remains available; a failed fetch is reported when building.
         }
     }
 
@@ -551,9 +557,11 @@ public partial class SquadPage : UserControl
             {
                 _allocation = await squads.RankerAllocationAsync(progress: new Progress<string>(m => Status.Text = $"{m} (처음 한 번, 3일마다 갱신)"));
             }
-            catch (InvalidOperationException)
+            catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or NexonApiException or TaskCanceledException)
             {
-                Status.Text = "랭커 분배는 API 키가 있어야 받을 수 있습니다. 분배 없이 짭니다.";
+                _allocation = await squads.RankerAllocationAsync(allowFetch: false);
+                Status.Text = _allocation is null ? "랭커 표본을 갱신하지 못했습니다. 분배 없이 짭니다."
+                    : "랭커 표본을 갱신하지 못해 보관된 표본의 분배를 씁니다 [추정].";
             }
         }
         // The AI fills the slots in this order: its plans are drawn on these same spots (see OnModeSelected).
@@ -571,6 +579,8 @@ public partial class SquadPage : UserControl
             TeamColors = targets,
             Allocation = _allocation,
             RankerPicksOnly = RankerOnlyBox.IsChecked == true,
+            Adaptability = Adaptability,
+            Training = TrainingToggle.IsChecked == true,
         };
     }
 
@@ -591,15 +601,14 @@ public partial class SquadPage : UserControl
             var plans = await squads.CompareModesAsync(request, from, to, progress: new Progress<string>(m => Status.Text = m));
             Status.Text = plans.Count == 0 ? "조건에 맞는 스쿼드가 없습니다." : "";
             var cheapest = plans.MinBy(p => p.TotalPrice);
-            var strongest = plans.MaxBy(p => p.AverageEffectiveOvr);
+            var strongest = plans.MaxBy(p => p.AveragePlayingOvr);
             Modes.ItemsSource = plans.Select(p => new ModeCard(p, p.Label, Bp.Format(p.TotalPrice),
-                $"인게임 {p.Slots.Average(x => FinalOvrMath.Compute(x.Card, squads.KnownAbility(x.Card.SpId), x.Position, x.Grade, Adaptability, x.ColorLevels).Value):0.0} · 급여 {p.TotalPay}",
+                $"인게임 {p.AveragePlayingOvr:0.0} · 급여 {p.TotalPay}",
                 $"환산 {p.AverageEffectiveOvr:0.0} [추정]", $"급여 {p.TotalPay}",
-                string.Join("\n", p.TeamColors.Select(StudioKit.TeamColorLine)),
+                string.Join("\n", p.TeamColors.Select(StudioKit.TeamColorLine).Append(p.SelectionNote ?? "")),
                 ReferenceEquals(p, cheapest) ? "가장 쌈" : ReferenceEquals(p, strongest) ? "가장 강함" : "")).ToList();
-            Modes.SelectedIndex = plans.Count > 1 ? 1 : 0;
+            Modes.SelectedIndex = plans.ToList().FindIndex(p => p.Mode == SquadMode.Value);
             ShowConditions(false); // more room for the pitch; one click brings the conditions back
-            if (_allocation is { } a) Status.Text = $"랭커 {a.Squads}팀의 포지션별 가격·급여 분배를 따랐습니다 (10억 미만 {a.Skipped}팀 제외).";
         });
     }
 
@@ -610,6 +619,8 @@ public partial class SquadPage : UserControl
         if (_working.Any(s => s is not null)) Remember();
         _working = card.Plan.Slots.OrderBy(s => s.Index).Select(s => (SquadSlot?)s).ToArray();
         _workingColors = card.Plan.TeamColors;
+        _chosenAffiliationId = card.Plan.TeamColors.FirstOrDefault(t => t.Color.Category == TeamColorCategory.Affiliation)?.Color.Id ?? 0;
+        Status.Text = card.Plan.SelectionNote ?? "";
         // Slot i of the plan is slot i of the request: keep the spots the request was made on. Laying the preset of the
         // same name over it would swap cards whose order differs after a drag (a RM drawn on the CAM spot).
         if (_requestSpots is { } asked && asked.Length == card.Plan.Slots.Count) _spots = asked.ToArray();
@@ -642,7 +653,8 @@ public partial class SquadPage : UserControl
             var kept = _working.ToArray();
             Remember();
             _working = plan.Slots.OrderBy(s => s.Index).Select(s => kept[s.Index] ?? s).Select(s => (SquadSlot?)s).ToArray();
-            Status.Text = "";
+            _chosenAffiliationId = plan.TeamColors.FirstOrDefault(t => t.Color.Category == TeamColorCategory.Affiliation)?.Color.Id ?? 0;
+            Status.Text = plan.SelectionNote ?? "";
             await RefreshWorkingAsync();
         });
     }
@@ -656,6 +668,7 @@ public partial class SquadPage : UserControl
         _positions = _spots.Select(Formations.PositionAt).ToArray();
         FormationName.Text = CurrentFormation.Name;
         _working = new SquadSlot?[11];
+        _chosenAffiliationId = 0;
         _manual = true;
         _selected = null;
         Modes.SelectedIndex = -1;
@@ -699,7 +712,7 @@ public partial class SquadPage : UserControl
         {
             try
             {
-                var selected = await squads.TargetsAsync([(TeamColorBox.SelectedItem as TeamColorItem)?.Id ?? 0, (FeatureBox.SelectedItem as TeamColorItem)?.Id ?? 0]);
+                var selected = await squads.TargetsAsync([WorkingAffiliationId, (FeatureBox.SelectedItem as TeamColorItem)?.Id ?? 0]);
                 var filled = _working.Where(s => s is not null).Cast<SquadSlot>().ToList();
                 var (slots, colors) = await maker.ApplyTeamColorsAsync(filled, selected);
                 foreach (var s in slots) _working[s.Index] = s;
@@ -986,10 +999,10 @@ public partial class SquadPage : UserControl
     /// <summary>Members of the chosen 소속 colour (the AI uses only them), or null when none is chosen.</summary>
     private async Task<IReadOnlySet<long>?> AffiliationMembersAsync()
     {
-        if (StudioKit.Squads is not { } squads || TeamColorBox.SelectedItem is not TeamColorItem { Id: > 0 } item) return null;
+        if (StudioKit.Squads is not { } squads || WorkingAffiliationId <= 0) return null;
         try
         {
-            return await squads.TeamColorAsync(item.Id) is { Color.Category: TeamColorCategory.Affiliation } tc ? tc.Members : null;
+            return await squads.TeamColorAsync(WorkingAffiliationId) is { Color.Category: TeamColorCategory.Affiliation } tc ? tc.Members : null;
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
         {

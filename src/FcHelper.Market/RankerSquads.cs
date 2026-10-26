@@ -68,7 +68,7 @@ public sealed partial class RankerSquadClient(HttpClient http, RateLimiter dataC
                     .Select(p => new RankerSquadPlayer(p.SpId, Math.Max(1, p.SpGrade), Positions.Label(p.SpPosition))).ToList();
                 if (starters.Count == 11) squads.Add(new RankerSquad(rank, nickname, value, starters));
             }
-            catch (NexonApiException e) when (!e.IsAuthError)
+            catch (NexonApiException e) when (e.IsInvalidInput || e.ErrorName == NexonApiException.DataPreparing)
             {
                 // One ranker's odd data (renamed, no matches): skip them.
             }

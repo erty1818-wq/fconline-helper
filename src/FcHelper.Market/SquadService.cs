@@ -160,13 +160,16 @@ public sealed class SquadService(
     private const string RankerSquadKey = "ranker.squads";
 
     /// <summary>The top rankers' latest official elevens, fetched every three days (about 300 API calls).</summary>
-    public async Task<IReadOnlyList<RankerSquad>> RankerSquadsAsync(bool allowFetch = true, IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task<IReadOnlyList<RankerSquad>> RankerSquadsAsync(bool allowFetch = true, IProgress<string>? progress = null, CancellationToken ct = default,
+        bool refresh = false)
     {
+        if (refresh && (!allowFetch || rankerSquads is null)) throw new InvalidOperationException("새 랭커 표본을 받을 수 없습니다. 이전 표본을 유지합니다.");
         var cached = store.GetValue(RankerSquadKey);
         var squads = cached is null ? null : JsonSerializer.Deserialize<List<RankerSquad>>(cached.Value.Value);
-        if (squads is not null && (Now - cached!.Value.UpdatedAt < RankerSquadTtl || !allowFetch || rankerSquads is null)) return squads;
+        if (squads is not null && (!refresh && Now - cached!.Value.UpdatedAt < RankerSquadTtl || !allowFetch || rankerSquads is null)) return squads;
         if (!allowFetch || rankerSquads is null) return squads ?? [];
         var fresh = await rankerSquads.FetchAsync(RankerSquadCount, progress, ct);
+        if (refresh && fresh.Count == 0) throw new InvalidOperationException("새 랭커 스쿼드를 받지 못했습니다. 이전 표본을 유지합니다.");
         if (fresh.Count > 0) store.SetValue(RankerSquadKey, JsonSerializer.Serialize(fresh), Now);
         return fresh.Count > 0 ? fresh : squads ?? [];
     }
@@ -334,25 +337,86 @@ public sealed class SquadService(
     public async Task<IReadOnlyList<SquadPlan>> BuildAsync(SquadRequest request, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default,
         IProgress<string>? progress = null)
     {
+        var candidates = await BuildAffiliationPlansAsync(request, rankFrom, rankTo, ct, progress);
+        return SquadAffiliations.Select(candidates, request.Mode, request.Plans);
+    }
+
+    private async Task<IReadOnlyList<SquadPlan>> BuildAffiliationPlansAsync(SquadRequest request, int rankFrom, int rankTo, CancellationToken ct,
+        IProgress<string>? progress)
+    {
         var chart = await ChartAsync(rankFrom, rankTo, ct: ct);
-        // The same fitted premiums drive both bargain search and squad effective OVR.
+        // Model premiums remain available as estimates; squad selection uses the playing OVR.
         try { await RankerTeamColorMembersAsync(ct: ct); }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException || e is TaskCanceledException && !ct.IsCancellationRequested) { }
         var rankers = chart is null ? null : new RankerUsage(chart.Picks);
         var pool = Pool();
         if (request.AutoEnhance && request.TeamColors.All(t => t.Color.Category != TeamColorCategory.Enhance))
             request = request with { TeamColors = [.. request.TeamColors, .. await EnhanceTargetsAsync(ct)] };
-        if (request.ColorUsage is null && await TeamColorUsageAsync(request, progress, ct) is { } usage) request = request with { ColorUsage = usage };
-        var plans = await Task.Run(() => new SquadBuilder(pool, c => ModelOf(c), rankers).Build(request), ct);
-        for (var round = 0; round < 3 && liquidity is not null; round++)
+        var requests = new List<(SquadRequest Request, string? Note)>();
+        if (request.TeamColors.All(t => t.Color.Category != TeamColorCategory.Affiliation))
         {
-            var bad = await IlliquidAsync(plans.SelectMany(p => p.Slots).Where(s => !s.Locked && !s.Owned).Select(s => (s.Card.SpId, s.Grade)), progress, ct);
-            if (bad.Count == 0) break;
-            request = request with { ExcludedCards = request.ExcludedCards.Concat(bad).ToHashSet() };
-            var again = request;
-            plans = await Task.Run(() => new SquadBuilder(pool, c => ModelOf(c), rankers).Build(again), ct);
+            if (!request.AutoAffiliation) throw new InvalidOperationException("AI 추천은 소속 팀컬러 11명을 맞춰 짭니다. 소속을 고르거나 자동 선택을 사용하세요.");
+            progress?.Report("예산대 랭커의 소속 팀컬러 확인 중…");
+            IReadOnlyList<RankerSquad> samples;
+            try { samples = await RankerSquadsAsync(progress: progress, ct: ct); }
+            catch (Exception e) when (e is InvalidOperationException or HttpRequestException or NexonApiException) { samples = await RankerSquadsAsync(allowFetch: false, ct: ct); }
+            var popular = await PopularTeamColorsAsync(ct: ct);
+            var targets = new List<TeamColorTarget>();
+            foreach (var (color, _) in popular)
+                if (await TeamColorAsync(color.Id, ct) is { } target) targets.Add(new(target.Color, target.Members));
+            var choices = SquadAffiliations.Rank(request, targets, samples, pool.ToDictionary(c => c.SpId), chart?.TeamColors ?? []);
+            var sampledAt = store.GetValue(RankerSquadKey)?.UpdatedAt;
+            var sampleNote = sampledAt is { } sampled
+                ? $"랭커 표본 {sampled.ToLocalTime():yyyy-MM-dd} · " + (Now - sampled >= RankerSquadTtl ? "갱신 못한 표본 [추정] · " : "") : "";
+            foreach (var choice in choices)
+            {
+                var local = samples.Where(s => s.Starters.Count == 11 && s.Starters.All(p => choice.Target.Members.Contains(p.SpId))).ToList();
+                requests.Add((request with { TeamColors = [choice.Target, .. request.TeamColors], OnlyAffiliationMembers = true,
+                    ColorUsage = new ColorCardUsage(choice.Target.Color.Name, local) }, sampleNote + choice.Note));
+            }
+            if (requests.Count == 0) throw new InvalidOperationException("고정 선수와 맞는 소속 팀컬러 11명 후보가 없습니다. 고정을 풀거나 소속을 직접 골라 주세요.");
         }
-        return plans;
+        else requests.Add((request with { OnlyAffiliationMembers = true,
+            ColorUsage = request.ColorUsage ?? await TeamColorUsageAsync(request, progress, ct) }, null));
+
+        var excluded = request.ExcludedCards.ToHashSet();
+        for (var round = 0; round < 4; round++)
+        {
+            var plans = await Task.Run(() =>
+            {
+                var all = new List<SquadPlan>();
+                var colorsBuilt = 0;
+                foreach (var (asked, note) in requests)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var found = new List<SquadPlan>();
+                    InvalidOperationException? failure = null;
+                    foreach (var mode in Enum.GetValues<SquadMode>())
+                    {
+                        try
+                        {
+                            found.AddRange(new SquadBuilder(pool, c => ModelOf(c), rankers).Build(asked with { Mode = mode, Plans = 3, ExcludedCards = excluded }));
+                        }
+                        catch (InvalidOperationException e) { failure ??= e; }
+                    }
+                    if (found.Count == 0)
+                    {
+                        if (requests.Count == 1 && failure is not null) throw failure;
+                        continue;
+                    }
+                    all.AddRange(found.Select(p => p with { SelectionNote = note ?? $"{asked.TeamColors.First(t => t.Color.Category == TeamColorCategory.Affiliation).Color.Name} 소속 11/11" }));
+                    if (++colorsBuilt >= SquadAffiliations.CompareColors) break;
+                }
+                return all;
+            }, ct);
+            if (plans.Count == 0) throw new InvalidOperationException($"예산 {Bp.Format(request.Budget)}·급여 {request.SalaryCap} 안에서 소속 팀컬러 11명 스쿼드를 완성하지 못했습니다. 예산·강화·고정 선수를 확인하세요.");
+            var finalists = Enum.GetValues<SquadMode>().SelectMany(mode => SquadAffiliations.Select(plans, mode, mode == request.Mode ? request.Plans : 1)).ToList();
+            if (round == 3 || liquidity is null) return plans;
+            var bad = await IlliquidAsync(finalists.SelectMany(p => p.Slots).Where(s => !s.Locked && !s.Owned).Select(s => (s.Card.SpId, s.Grade)), progress, ct);
+            if (bad.Count == 0) return plans;
+            excluded.UnionWith(bad);
+        }
+        return [];
     }
 
     // ── liquidity ──────────────────────────────────────────────────────────
@@ -461,19 +525,8 @@ public sealed class SquadService(
     public async Task<IReadOnlyList<SquadPlan>> CompareModesAsync(SquadRequest request, int rankFrom = 1, int rankTo = 10000, CancellationToken ct = default,
         IProgress<string>? progress = null)
     {
-        var plans = new List<SquadPlan>();
-        foreach (var mode in Enum.GetValues<SquadMode>())
-        {
-            try
-            {
-                plans.AddRange((await BuildAsync(request with { Mode = mode, Plans = 1 }, rankFrom, rankTo, ct, progress)).Take(1));
-            }
-            catch (InvalidOperationException) when (mode == SquadMode.RankerPicks)
-            {
-                // No chart yet: the other modes still stand.
-            }
-        }
-        return plans;
+        var candidates = await BuildAffiliationPlansAsync(request, rankFrom, rankTo, ct, progress);
+        return Enum.GetValues<SquadMode>().SelectMany(mode => SquadAffiliations.Select(candidates, mode)).ToList();
     }
 
     // ── analyses ───────────────────────────────────────────────────────────
