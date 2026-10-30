@@ -131,7 +131,7 @@ public partial class CardDetailWindow : Window
         var model = await Task.Run(() => _squads.Market.ModelFor(query));
         if (model is null || grade != Grade) return;
         var expected = model.ExpectedAt(_card, grade);
-        PriceText.Text += $"  ·  예상가 {Bp.Format(expected)} ({StudioKit.Pct(price / (double)Math.Max(expected, 1) - 1)}, 검증 오차 {PriceEvidence.ErrorLabel(model.ValidationError)}) [추정]";
+        PriceText.Text += $"  ·  예상가 {Bp.Format(expected)} ({StudioKit.Pct(price / (double)Math.Max(expected, 1) - 1)}, 비슷한 카드 오차 {PriceEvidence.ErrorLabel(model.ErrorOf(_card))}) [추정]";
     }
 
     private void ShowStats()
@@ -275,8 +275,10 @@ public partial class CardDetailWindow : Window
             running *= Math.Exp(r.LogEffect);
             return new WhyRow(r.Label, $"{r.Percent:+0;-0}%", Bp.Format((long)running), r.Detail ?? "");
         }).ToList();
+        var band = model.BandOf(_card);
         WhyFooter.Text = (why.Expected > (long)why.Predicted ? $"계산값 {Bp.Format((long)why.Predicted)}이 강화 하한가보다 낮아 하한가를 예상가로 씁니다. " : "")
-            + $"시장 회귀로 나눈 값이고 게임 내 성능이 아닙니다 [추정]. 예상가와 시세의 차이는 모델이 못 본 수요일 수 있고, 시세가 그쪽으로 움직인다는 뜻이 아닙니다. 검증 오차 {PriceEvidence.ErrorLabel(model.ValidationError)}.";
+            + (band is null ? "" : $"이 카드 같은 경우 시세는 {Bp.Format(band.Low)} ~ {Bp.Format(band.High)}에 80%가 들어갑니다 (믿음도 {band.Trust}, 비슷한 카드 오차 {PriceEvidence.ErrorLabel(band.Error)}). ")
+            + $"시장 회귀로 나눈 값이고 게임 내 성능이 아닙니다 [추정]. 예상가와 시세의 차이는 모델이 못 본 수요일 수 있고, 시세가 그쪽으로 움직인다는 뜻이 아닙니다. 포지션 전체 검증 오차 {PriceEvidence.ErrorLabel(model.ValidationError)}.";
     }
 
     private async Task ShowSimilarAsync()

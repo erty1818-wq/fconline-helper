@@ -76,6 +76,9 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
 {
     public string ModelError { get; init; } = "";
     public string Evidence { get; init; } = "";
+    /// <summary>Where 80% of the prices of cards like this one fall, and how sure the model is of it.</summary>
+    public string Range { get; init; } = "";
+    public string Trust { get; init; } = "";
     /// <summary>The card's cached 소속 team colours.</summary>
     public string Colors { get; init; } = "";
     /// <summary>🐝 when the card is a 꿀선수 and is known to trade.</summary>
@@ -96,6 +99,8 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
         {
             Honey = liquidity is { Tradable: true } && p.OutsideModelError && FcHelper.Market.Honey.IsHoney(p.Discount) ? FcHelper.Market.Honey.Mark : "",
             ModelError = PriceEvidence.ErrorLabel(p.ModelError),
+            Range = p.Band is { } band ? $"{Bp.Format(band.Low)} ~ {Bp.Format(band.High)}" : "",
+            Trust = p.Band?.Trust ?? "",
             Evidence = PriceEvidence.Label(p.EvidenceScore),
             SpId = c.SpId,
         };

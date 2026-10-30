@@ -20,6 +20,7 @@ internal static class SquadCommands
         var lists = new DataCenterListClient(http, dataCenter);
         var market = new MarketService(lists, store, _ => Task.FromResult("[]"));
         if (Flag(option("offline"))) market.SetValueMemberships(CachedMemberships(store));
+        market.SetCardUsageSource(() => ReadUsage(dbPath));
         FcOnlineApi? api = string.IsNullOrWhiteSpace(apiKey) ? null : new FcOnlineApi(http, apiKey, new RateLimiter(5));
         var squads = new SquadService(market, store, new DataCenterChartClient(http, dataCenter),
             new TeamColorCache(store, new DataCenterTeamColorClient(http, dataCenter, lists)), api,
@@ -251,6 +252,12 @@ internal static class SquadCommands
             store.LoadTeamColorMembers(c.Id)) { Share = chart.TeamColors.FirstOrDefault(u => u.Id == c.Id || u.Name == c.Name)?.Share ?? 0 }).ToList();
     }
 
+    private static IReadOnlyDictionary<long, int> ReadUsage(string dbPath)
+    {
+        var matches = new FcDatabase(dbPath);
+        return CardUsage.Count(matches.EnumerateMatches(50, 20000).Concat(matches.EnumerateMatches(52, 20000)));
+    }
+
     private static async Task<int> ValidateMarket(MarketStore store, Func<string, string?> option)
     {
         var snapshot = store.LatestFinished()!;
@@ -260,6 +267,9 @@ internal static class SquadCommands
         var grades = (option("grades") ?? "8,10,11").Split(',').Select(g => Math.Clamp(Int(g, 11), 1, Grades.MaxTradable));
         var cuts = (option("cuts") ?? "110,115,120").Split(',').Select(c => Int(c, 115)).ToList();
         var auditHinge = Int(option("hinge"), PriceModel.TraitHinge);
+        // MV-14: --usage no and --trees no measure the model without match usage or without the tree part.
+        var auditUsage = option("usage") is "no" or "0" ? null : ReadUsage(option("db") ?? AppPaths.DatabasePath);
+        var auditTrees = option("trees") is not ("no" or "0");
         var reports = new List<object>();
         var poolRows = new Dictionary<(int, int), IReadOnlyList<PriceValidationRow>>();
         var fakePools = new Dictionary<(int, int), List<PriceModel>>();
@@ -282,9 +292,9 @@ internal static class SquadCommands
             // MV-12: field positions share one fit; --pool no measures the old per-position models.
             var pooled = group != "GK" && option("pool") is not ("no" or "0");
             var poolCards = pooled ? cards.Where(c => c.Ovr1 >= cut).ToList() : data;
-            var model = pooled ? PriceModel.FitPool(grade, poolCards, memberships, traitHinge: auditHinge)?.View(group) : PriceModel.Fit(group, grade, data, memberships, traitHinge: auditHinge);
+            var model = pooled ? PriceModel.FitPool(grade, poolCards, memberships, traitHinge: auditHinge, usage: auditUsage)?.View(group) : PriceModel.Fit(group, grade, data, memberships, traitHinge: auditHinge);
             if (model is null) continue;
-            if (pooled && !poolRows.ContainsKey((grade, cut))) poolRows[(grade, cut)] = PriceModel.CrossValidatePool(grade, poolCards, memberships, traitHinge: auditHinge);
+            if (pooled && !poolRows.ContainsKey((grade, cut))) poolRows[(grade, cut)] = PriceModel.CrossValidatePool(grade, poolCards, memberships, traitHinge: auditHinge, usage: auditUsage, trees: auditTrees);
             var rows = pooled ? poolRows[(grade, cut)].Where(r => r.Card.Group == group).ToList() : PriceModel.CrossValidate(group, grade, data, memberships, traitHinge: auditHinge);
             var top = rows.Where(r => r.Card.Ovr1 >= 120 && !r.AtFloor).ToList();
             var focus = new[] { "크로스 포쳐", "라인 브레이커", "트릭스터", "스피드스터" };
@@ -376,7 +386,7 @@ internal static class SquadCommands
                 if (nullT.Count > 0) placebo["pooled"] = NullSummary(nullT.Values.SelectMany(v => v));
             }
             reports.Add(new { Group = group, Grade = grade, MinOvr1 = cut, model.Cards, model.Players, model.FloorCards,
-                ValidatedCards = rows.Count, CompleteValidation = rows.Count == model.Cards, FoldCount = rows.Select(r => r.Fold).Distinct().Count(),
+                ValidatedCards = rows.Count, CompleteValidation = rows.Count == model.Cards, FoldCount = rows.Select(r => r.Fold).Distinct().Count(), Bands = model.BandTiers.Select(t => new { t.Low, t.High, t.Error }).ToList(),
                 SingleHoldoutError = model.ValidationError, All = Summarize(rows),
                 Playable = Summarize(rows.Where(r => r.Card.Ovr1 >= MarketDefaults.MinOvr1)),
                 TopWithTrait = Summarize(top.Where(r => r.Card.Tags.Any(t => t.StartsWith("trait:")))),

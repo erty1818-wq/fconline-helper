@@ -79,7 +79,9 @@
                     <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="80" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="예상가 [추정]" Binding="{Binding Expected}" Width="90" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="차이" Binding="{Binding Diff}" Width="55" ElementStyle="{StaticResource Good}" SortMemberPath="Discount" />
-                    <DataGridTextColumn Header="검증 중앙오차" Binding="{Binding ModelError}" Width="95" />
+                    <DataGridTextColumn Header="예상 범위 (80%)" Binding="{Binding Range}" Width="150" />
+                    <DataGridTextColumn Header="믿음도" Binding="{Binding Trust}" Width="75" />
+                    <DataGridTextColumn Header="비슷한 카드 오차" Binding="{Binding ModelError}" Width="105" />
                     <DataGridTextColumn Header="가격 차이 해석" Binding="{Binding Evidence}" Width="165" />
                     <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="190" />
                 </DataGrid.Columns>

@@ -30,6 +30,18 @@ public sealed class MarketService(
     private readonly Dictionary<(long, string, int), PriceModel?> _models = [];
     private readonly Dictionary<(long, string), IReadOnlyList<MarketCard>> _cards = [];
     private IReadOnlyList<MarketMembership> _memberships = [];
+    private Func<IReadOnlyDictionary<long, int>>? _usageSource;
+    private (long Snapshot, IReadOnlyDictionary<long, int> Usage)? _usage;
+
+    /// <summary>Where starts per card come from (<see cref="CardUsage"/>). Read once per snapshot, the first time a model is needed.</summary>
+    public void SetCardUsageSource(Func<IReadOnlyDictionary<long, int>> source) => _usageSource = source;
+
+    private IReadOnlyDictionary<long, int>? UsageAt(long snapshot)
+    {
+        if (_usageSource is null) return null;
+        if (_usage is not { } known || known.Snapshot != snapshot) _usage = known = (snapshot, _usageSource());
+        return known.Usage;
+    }
 
     /// <summary>Compatibility entry point for callers that only have the union of popular affiliation colours.</summary>
     public void SetRankerTeamColorMembers(IReadOnlySet<long> members)
@@ -181,7 +193,7 @@ public sealed class MarketService(
         if (_pools.TryGetValue((snapshot, grade, minOvr), out var pool)) return pool;
         var cards = MarketGroups.All.Where(g => g.Key != "GK").SelectMany(g => Cards(snapshot, g.Key));
         // Without a floor: the cards anyone still fields. Below this they sit on their price floors and only slow the fit.
-        return _pools[(snapshot, grade, minOvr)] = PriceModel.FitPool(grade, minOvr is { } lo ? cards.Where(c => c.OvrAt(grade) >= lo) : cards.Where(c => c.Ovr1 >= WholeMarketMinOvr1), _memberships);
+        return _pools[(snapshot, grade, minOvr)] = PriceModel.FitPool(grade, minOvr is { } lo ? cards.Where(c => c.OvrAt(grade) >= lo) : cards.Where(c => c.Ovr1 >= WholeMarketMinOvr1), _memberships, usage: UsageAt(snapshot));
     }
 
     private readonly Dictionary<(long, string, int, int), PriceModel?> _playable = [];
