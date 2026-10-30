@@ -239,7 +239,8 @@ public sealed class MarketService(
                 var players = sample.Select(c => c.PlayerId).Distinct().Count();
                 var cardCount = sample.Select(c => c.SpId).Distinct().Count();
                 var byGroup = trait.Select(t => (t.Group, t.Factor)).ToList();
-                if (contributingGroups.Count == 0)
+                // The model learns from a few OVR below the search, so a trait can have a value but no card to show for it.
+                if (contributingGroups.Count == 0 || players < 8)
                 {
                     result.Add(new(trait.Key[6..], scope, double.NaN, double.NaN, double.NaN, 0, cardCount, byGroup)
                         { Players = players, Excluded = trait.Select(x => x.Factor.Excluded).FirstOrDefault(e => e is not null) });
