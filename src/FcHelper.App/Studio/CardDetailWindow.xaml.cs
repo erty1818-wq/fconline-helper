@@ -154,6 +154,7 @@ public partial class CardDetailWindow : Window
                 ToolTip = (color.Color.Category == TeamColorCategory.Feature ? "특성 팀컬러" : "소속 팀컬러") + (color.RankerShare > 0 ? " · 숫자는 랭커 점유율" : ""),
             };
             chip.Click += async (_, _) => await SelectColorAsync(color);
+            chip.Checked += async (_, _) => await SelectColorAsync(color);
             ColorChips.Children.Add(chip);
         }
         if (_profile.Colors.Count == 0) ColorEffects.Text = "이 카드의 팀컬러를 확인하지 못했습니다. 데이터센터 연결을 확인하세요.";
@@ -161,9 +162,11 @@ public partial class CardDetailWindow : Window
 
     private async Task SelectColorAsync(CardColor color)
     {
+        // Checking a chip here raises Checked again: the guard keeps one selection, one search.
+        var changed = _color != color;
         _color = color;
         foreach (var chip in ColorChips.Children.OfType<ToggleButton>()) chip.IsChecked = Equals(chip.Tag, color);
-        await ShowPartnersAsync(color);
+        if (changed) await ShowPartnersAsync(color);
     }
 
     private async Task ShowPartnersAsync(CardColor color)
@@ -210,6 +213,7 @@ public partial class CardDetailWindow : Window
     private void OnTab(object sender, RoutedEventArgs e)
     {
         var tab = (ToggleButton)sender;
+        if (ColorsPanel is null) return; // raised while the window is still being built
         foreach (var t in new[] { ColorsTab, RankersTab, OthersTab }) t.IsChecked = t == tab;
         ColorsPanel.Visibility = tab == ColorsTab ? Visibility.Visible : Visibility.Collapsed;
         RankersPanel.Visibility = tab == RankersTab ? Visibility.Visible : Visibility.Collapsed;
