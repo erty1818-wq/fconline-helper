@@ -449,6 +449,44 @@ public sealed class SquadService(
     public CardAbility? KnownAbility(long spId) => abilities?.Known(spId);
 
     /// <summary>A card's full stats: fetched once from the data center (one request), then kept a week.</summary>
+    /// <summary>
+    /// The card window's data: team colours from the data center (or what is cached when it cannot be reached), the
+    /// official ranker chart, the stored rankers' elevens and the footballer's other cards. No new match requests.
+    /// </summary>
+    public async Task<CardProfile> ProfileAsync(MarketCard card, CancellationToken ct = default)
+    {
+        var chart = await ChartAsync(allowFetch: false, ct: ct) ?? await ChartAsync(ct: ct);
+        var picks = chart?.Picks ?? [];
+        IReadOnlyList<RankerSquad> samples = [];
+        try { samples = await RankerSquadsAsync(allowFetch: false, ct: ct); }
+        catch (InvalidOperationException) { }
+        var ids = store.LoadAllTeamColorMembers().Where(kv => kv.Value.Contains(card.SpId)).Select(kv => kv.Key).ToHashSet();
+        try { ids.UnionWith(await teamColors.CardTeamColorsAsync(card.SpId, ct)); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested) { }
+        var catalog = await TeamColorsAsync(ct);
+        var shares = chart?.TeamColors.Where(t => t.Id > 0).GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First().Share) ?? [];
+        var colors = catalog.Where(t => ids.Contains(t.Id) && t.Category != TeamColorCategory.Enhance)
+            .Select(t => new CardColor(t, shares.GetValueOrDefault(t.Id)))
+            .OrderBy(c => c.Color.Category == TeamColorCategory.Feature ? 1 : 0).ThenByDescending(c => c.RankerShare).ThenBy(c => c.Color.Name).ToList();
+        var pool = EnsurePool();
+        var users = picks.GroupBy(p => p.SpId).ToDictionary(g => g.Key, g => g.Sum(p => p.Users));
+        return new CardProfile(card, colors, CardProfiles.RankerUses(card.SpId, picks), CardProfiles.SquadUse(card.SpId, samples, pool.BySpId),
+            CardProfiles.OtherCards(card, pool.Cards), users, chart?.ChartDate);
+    }
+
+    /// <summary>A team colour's level ladder and the cards worth fielding with this one in it (members fetched on first use, then weekly).</summary>
+    public async Task<(TeamColor? Color, IReadOnlyList<ColorPartner> Partners)> ColorPartnersAsync(int colorId, MarketCard card, int grade, CancellationToken ct = default)
+    {
+        if (await TeamColorAsync(colorId, ct) is not { } target) return (null, []);
+        var chart = await ChartAsync(allowFetch: false, ct: ct);
+        IReadOnlyList<RankerSquad> samples = [];
+        try { samples = await RankerSquadsAsync(allowFetch: false, ct: ct); }
+        catch (InvalidOperationException) { }
+        var filter = new CardFilter { MinOvr = MarketDefaults.MinOvr(grade) };
+        return (target.Color, CardProfiles.Partners(card, target.Members, Pool(), grade, c => market.ModelFor(new ValueQuery { Group = c.Group, Grade = grade, Filter = filter }),
+            chart?.Picks ?? [], samples));
+    }
+
     public async Task<CardAbility?> AbilityAsync(long spId, CancellationToken ct = default, bool needName = false) =>
         abilities is null ? null : await abilities.GetAsync(spId, ct, needName);
 

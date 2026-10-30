@@ -18,6 +18,11 @@ public partial class ValuePage : UserControl
 
     private MarketGroup Group => (MarketGroup)GroupBox.SelectedItem;
 
+    private void OnOpenCard(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (Results.SelectedItem is ValueRow row) CardDetailWindow.Open(row.SpId, GradeBox.SelectedIndex + 1, Window.GetWindow(this));
+    }
+
     private void OnGradeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (GradeBox.SelectedIndex >= 0) Filters.SetGrade(GradeBox.SelectedIndex + 1);

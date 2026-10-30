@@ -28,7 +28,7 @@
         </Border>
         <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Foreground="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap" />
         <Grid>
-            <DataGrid x:Name="Results">
+            <DataGrid x:Name="Results" MouseDoubleClick="OnOpenCard" ToolTip="두 번 누르면 선수 정보를 엽니다.">
                 <DataGrid.Columns>
                     <DataGridTemplateColumn Header="꿀" Width="36" SortMemberPath="Discount">
                         <DataGridTemplateColumn.CellTemplate>

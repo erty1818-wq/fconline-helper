@@ -682,3 +682,68 @@ public class PooledPriceModelTests
         Assert.True(new CardFilter().Matches(Card(), 11)); // nothing chosen: any card
     }
 }
+
+public class CardProfileTests
+{
+    private static MarketCard Card(long spId, string name, int ovr, string position, long price, params string[] tags) => new()
+    {
+        Group = RankerAllocation.RoleOf(position), SpId = spId, Name = name, Season = "S", Pay = 25, Ovr1 = ovr, RatingCount = 50,
+        Prices = new Dictionary<int, long> { [1] = 1000, [11] = price }, Positions = new Dictionary<string, int> { [position] = ovr }, Tags = tags.ToHashSet(),
+    };
+
+    [Fact]
+    public void Rankers_elevens_tell_where_a_card_plays_and_who_plays_with_it()
+    {
+        var me = Card(100_000_001, "me", 120, "ST", 1_000_000_000);
+        var mate = Card(100_000_002, "mate", 120, "CM", 1_000_000_000);
+        var other = Card(100_000_003, "other", 120, "CB", 1_000_000_000);
+        var cards = new[] { me, mate, other }.ToDictionary(c => c.SpId);
+        RankerSquad Squad(int rank, params (long SpId, int Grade, string Position)[] starters) =>
+            new(rank, "x", 0, starters.Select(s => new RankerSquadPlayer(s.SpId, s.Grade, s.Position)).ToList());
+        IReadOnlyList<RankerSquad> squads =
+        [
+            Squad(1, (me.SpId, 11, "ST"), (mate.SpId, 11, "CM")),
+            Squad(2, (me.SpId, 11, "ST"), (mate.SpId, 10, "CM"), (other.SpId, 11, "CB")),
+            Squad(3, (other.SpId, 11, "CB")),
+        ];
+        var use = CardProfiles.SquadUse(me.SpId, squads, cards);
+
+        Assert.Equal(2, use.Squads);
+        Assert.Equal(3, use.Sample);
+        Assert.Equal(("ST", 11, 2), use.Slots.Single());
+        Assert.Equal(mate.SpId, use.Teammates[0].Card.SpId);
+        Assert.Equal(2, use.Teammates[0].Together);
+        Assert.DoesNotContain(use.Teammates, t => t.Card.SpId == me.SpId);
+    }
+
+    [Fact]
+    public void A_footballers_other_cards_count_once_and_exclude_the_card_itself()
+    {
+        var me = Card(100_000_001, "me", 120, "ST", 1_000_000_000);
+        var newer = Card(200_000_001, "me", 125, "ST", 1_000_000_000);
+        var older = Card(300_000_001, "me", 110, "ST", 1_000_000_000);
+        var other = Card(100_000_009, "other", 130, "ST", 1_000_000_000);
+        var others = CardProfiles.OtherCards(me, [me, newer, newer with { Group = "W" }, older, other]);
+
+        Assert.Equal([newer.SpId, older.SpId], others.Select(c => c.SpId).ToList());
+    }
+
+    [Fact]
+    public void Partners_are_grouped_by_role_rankers_first_without_the_footballer_or_cards_far_below()
+    {
+        var me = Card(100_000_001, "me", 125, "ST", 1_000_000_000);
+        var again = Card(200_000_001, "me", 125, "ST", 1_000_000_000);
+        var used = Card(100_000_002, "used", 120, "CM", 3_000_000_000);
+        var cheap = Card(100_000_003, "cheap", 120, "CM", 500_000_000);
+        var weak = Card(100_000_004, "weak", 100, "CM", 100_000_000);
+        var keeper = Card(100_000_005, "keeper", 120, "GK", 800_000_000);
+        var outsider = Card(100_000_006, "outsider", 125, "CM", 800_000_000);
+        var members = new HashSet<long> { me.SpId, again.SpId, used.SpId, cheap.SpId, weak.SpId, keeper.SpId };
+        var picks = new[] { new RankerPick("CM", used.SpId, "used", 11, 143, 25, 40, 0.01) };
+        var partners = CardProfiles.Partners(me, members, [me, again, used, cheap, weak, keeper, outsider], 11, _ => null, picks, []);
+
+        Assert.Equal([used.SpId, cheap.SpId, keeper.SpId], partners.Select(p => p.Card.SpId).ToList());
+        Assert.Equal(40, partners[0].RankerUsers);
+        Assert.Equal("GK", partners[2].Role);
+    }
+}
