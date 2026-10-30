@@ -248,7 +248,7 @@ internal static class SquadCommands
         var colors = chart.TeamColors.Select(u => catalog.FirstOrDefault(c => c.Category == TeamColorCategory.Affiliation
             && (u.Id > 0 ? c.Id == u.Id : c.Name == u.Name))).Where(c => c is not null).Take(SquadService.RankerTeamColors);
         return colors.Select(c => new MarketMembership($"tc:aff:{c!.Id}", $"소속 팀컬러: {c.Name}", FactorKind.TeamColor,
-            store.LoadTeamColorMembers(c.Id))).ToList();
+            store.LoadTeamColorMembers(c.Id)) { Share = chart.TeamColors.FirstOrDefault(u => u.Id == c.Id || u.Name == c.Name)?.Share ?? 0 }).ToList();
     }
 
     private static async Task<int> ValidateMarket(MarketStore store, Func<string, string?> option)
@@ -261,6 +261,8 @@ internal static class SquadCommands
         var cuts = (option("cuts") ?? "110,115,120").Split(',').Select(c => Int(c, 115)).ToList();
         var auditHinge = Int(option("hinge"), PriceModel.TraitHinge);
         var reports = new List<object>();
+        var poolRows = new Dictionary<(int, int), IReadOnlyList<PriceValidationRow>>();
+        var fakePools = new Dictionary<(int, int), List<PriceModel>>();
         object Summarize(IEnumerable<PriceValidationRow> input)
         {
             var rows = input.ToList();
@@ -277,9 +279,13 @@ internal static class SquadCommands
         foreach (var cut in cuts)
         {
             var data = cards.Where(c => c.Group == group && c.Ovr1 >= cut).ToList();
-            var model = PriceModel.Fit(group, grade, data, memberships, traitHinge: auditHinge);
+            // MV-12: field positions share one fit; --pool no measures the old per-position models.
+            var pooled = group != "GK" && option("pool") is not ("no" or "0");
+            var poolCards = pooled ? cards.Where(c => c.Ovr1 >= cut).ToList() : data;
+            var model = pooled ? PriceModel.FitPool(grade, poolCards, memberships, traitHinge: auditHinge)?.View(group) : PriceModel.Fit(group, grade, data, memberships, traitHinge: auditHinge);
             if (model is null) continue;
-            var rows = PriceModel.CrossValidate(group, grade, data, memberships, traitHinge: auditHinge);
+            if (pooled && !poolRows.ContainsKey((grade, cut))) poolRows[(grade, cut)] = PriceModel.CrossValidatePool(grade, poolCards, memberships, traitHinge: auditHinge);
+            var rows = pooled ? poolRows[(grade, cut)].Where(r => r.Card.Group == group).ToList() : PriceModel.CrossValidate(group, grade, data, memberships, traitHinge: auditHinge);
             var top = rows.Where(r => r.Card.Ovr1 >= 120 && !r.AtFloor).ToList();
             var focus = new[] { "크로스 포쳐", "라인 브레이커", "트릭스터", "스피드스터" };
             object Split(IEnumerable<PriceValidationRow> input)
@@ -305,7 +311,40 @@ internal static class SquadCommands
                 var random = new Random(seed);
                 var nullT = new Dictionary<string, List<double>>();
                 var eligible = data.Where(c => c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
-                for (var draw = 0; draw < draws; draw++)
+                if (pooled)
+                {
+                    // MV-12: shuffle over the shared fit's cards; every position reads the same fake pools.
+                    if (!fakePools.TryGetValue((grade, cut), out var fakes))
+                    {
+                        fakes = [];
+                        var poolRandom = new Random(20261030 + grade * 1000 + cut);
+                        var pool = poolCards.Where(c => c.Group != "GK" && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+                        for (var draw = 0; draw < draws; draw++)
+                        {
+                            var bundle = new Dictionary<long, string[]>();
+                            foreach (var season in pool.DistinctBy(c => c.SpId).GroupBy(c => c.Season))
+                            {
+                                var source = season.ToArray();
+                                var bundles = source.Select(c => c.Tags.Where(t => t.StartsWith("trait:")).ToArray()).ToArray();
+                                poolRandom.Shuffle(bundles);
+                                for (var i = 0; i < source.Length; i++) bundle[source[i].SpId] = bundles[i];
+                            }
+                            var fakeRows = pool.Select(c => c with { Tags = c.Tags.Where(t => !t.StartsWith("trait:")).Concat(bundle[c.SpId]).ToHashSet() });
+                            if (PriceModel.FitPool(grade, fakeRows, memberships, validate: false, traitHinge: auditHinge) is { } fakePool) fakes.Add(fakePool);
+                        }
+                        fakePools[(grade, cut)] = fakes;
+                    }
+                    foreach (var fakePool in fakes)
+                        foreach (var f in fakePool.View(group)?.Factors().Where(f => f.Kind == FactorKind.Trait && f.Estimated) ?? [])
+                        {
+                            var b = Math.Log(1 + f.Percent / 100);
+                            var se = (Math.Log(1 + f.High / 100) - Math.Log(1 + f.Low / 100)) / (2 * f.Critical);
+                            if (se <= 1e-10 || !double.IsFinite(se)) continue;
+                            if (!nullT.TryGetValue(f.Name, out var values)) nullT[f.Name] = values = [];
+                            values.Add(Math.Abs(b / se));
+                        }
+                }
+                else for (var draw = 0; draw < draws; draw++)
                 {
                     var shuffled = new List<MarketCard>();
                     foreach (var season in eligible.GroupBy(c => c.Season))
@@ -394,6 +433,7 @@ internal static class SquadCommands
                     + $"{(double.IsFinite(f.PerOvr) ? $" · OVR {PriceModel.TraitTopOvr} 카드 기준 (OVR {PriceModel.TraitHinge} 이하 {f.PercentBelowHinge:+0;-0}%, 그 위 +1마다 {f.PerOvr * 100:+0;-0}%p)" : "")}{(f.Comparisons is { } cmp ? $" · 같은 선수 비교 {cmp}명" : "")}"
                     + $"{(f.Cards is { } n ? $"  {n}장" : "")} · 선수 {f.Players}명{(f.Clear ? "" : "  (불확실)")}{(f.IsInflating ? "  뻥스탯" : "")}");
         }
+        Print("급여", factors.Where(f => f.Kind == FactorKind.Salary));
         Print("핵심 신특", factors.Where(f => f.Kind == FactorKind.Trait && f.IsCore));
         Print("코어 능력치·피지컬", factors.Where(f => (f.Kind == FactorKind.Stat && f.IsCore) || f.Kind is FactorKind.Height or FactorKind.Weight).OrderByDescending(f => f.Percent));
         Print("그 밖의 능력치", factors.Where(f => f.Kind == FactorKind.Stat && !f.IsCore).OrderByDescending(f => f.Percent));

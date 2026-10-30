@@ -741,12 +741,13 @@ public sealed class SquadService(
     {
         var members = new HashSet<long>();
         var factors = new List<MarketMembership>();
+        var shareOf = (await ChartAsync(allowFetch: false, ct: ct))?.TeamColors.Where(t => t.Id > 0).GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First().Share) ?? [];
         var popular = await PopularTeamColorsAsync(top, ct);
         foreach (var (color, _) in popular)
         {
             if (await TeamColorAsync(color.Id, ct) is not { } tc) continue;
             members.UnionWith(tc.Members);
-            factors.Add(new MarketMembership($"tc:aff:{color.Id}", $"소속 팀컬러: {color.Name}", FactorKind.TeamColor, tc.Members));
+            factors.Add(new MarketMembership($"tc:aff:{color.Id}", $"소속 팀컬러: {color.Name}", FactorKind.TeamColor, tc.Members) { Share = shareOf.GetValueOrDefault(color.Id) });
         }
         if (top == RankerTeamColors)
         {

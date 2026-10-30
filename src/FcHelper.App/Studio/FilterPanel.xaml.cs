@@ -249,7 +249,7 @@ public partial class FilterPanel : UserControl
         var selectedColors = new[] { AffiliationColorBox.SelectedItem, FeatureColorBox.SelectedItem }.OfType<TeamColorFilterChoice>().Where(c => c.Id > 0).ToList();
         if (selectedColors.Count > 0) parts.AddRange(selectedColors.Select(c => c.Name));
         else if (f.Members is not null) parts.Add("랭커 팀컬러 20");
-        if (f.Traits.Count > 0) parts.Add(string.Join("+", f.Traits));
+        if (f.Traits.Count > 0) parts.Add(string.Join(" 또는 ", f.Traits));
         if (f.Body is { } b) parts.Add(b switch { "thin" => "마름", "heavy" => "건장", _ => "보통" });
         if (f.MinHeight is not null || f.MaxHeight is not null) parts.Add($"키 {f.MinHeight}~{f.MaxHeight}");
         parts.AddRange(f.MinStats.Select(kv => $"{MarketGroups.StatNames.GetValueOrDefault(kv.Key, kv.Key)}≥{kv.Value}"));

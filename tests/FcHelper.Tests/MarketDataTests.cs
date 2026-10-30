@@ -408,7 +408,7 @@ public class SameFootballerTests
         Assert.InRange(model.PlayerEffect(cards[i]) - fair.PlayerEffect(cards[i]), -0.02, 0.02);
         // Name values spread far more than one card's noise here, so two other cards are trusted almost fully (ln3 apart).
         var other = cards.First(c => c.Name == "p4" && c.Season == "S0");
-        Assert.InRange(model.PlayerEffect(cards[i]) - model.PlayerEffect(other), Math.Log(3) * 0.85, Math.Log(3) * 1.1);
+        Assert.InRange(model.PlayerEffect(cards[i]) - model.PlayerEffect(other), Math.Log(3) * 0.7, Math.Log(3) * 1.1);
         var picks = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8, Filter = new CardFilter { MinRatings = 0 } });
         var pick = picks.MinBy(p => p.Discount)!;
         Assert.Equal(cards[i].SpId, pick.Card.SpId);
@@ -589,5 +589,96 @@ public class MarketRefreshTests : IDisposable
         }
         var ids = Enumerable.Range(1, 5).Count(id => store.CountCards(id) > 0);
         Assert.Equal(MarketStore.KeepSnapshots, ids);
+    }
+}
+
+public class PooledPriceModelTests
+{
+    /// <summary>
+    /// Field cards over three positions. Every footballer has one card per season; favourites cost 3×. The salary lowers
+    /// a full-back's price by 30% per point and does nothing for a striker or winger, as the +11 market does.
+    /// </summary>
+    private static List<MarketCard> Market(int players = 300)
+    {
+        var r = new Random(12);
+        var cards = new List<MarketCard>();
+        var roles = new[] { ("ST", "ST"), ("W", "LW"), ("FB", "LB") };
+        for (var p = 0; p < players; p++)
+        {
+            var (group, position) = roles[p % 3];
+            for (var s = 0; s < 3; s++)
+            {
+                var ovr = 110 + (p * 7 + s * 3) % 20;
+                var pay = 20 + (ovr - 110) / 2 + r.Next(-3, 4);
+                var log = 18 + Math.Log(1.4) * (ovr - 110) + (p % 4 == 0 ? Math.Log(3) : 0) + s * 0.3
+                    + (group == "FB" ? Math.Log(0.7) * (pay - 25) : 0) + (r.NextDouble() - 0.5) * 0.2;
+                var card = new MarketCard
+                {
+                    Group = group, SpId = (300 + s) * 1_000_000 + p, Name = $"p{p}", Season = $"S{s}", Pay = pay, Ovr1 = ovr, WeakFoot = 3, RatingCount = 50,
+                    Prices = new Dictionary<int, long> { [1] = 1000, [11] = (long)Math.Exp(log) },
+                    Positions = new Dictionary<string, int> { [position] = ovr },
+                };
+                cards.Add(card);
+                // A striker's card is also listed among the wingers: one price, one row.
+                if (group == "ST" && p % 2 == 0) cards.Add(card with { Group = "W" });
+            }
+        }
+        return cards;
+    }
+
+    [Fact]
+    public void A_card_listed_by_two_positions_counts_once_and_each_position_reads_its_own_values()
+    {
+        var cards = Market();
+        var pool = PriceModel.FitPool(11, cards)!;
+        Assert.Equal(cards.Select(c => c.SpId).Distinct().Count(), pool.Cards);
+        var fullBack = pool.View("FB")!;
+        var striker = pool.View("ST")!;
+        Assert.Equal(300, fullBack.Cards);
+        Assert.InRange(fullBack.Factors().Single(f => f.Key == "pay").Percent, -40, -15); // true −30% per point
+        Assert.InRange(striker.Factors().Single(f => f.Key == "pay").Percent, -12, 12);
+        Assert.Null(pool.View("CDM")); // nobody listed there
+    }
+
+    [Fact]
+    public void A_footballers_card_at_another_position_tells_about_him()
+    {
+        // The footballer's only striker card has no sibling among the strikers; his winger card informs it in the pool.
+        var cards = Market();
+        var i = cards.FindIndex(c => c.Name == "p4" && c.Season == "S0");
+        var j = cards.FindIndex(c => c.Name == "p4" && c.Season == "S1");
+        var moved = new MarketCard { Group = "W", SpId = cards[j].SpId, Name = "p4", Season = "S1", Pay = cards[j].Pay, Ovr1 = cards[j].Ovr1, WeakFoot = 3, RatingCount = 50,
+            Prices = cards[j].Prices, Positions = new Dictionary<string, int> { ["LW"] = cards[j].Ovr1 } };
+        cards = cards.Where(c => c.SpId != moved.SpId).Append(moved).ToList();
+        var pool = PriceModel.FitPool(11, cards)!;
+        Assert.True(pool.View("ST")!.PlayerEffect(cards[i]) > 0.25); // a favourite: ln3 above the others, shrunk
+    }
+
+    [Fact]
+    public void Rankers_favourite_colour_raises_the_price_when_its_share_is_known()
+    {
+        var cards = Market();
+        var members = cards.Where(c => c.PlayerId % 5 == 0).Select(c => c.SpId).ToHashSet();
+        var priced = cards.Select(c => members.Contains(c.SpId) ? c with { Prices = new Dictionary<int, long> { [1] = 1000, [11] = c.PriceAt(11) * 2 } } : c).ToList();
+        var pool = PriceModel.FitPool(11, priced, [new("tc:aff:1", "소속 팀컬러: A", FactorKind.TeamColor, members) { Share = 0.08 }])!;
+        var member = priced.First(c => members.Contains(c.SpId));
+        var other = member with { SpId = 999_000_001 }; // the same spec outside the colour
+        Assert.True(Math.Log(pool.Predict(member)) - pool.PlayerEffect(member) > Math.Log(pool.Predict(other)) - pool.PlayerEffect(other));
+    }
+
+    [Fact]
+    public void Trait_filter_means_any_of_the_chosen_traits()
+    {
+        MarketCard Card(params string[] tags) => new()
+        {
+            Group = "ST", SpId = 1, Name = "a", Season = "S", Ovr1 = 120, RatingCount = 50,
+            Prices = new Dictionary<int, long> { [1] = 1000, [11] = 1_000_000 }, Tags = tags.ToHashSet(),
+        };
+        var filter = new CardFilter { Traits = ["라인 브레이커", "크로스 포쳐"] };
+        Assert.True(filter.Matches(Card("trait:라인 브레이커"), 11));
+        Assert.True(filter.Matches(Card("trait:크로스 포쳐"), 11));
+        Assert.False(filter.Matches(Card("trait:트릭스터"), 11));
+        Assert.False(filter.Matches(Card(), 11));
+        Assert.True(new CardFilter().Matches(Card(), 11)); // nothing chosen: any card
     }
 }

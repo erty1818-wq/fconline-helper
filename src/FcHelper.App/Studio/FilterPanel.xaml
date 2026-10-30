@@ -40,9 +40,9 @@
         <WrapPanel>
             <StackPanel Margin="0,0,14,6"><TextBlock Text="소속 팀컬러" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="AffiliationColorBox" MinWidth="180" SelectionChanged="OnTeamColorChanged" /></StackPanel>
             <StackPanel Margin="0,0,14,6"><TextBlock Text="특성 팀컬러" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="FeatureColorBox" MinWidth="180" SelectionChanged="OnTeamColorChanged" /></StackPanel>
-            <StackPanel Margin="0,0,14,6"><TextBlock Text="선수 특성 1" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait1Box" MinWidth="130" /></StackPanel>
-            <StackPanel Margin="0,0,14,6"><TextBlock Text="선수 특성 2" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait2Box" MinWidth="130" /></StackPanel>
-            <StackPanel Margin="0,0,14,6"><TextBlock Text="선수 특성 3" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait3Box" MinWidth="130" /></StackPanel>
+            <StackPanel Margin="0,0,14,6"><TextBlock Text="선수 특성 (또는)" Style="{StaticResource FieldLabel}" ToolTip="고른 특성 중 하나라도 가진 카드를 찾습니다. 예: 라인 브레이커 또는 크로스 포쳐" /><ComboBox x:Name="Trait1Box" MinWidth="130" /></StackPanel>
+            <StackPanel Margin="0,0,14,6"><TextBlock Text="또는" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait2Box" MinWidth="130" /></StackPanel>
+            <StackPanel Margin="0,0,14,6"><TextBlock Text="또는" Style="{StaticResource FieldLabel}" /><ComboBox x:Name="Trait3Box" MinWidth="130" /></StackPanel>
             <StackPanel Margin="0,0,14,6">
                 <TextBlock Text="능력치 조건 (이상, +1 기준)" Style="{StaticResource FieldLabel}" />
                 <StackPanel Orientation="Horizontal">

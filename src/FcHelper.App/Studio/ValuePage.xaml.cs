@@ -76,7 +76,8 @@ public partial class ValuePage : UserControl
         catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException or InvalidOperationException) { }
         // The playable market (OVR floor of the filter), else the whole group.
         var floor = int.TryParse(Filters.MinOvrText, out var lo) ? lo : 0;
-        if (((floor > 0 ? market.ModelAbove(group.Key, grade, floor - MarketService.PlayableMargin) : null) ?? market.Model(group.Key, grade)) is not { } model)
+        Status.Text = "가격 모델 계산 중… (처음 한 번 몇 초 걸립니다)";
+        if (await Task.Run(() => (floor > 0 ? market.ModelAbove(group.Key, grade, floor - MarketService.PlayableMargin) : null) ?? market.Model(group.Key, grade)) is not { } model)
         {
             Status.Text = "이 포지션·강화 단계는 거래되는 카드가 너무 적습니다.";
             Factors.ItemsSource = null;

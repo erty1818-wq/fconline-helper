@@ -44,6 +44,7 @@ public sealed class MarketService(
             _memberships = memberships;
             _models.Clear();
             _playable.Clear();
+            _pools.Clear();
         }
     }
 
@@ -164,9 +165,23 @@ public sealed class MarketService(
         lock (_models)
         {
             if (!_models.TryGetValue((snap.Id, group, grade), out var model))
-                _models[(snap.Id, group, grade)] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group), _memberships);
+                _models[(snap.Id, group, grade)] = model = group == "GK"
+                    ? PriceModel.Fit(group, grade, Cards(snap.Id, group), _memberships)
+                    : Pool(snap.Id, grade, null)?.View(group);
             return model;
         }
+    }
+
+    private readonly Dictionary<(long, int, int?), PriceModel?> _pools = [];
+    private const int WholeMarketMinOvr1 = 110;
+
+    /// <summary>The field positions' shared fit (MV-12), refitted only when the snapshot, grade, OVR floor or memberships change.</summary>
+    private PriceModel? Pool(long snapshot, int grade, int? minOvr)
+    {
+        if (_pools.TryGetValue((snapshot, grade, minOvr), out var pool)) return pool;
+        var cards = MarketGroups.All.Where(g => g.Key != "GK").SelectMany(g => Cards(snapshot, g.Key));
+        // Without a floor: the cards anyone still fields. Below this they sit on their price floors and only slow the fit.
+        return _pools[(snapshot, grade, minOvr)] = PriceModel.FitPool(grade, minOvr is { } lo ? cards.Where(c => c.OvrAt(grade) >= lo) : cards.Where(c => c.Ovr1 >= WholeMarketMinOvr1), _memberships);
     }
 
     private readonly Dictionary<(long, string, int, int), PriceModel?> _playable = [];
@@ -183,7 +198,9 @@ public sealed class MarketService(
         {
             var key = (snap.Id, group, grade, minOvr);
             if (!_playable.TryGetValue(key, out var model))
-                _playable[key] = model = PriceModel.Fit(group, grade, Cards(snap.Id, group).Where(c => c.OvrAt(grade) >= minOvr), _memberships);
+                _playable[key] = model = group == "GK"
+                    ? PriceModel.Fit(group, grade, Cards(snap.Id, group).Where(c => c.OvrAt(grade) >= minOvr), _memberships)
+                    : Pool(snap.Id, grade, minOvr)?.View(group);
             return model;
         }
     }

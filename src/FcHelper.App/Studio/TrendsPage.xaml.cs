@@ -18,13 +18,14 @@ public partial class TrendsPage : UserControl
         Loaded += (_, _) => OnShow(this, new RoutedEventArgs());
     }
 
-    private void OnShow(object sender, RoutedEventArgs e)
+    private async void OnShow(object sender, RoutedEventArgs e)
     {
         if (StudioKit.Squads is not { } squads) return;
         if (!StudioKit.TryPrice(MinBox, 0, out var min)) { Status.Text = "가격은 억 단위 숫자로 입력하세요 (예: 0.1 = 0.1억)."; return; }
         try
         {
-            var moves = squads.PriceMoves(MarketStore.HistoryGrades[GradeBox.SelectedIndex], Days[DaysBox.SelectedIndex], min);
+            var (grade, days) = (MarketStore.HistoryGrades[GradeBox.SelectedIndex], Days[DaysBox.SelectedIndex]);
+            var moves = await Task.Run(() => squads.PriceMoves(grade, days, min));
             if (moves.Count == 0)
             {
                 Status.Text = "비교할 과거 시세가 아직 없습니다. 자동 갱신이 하루 이상 쌓이면 여기에 보입니다.";
