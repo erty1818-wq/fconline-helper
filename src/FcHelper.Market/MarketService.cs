@@ -30,13 +30,13 @@ public sealed class MarketService(
     private readonly Dictionary<(long, string, int), PriceModel?> _models = [];
     private readonly Dictionary<(long, string), IReadOnlyList<MarketCard>> _cards = [];
     private IReadOnlyList<MarketMembership> _memberships = [];
-    private Func<IReadOnlyDictionary<long, int>>? _usageSource;
-    private (long Snapshot, IReadOnlyDictionary<long, int> Usage)? _usage;
+    private Func<IReadOnlyDictionary<long, CardUse>>? _usageSource;
+    private (long Snapshot, IReadOnlyDictionary<long, CardUse> Usage)? _usage;
 
-    /// <summary>Where starts per card come from (<see cref="CardUsage"/>). Read once per snapshot, the first time a model is needed.</summary>
-    public void SetCardUsageSource(Func<IReadOnlyDictionary<long, int>> source) => _usageSource = source;
+    /// <summary>Where each card's use comes from (<see cref="CardUsage"/>). Read once per snapshot, the first time a model is needed.</summary>
+    public void SetCardUsageSource(Func<IReadOnlyDictionary<long, CardUse>> source) => _usageSource = source;
 
-    private IReadOnlyDictionary<long, int>? UsageAt(long snapshot)
+    private IReadOnlyDictionary<long, CardUse>? UsageAt(long snapshot)
     {
         if (_usageSource is null) return null;
         if (_usage is not { } known || known.Snapshot != snapshot) _usage = known = (snapshot, _usageSource());

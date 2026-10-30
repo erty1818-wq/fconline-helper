@@ -172,7 +172,7 @@ public sealed class PriceModel
     ];
 
     private const string ReasonColor = "reason:color", ReasonPay = "reason:pay", ReasonStat = "reason:stat:", ReasonUsage = "reason:usage";
-    private readonly IReadOnlyDictionary<long, int>? _usage;
+    private readonly IReadOnlyDictionary<long, CardUse>? _usage;
     private PriceTrees.Part[]? _treeParts;
     // A training card's tree estimate, from the part that did not see the card.
     private readonly Dictionary<long, double> _treeLog = [];
@@ -238,7 +238,7 @@ public sealed class PriceModel
     public double ValidationLogScale { get; private set; }
 
     private PriceModel(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships, bool validate = true,
-        int? traitHinge = TraitHinge, bool linearTraits = false, bool pooled = false, IReadOnlyDictionary<long, int>? usage = null)
+        int? traitHinge = TraitHinge, bool linearTraits = false, bool pooled = false, IReadOnlyDictionary<long, CardUse>? usage = null)
     {
         _pooled = pooled;
         _usage = usage;
@@ -380,9 +380,9 @@ public sealed class PriceModel
     /// One fit over the field cards of every position (the goalkeepers have other stats and stay on their own). A card
     /// listed by several groups is one row. Use <see cref="View"/> for a position's values and validation.
     /// </summary>
-    /// <param name="usage">Starts per card in the stored official matches (<see cref="CardUsage"/>).</param>
+    /// <param name="usage">How each card is used in the stored official matches (<see cref="CardUsage"/>).</param>
     public static PriceModel? FitPool(int grade, IEnumerable<MarketCard> cards, IReadOnlyList<MarketMembership>? memberships = null, bool validate = true,
-        int? traitHinge = TraitHinge, bool linearTraits = false, IReadOnlyDictionary<long, int>? usage = null)
+        int? traitHinge = TraitHinge, bool linearTraits = false, IReadOnlyDictionary<long, CardUse>? usage = null)
     {
         var rows = cards.Where(c => c.Group != "GK" && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         var data = Unique(rows);
@@ -475,14 +475,17 @@ public sealed class PriceModel
         {
             // How often it is fielded: demand the specs do not show. Same footballer's other cards count too (MV-14).
             var perPlayer = new Dictionary<int, int>();
-            foreach (var (spId, starts) in usage)
+            foreach (var (spId, use) in usage)
             {
                 var player = (int)(spId % 1_000_000);
-                perPlayer[player] = perPlayer.GetValueOrDefault(player) + starts;
+                perPlayer[player] = perPlayer.GetValueOrDefault(player) + use.Starts;
             }
-            Z("use_card", c => Math.Log(1 + usage.GetValueOrDefault(c.SpId)), 30, reason: ReasonUsage);
+            Z("use_card", c => LogStarts(c), 30, reason: ReasonUsage);
             Z("use_any", c => usage.ContainsKey(c.SpId) ? 1 : 0, 30, reason: ReasonUsage);
             Z("use_player", c => Math.Log(1 + perPlayer.GetValueOrDefault(c.PlayerId)), 30, reason: ReasonUsage);
+            // At what grade: whether managers actually field it at +11 says what +11 is worth to them (MV-15).
+            Z("use_11", c => LogAtEleven(c), 30, reason: ReasonUsage);
+            Z("use_11_any", c => LogAtEleven(c) > 0 ? 1 : 0, 30, reason: ReasonUsage);
         }
         var families = data.Select(c => _familyOf[c.SpId]).Distinct().Order().ToArray();
         foreach (var f in families.Skip(1)) Z($"family:{f}", c => FamilyOf(c) == f ? 1 : 0, 1e-3);
@@ -599,6 +602,9 @@ public sealed class PriceModel
         return (1 - TreeWeight) * Math.Max(linear, floor) + TreeWeight * Math.Max(tree, floor);
     }
 
+    private double LogStarts(MarketCard c) => Math.Log(1 + (_usage?.GetValueOrDefault(c.SpId)?.Starts ?? 0));
+    private double LogAtEleven(MarketCard c) => Math.Log(1 + (_usage?.GetValueOrDefault(c.SpId)?.AtEleven ?? 0));
+
     private double TreeLog(MarketCard c)
     {
         if (_treeLog.TryGetValue(c.SpId, out var known)) return known;
@@ -616,7 +622,7 @@ public sealed class PriceModel
                 c.Ovr1, c.Pay, c.WeakFoot, c.Stats.TryGetValue("height", out var h) ? h : double.NaN, c.Stats.TryGetValue("weight", out var w) ? w : double.NaN,
                 c.Positions.Count, c.Tags.Count(t => t.StartsWith("trait:")), _treeColours.Count(m => m.Members.Contains(c.SpId)),
                 _treeColours.Where(m => m.Members.Contains(c.SpId)).Select(m => m.Share).DefaultIfEmpty(0).Max(),
-                Math.Log(1 + (_usage?.GetValueOrDefault(c.SpId) ?? 0)),
+                LogStarts(c), LogAtEleven(c),
             };
             foreach (var s in _stats) row.Add(c.Stats.TryGetValue(s, out var v) ? v - c.Ovr1 : double.NaN);
             var family = FamilyOf(c);
@@ -991,7 +997,7 @@ public sealed class PriceModel
     /// </summary>
     public static IReadOnlyList<PriceValidationRow> CrossValidatePool(int grade, IEnumerable<MarketCard> cards,
         IReadOnlyList<MarketMembership>? memberships = null, int? traitHinge = TraitHinge, bool linearTraits = false,
-        IReadOnlyDictionary<long, int>? usage = null, bool trees = true)
+        IReadOnlyDictionary<long, CardUse>? usage = null, bool trees = true)
     {
         var rows = cards.Where(c => c.Group != "GK" && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         var result = new List<PriceValidationRow>();
@@ -1009,7 +1015,7 @@ public sealed class PriceModel
     /// Held-out error per position. All five folds on the playable market: one fold swung by ±10%p for a position (MV-13);
     /// one fold on the whole market, where five would take half a minute.
     /// </summary>
-    private void ValidatePool(int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships, int? traitHinge, bool linearTraits, IReadOnlyDictionary<long, int>? usage)
+    private void ValidatePool(int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships, int? traitHinge, bool linearTraits, IReadOnlyDictionary<long, CardUse>? usage)
     {
         FitCrossFittedTrees();
         var folds = data.Count <= MaxCardsForAllFolds ? 5 : 1;
@@ -1053,7 +1059,7 @@ public sealed class PriceModel
     {
         var others = _footballer.TryGetValue(c.PlayerId, out var cards) ? cards.Count(t => t.SpId != c.SpId) : 0;
         var floor = Math.Log(Math.Max(FloorAt(c, Grade) ?? 1, 1));
-        return [1, Math.Log(1 + others), others == 0 ? 1 : 0, Math.Log(1 + (_usage?.GetValueOrDefault(c.SpId) ?? 0)), c.Ovr1 - _ovrMean, blended - 18,
+        return [1, Math.Log(1 + others), others == 0 ? 1 : 0, LogStarts(c), c.Ovr1 - _ovrMean, blended - 18,
             Math.Max(0, Math.Log(Bp.Eok) - blended), blended - floor, c.Tags.Count(t => t.StartsWith("trait:")), Math.Abs(linear - tree), seasonError.GetValueOrDefault(c.Season, anyError)];
     }
 

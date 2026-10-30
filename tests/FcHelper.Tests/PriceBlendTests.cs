@@ -61,12 +61,12 @@ public class PriceBlendTests
         {
             MatchInfo =
             [
-                new MatchInfo { Player = [new MatchPlayer { SpId = 1, SpPosition = 25 }, new MatchPlayer { SpId = 2, SpPosition = 28 }] },
-                new MatchInfo { Player = [new MatchPlayer { SpId = 1, SpPosition = 3 }] },
+                new MatchInfo { Player = [new MatchPlayer { SpId = 1, SpPosition = 25, SpGrade = 11 }, new MatchPlayer { SpId = 2, SpPosition = 28, SpGrade = 11 }] },
+                new MatchInfo { Player = [new MatchPlayer { SpId = 1, SpPosition = 3, SpGrade = 8 }] },
             ],
         };
         var usage = CardUsage.Count([match]);
-        Assert.Equal(2, usage[1]);
+        Assert.Equal(new CardUse(2, 1), usage[1]);
         Assert.False(usage.ContainsKey(2));
     }
 
@@ -104,7 +104,7 @@ public class PriceBlendTests
         Assert.All(bands, b => Assert.NotNull(b));
         Assert.All(cards.Zip(bands), t => Assert.True(t.Second!.Low <= pool.Expected(t.First) && pool.Expected(t.First) <= t.Second.High));
         Assert.Equal(pool.BandOf(cards[0])!.Error, pool.ErrorOf(cards[0]));
-        var used = PriceModel.FitPool(11, cards, usage: cards.Where(c => c.PlayerId % 2 == 0).ToDictionary(c => c.SpId, _ => 50))!;
+        var used = PriceModel.FitPool(11, cards, usage: cards.Where(c => c.PlayerId % 2 == 0).ToDictionary(c => c.SpId, _ => new CardUse(50, 20)))!;
         Assert.Contains(used.Explain(cards[1]).Reasons, r => r.Label == "공식 경기 사용량");
     }
 

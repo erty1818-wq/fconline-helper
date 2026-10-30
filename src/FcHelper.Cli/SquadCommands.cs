@@ -252,7 +252,7 @@ internal static class SquadCommands
             store.LoadTeamColorMembers(c.Id)) { Share = chart.TeamColors.FirstOrDefault(u => u.Id == c.Id || u.Name == c.Name)?.Share ?? 0 }).ToList();
     }
 
-    private static IReadOnlyDictionary<long, int> ReadUsage(string dbPath)
+    private static IReadOnlyDictionary<long, CardUse> ReadUsage(string dbPath)
     {
         var matches = new FcDatabase(dbPath);
         return CardUsage.Count(matches.EnumerateMatches(50, 20000).Concat(matches.EnumerateMatches(52, 20000)));
@@ -269,6 +269,8 @@ internal static class SquadCommands
         var auditHinge = Int(option("hinge"), PriceModel.TraitHinge);
         // MV-14: --usage no and --trees no measure the model without match usage or without the tree part.
         var auditUsage = option("usage") is "no" or "0" ? null : ReadUsage(option("db") ?? AppPaths.DatabasePath);
+        // MV-15: --played no leaves only the starts, without the grade they were played at.
+        if (option("played") is "no" or "0") auditUsage = auditUsage?.ToDictionary(u => u.Key, u => new CardUse(u.Value.Starts));
         var auditTrees = option("trees") is not ("no" or "0");
         var reports = new List<object>();
         var poolRows = new Dictionary<(int, int), IReadOnlyList<PriceValidationRow>>();
@@ -395,6 +397,10 @@ internal static class SquadCommands
                 Factors = model.Factors().Where(f => f.Kind == FactorKind.Trait), Shapes = shapes, Placebo = placebo });
             Console.Error.WriteLine($"{group} +{grade} · +1 OVR {cut}+ · {rows.Count}장 5묶음 검증 완료");
         }
+        // --rows writes each card's held-out estimate, to pair two runs card by card: a median moves by itself with any column added.
+        if (option("rows") is { } rowsPath)
+            await File.WriteAllLinesAsync(rowsPath, poolRows.SelectMany(p => p.Value.DistinctBy(r => r.Card.SpId).Select(r =>
+                $"{p.Key.Item1},{r.Card.SpId},{r.Card.PlayerId},{r.Card.Ovr1},{r.Card.PriceAt(r.Grade)},{r.Expected},{(r.AtFloor ? 1 : 0)},{r.Card.Tags.Count(t => t.StartsWith("trait:"))},{auditUsage?.GetValueOrDefault(r.Card.SpId)?.Starts ?? 0}")));
         var report = new { Snapshot = snapshot, Memberships = memberships.Select(m => m.Key),
             TraitHinge = auditHinge, PriceModel.TraitTopOvr, PriceModel.TraitCritical, MarketService.PlayableMargin, Models = reports };
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });

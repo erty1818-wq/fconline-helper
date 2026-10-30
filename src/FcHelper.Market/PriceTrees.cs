@@ -151,17 +151,24 @@ internal sealed class PriceTrees
     }
 }
 
-/// <summary>How often each card was fielded in the stored official matches (MV-14): the one demand signal the specs do not carry.</summary>
+/// <summary>How a card is used in the stored official matches: its starts, and how many of them at +11.</summary>
+public sealed record CardUse(int Starts, int AtEleven = 0);
+
+/// <summary>How often each card is fielded and at what grade (MV-14, MV-15): the demand signals the specs do not carry.</summary>
 public static class CardUsage
 {
-    /// <summary>Starts per card; the substitutes' bench does not count.</summary>
-    public static IReadOnlyDictionary<long, int> Count(IEnumerable<MatchDetail> matches)
+    /// <summary>Per card; the substitutes' bench does not count.</summary>
+    public static IReadOnlyDictionary<long, CardUse> Count(IEnumerable<MatchDetail> matches)
     {
-        var counts = new Dictionary<long, int>();
+        var counts = new Dictionary<long, CardUse>();
         foreach (var match in matches)
             foreach (var side in match.MatchInfo)
                 foreach (var player in side.Player)
-                    if (!player.IsSubstitute) counts[player.SpId] = counts.GetValueOrDefault(player.SpId) + 1;
+                {
+                    if (player.IsSubstitute) continue;
+                    var known = counts.GetValueOrDefault(player.SpId) ?? new CardUse(0);
+                    counts[player.SpId] = known with { Starts = known.Starts + 1, AtEleven = known.AtEleven + (player.SpGrade >= 11 ? 1 : 0) };
+                }
         return counts;
     }
 }
