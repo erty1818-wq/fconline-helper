@@ -30,7 +30,7 @@
             </Button>
             <TextBlock x:Name="Status" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
         </DockPanel>
-        <DataGrid x:Name="Results">
+        <DataGrid x:Name="Results" MouseDoubleClick="OnOpenCard" ToolTip="두 번 누르면 선수 정보를 엽니다.">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="포지션" Binding="{Binding Position}" Width="60" />
                 <DataGridTemplateColumn Header="꿀" Width="36">

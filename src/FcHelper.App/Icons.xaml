@@ -100,6 +100,25 @@
         </DrawingImage.Drawing>
     </DrawingImage>
 
+    <!-- Icon.Nav.Favorites: Star -->
+    <DrawingImage x:Key="Icon.Nav.Favorites">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="Transparent" Geometry="M0,0 H24 V24 H0 Z" />
+                <GeometryDrawing Pen="{StaticResource PenBase}" Geometry="M12,3 L14.8,8.9 L21.2,9.7 L16.5,14.1 L17.8,20.5 L12,17.3 L6.2,20.5 L7.5,14.1 L2.8,9.7 L9.2,8.9 Z" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="Icon.Nav.Favorites.Active">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="Transparent" Geometry="M0,0 H24 V24 H0 Z" />
+                <GeometryDrawing Pen="{StaticResource PenActive}" Geometry="M12,3 L14.8,8.9 L21.2,9.7 L16.5,14.1 L17.8,20.5 L12,17.3 L6.2,20.5 L7.5,14.1 L2.8,9.7 L9.2,8.9 Z" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
     <!-- Icon.Nav.Value: Price tag + down arrow -->
     <DrawingImage x:Key="Icon.Nav.Value">
         <DrawingImage.Drawing>

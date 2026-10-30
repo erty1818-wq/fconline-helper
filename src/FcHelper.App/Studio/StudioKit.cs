@@ -76,6 +76,8 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
 {
     public string ModelError { get; init; } = "";
     public string Evidence { get; init; } = "";
+    /// <summary>The card's cached 소속 team colours.</summary>
+    public string Colors { get; init; } = "";
     /// <summary>🐝 when the card is a 꿀선수 and is known to trade.</summary>
     public string Honey { get; init; } = "";
     /// <summary>The card, for its mini face in the grid.</summary>
@@ -141,9 +143,17 @@ public sealed record FactorRow(string Name, string Kind, string Percent, double 
             : "");
 }
 
-public sealed record SalaryRow(string Name, string Season, int Ovr, string Effective, int Pay, string PerPay, string Price, string Tags);
+public sealed record SalaryRow(string Name, string Season, int Ovr, string Effective, int Pay, string PerPay, string Price, string Tags)
+{
+    public long SpId { get; init; }
+    public int GradeValue { get; init; }
+}
 
-public sealed record MoveRow(string Name, string Season, string Grade, string Before, string Now, string Change, string SpecDiff);
+public sealed record MoveRow(string Name, string Season, string Grade, string Before, string Now, string Change, string SpecDiff)
+{
+    public long SpId { get; init; }
+    public int GradeValue { get; init; }
+}
 
 public sealed record GradeRow(string Grade, int Ovr, string Price, string PerOvr, string Alternative, string Premium, double BarWidth, bool Competitive);
 

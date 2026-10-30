@@ -18,6 +18,11 @@ public partial class TrendsPage : UserControl
         Loaded += (_, _) => OnShow(this, new RoutedEventArgs());
     }
 
+    private void OnOpenCard(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (((DataGrid)sender).SelectedItem is MoveRow row) CardDetailWindow.Open(row.SpId, row.GradeValue, Window.GetWindow(this));
+    }
+
     private async void OnShow(object sender, RoutedEventArgs e)
     {
         if (StudioKit.Squads is not { } squads) return;
@@ -32,7 +37,7 @@ public partial class TrendsPage : UserControl
                 Down.ItemsSource = Up.ItemsSource = null;
                 return;
             }
-            MoveRow Row(PriceMove m) => new(m.Card.Name, m.Card.Season, $"+{m.Grade}", Bp.Format(m.Before), Bp.Format(m.Now), StudioKit.Pct(m.Change), StudioKit.Pct(m.Discount));
+            MoveRow Row(PriceMove m) => new(m.Card.Name, m.Card.Season, $"+{m.Grade}", Bp.Format(m.Before), Bp.Format(m.Now), StudioKit.Pct(m.Change), StudioKit.Pct(m.Discount)) { SpId = m.Card.SpId, GradeValue = m.Grade };
             Down.ItemsSource = moves.Where(m => m.Change < 0).Take(100).Select(Row).ToList();
             Up.ItemsSource = moves.Where(m => m.Change > 0).Reverse().Take(100).Select(Row).ToList();
             var alerts = Advisors.Alerts(moves);

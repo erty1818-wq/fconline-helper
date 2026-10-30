@@ -28,7 +28,7 @@
             </Grid.ColumnDefinitions>
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="많이 내린 카드" Style="{StaticResource H2}" />
-                <DataGrid x:Name="Down">
+                <DataGrid x:Name="Down" MouseDoubleClick="OnOpenCard" ToolTip="두 번 누르면 선수 정보를 엽니다.">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
                         <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="70" />
@@ -42,7 +42,7 @@
             </DockPanel>
             <DockPanel Grid.Column="2">
                 <TextBlock DockPanel.Dock="Top" Text="많이 오른 카드" Style="{StaticResource H2}" />
-                <DataGrid x:Name="Up">
+                <DataGrid x:Name="Up" MouseDoubleClick="OnOpenCard" ToolTip="두 번 누르면 선수 정보를 엽니다.">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
                         <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="70" />

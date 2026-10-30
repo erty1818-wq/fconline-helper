@@ -132,6 +132,6 @@
             </DockPanel>
         </Border>
         <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap" />
-        <DataGrid x:Name="Results" MouseDoubleClick="OnOpenPlayer" ToolTip="두 번 누르면 공식 데이터센터 선수 페이지가 열립니다" />
+        <DataGrid x:Name="Results" MouseDoubleClick="OnOpenPlayer" ToolTip="두 번 누르면 선수 정보를 엽니다. 시세 자료에 없는 카드는 공식 데이터센터 선수 페이지가 열립니다" />
     </DockPanel>
 </UserControl>

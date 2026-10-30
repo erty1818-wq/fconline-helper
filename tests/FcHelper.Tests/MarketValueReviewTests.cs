@@ -139,7 +139,7 @@ public class MarketValueReviewTests
         Assert.Equal("모델 오차 범위 내", PriceEvidence.Label(pick.EvidenceScore));
         var quietModel = pick with { LogErrorScale = 0.1 };
         Assert.True(quietModel.OutsideModelError);
-        Assert.Equal("저평가 후보 [추정]", PriceEvidence.Label(quietModel.EvidenceScore));
+        Assert.Equal("비슷한 카드보다 쌈 [추정]", PriceEvidence.Label(quietModel.EvidenceScore));
         Assert.False((pick with { LogErrorScale = double.NaN }).OutsideModelError);
     }
 

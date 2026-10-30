@@ -408,6 +408,10 @@ public partial class App : Application
     {
         try
         {
+            var reached = Squads?.FavoriteTargetsReached() ?? [];
+            if (reached.Count > 0)
+                Dispatcher.BeginInvoke(() => Notify("즐겨찾기 목표가 도달: " + string.Join(", ",
+                    reached.Take(3).Select(r => $"{r.Card.Name} {r.Card.Season} +{r.Favorite.Grade} {Market.Bp.Format(r.Price)}"))));
             var alerts = Squads?.Alerts() ?? [];
             if (alerts.Count == 0) return;
             Dispatcher.BeginInvoke(() => Notify("시세 급락 가성비: " + string.Join(", ",

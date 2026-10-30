@@ -48,6 +48,11 @@ public partial class PicksPage : UserControl
         });
     }
 
+    private void OnOpenCard(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (Results.SelectedItem is PickRow row) CardDetailWindow.Open(row.SpId, row.GradeValue, Window.GetWindow(this));
+    }
+
     private void OnLock(object sender, RoutedEventArgs e)
     {
         if (Results.SelectedItem is not PickRow row) { Status.Text = "표에서 선수를 먼저 고르세요."; return; }

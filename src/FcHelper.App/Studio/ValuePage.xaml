@@ -11,7 +11,7 @@
                     <StackPanel>
                         <TextBlock Text="가성비 찾기" Style="{StaticResource H1}" />
                         <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
-                                   Text="비슷한 스펙의 예상가와 실제 시세를 비교합니다 [추정]. 모델 오차 범위 안의 가격 차이는 저평가로 판정하지 않습니다. 호날두·호나우두·굴리트는 가격 학습에서 뺍니다." />
+                                   Text="비슷한 스펙의 예상가와 실제 시세를 비교합니다 [추정]. 싸다는 것은 비슷한 카드와 비교한 결과이고, 시세가 오른다는 뜻이 아닙니다. 과거 시세로 시험했을 때 싸다고 본 카드가 며칠 사이 더 오르지는 않았습니다. 호날두·호나우두·굴리트는 가격 학습에서 뺍니다." />
                     </StackPanel>
                 </DockPanel>
                 <WrapPanel>
@@ -21,6 +21,8 @@
                         <ToggleButton x:Name="CardsView" Style="{StaticResource Chip}" Content="가성비 카드" IsChecked="True" Click="OnView" Checked="OnView" />
                         <ToggleButton x:Name="FactorsView" Style="{StaticResource Chip}" Content="가격 요인 (이 포지션)" Click="OnView" Checked="OnView" />
                         <ToggleButton x:Name="TraitsView" Style="{StaticResource Chip}" Content="신특 평균 값어치" Click="OnView" Checked="OnView" />
+                        <ToggleButton x:Name="SquadColorOnly" Style="{StaticResource Chip}" Content="스쿼드 소속 팀컬러만" Margin="14,0,0,0"
+                                      ToolTip="스쿼드 짜기 화면에서 고른(또는 AI가 고른) 소속 팀컬러의 카드만 찾습니다." />
                     </StackPanel>
                 </WrapPanel>
                 <studio:FilterPanel x:Name="Filters" />
@@ -33,7 +35,7 @@
                     <DataGridTemplateColumn Header="꿀" Width="36" SortMemberPath="Discount">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Image Source="{app:Icon Honey}" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="저평가 후보 [추정]: 예상가 대비 30% 이상 낮고 검증 오차보다 큰 차이, 거래 확인">
+                                <Image Source="{app:Icon Honey}" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="저평가 후보 [추정]: 비슷한 카드보다 쌈 [추정]: 예상가 대비 30% 이상 낮고 검증 오차보다 큰 차이, 거래 확인. 시세가 오른다는 뜻은 아닙니다">
                                     <Image.Style>
                                         <Style TargetType="Image">
                                             <Setter Property="Visibility" Value="Visible" />
@@ -68,16 +70,17 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
                     <DataGridTextColumn Header="OVR" Binding="{Binding Ovr}" Width="45" />
+                    <DataGridTextColumn Header="소속 팀컬러" Binding="{Binding Colors}" Width="110" />
                     <DataGridTextColumn Header="코어" Binding="{Binding Core}" Width="50" ElementStyle="{StaticResource Num}" SortMemberPath="CoreValue" />
                     <DataGridTextColumn Header="약발" Binding="{Binding WeakFoot}" Width="40" />
                     <DataGridTextColumn Header="급여" Binding="{Binding Pay}" Width="40" />
                     <DataGridTextColumn Header="키" Binding="{Binding Height}" Width="45" />
-                    <DataGridTextColumn Header="코어 능력치 (+1)" Binding="{Binding Stats}" Width="*" />
+                    <DataGridTextColumn Header="코어 능력치 (+1)" Binding="{Binding Stats}" Width="200" />
                     <DataGridTextColumn Header="시세" Binding="{Binding Price}" Width="80" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="예상가 [추정]" Binding="{Binding Expected}" Width="90" ElementStyle="{StaticResource Num}" />
                     <DataGridTextColumn Header="차이" Binding="{Binding Diff}" Width="55" ElementStyle="{StaticResource Good}" SortMemberPath="Discount" />
                     <DataGridTextColumn Header="검증 중앙오차" Binding="{Binding ModelError}" Width="95" />
-                    <DataGridTextColumn Header="가격 차이 해석" Binding="{Binding Evidence}" Width="135" />
+                    <DataGridTextColumn Header="가격 차이 해석" Binding="{Binding Evidence}" Width="165" />
                     <DataGridTextColumn Header="특성 · 개인기 · 체형" Binding="{Binding Tags}" Width="190" />
                 </DataGrid.Columns>
             </DataGrid>

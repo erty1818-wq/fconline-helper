@@ -6,6 +6,11 @@ namespace FcHelper.App.Studio;
 
 public partial class SalaryPage : UserControl
 {
+    private void OnOpenCard(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (Results.SelectedItem is SalaryRow row) CardDetailWindow.Open(row.SpId, row.GradeValue, Window.GetWindow(this));
+    }
+
     public SalaryPage()
     {
         InitializeComponent();
@@ -26,7 +31,7 @@ public partial class SalaryPage : UserControl
         {
             var list = await Task.Run(() => squads.SalaryEfficiency(position, grade, min, max, minOvr));
             Results.ItemsSource = list.Take(300).Select(s => new SalaryRow(s.Card.Name, s.Card.Season, s.Ovr, $"{s.EffectiveOvr:0.0}", s.Pay, $"{s.OvrPerPay:0.00}",
-                Bp.Format(s.Price), StudioKit.Tags(s.Card))).ToList();
+                Bp.Format(s.Price), StudioKit.Tags(s.Card)) { SpId = s.Card.SpId, GradeValue = s.Grade }).ToList();
             Status.Text = $"{position} +{grade} · {list.Count}장 · 급여 1당 환산 OVR 높은 순";
         });
     }

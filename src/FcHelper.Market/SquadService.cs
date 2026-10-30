@@ -474,6 +474,52 @@ public sealed class SquadService(
             CardProfiles.OtherCards(card, pool.Cards), users, chart?.ChartDate);
     }
 
+    private const string FavoritesKey = "market.favorites.v1";
+
+    /// <summary>The cards the user watches, stored on this PC.</summary>
+    public IReadOnlyList<FavoriteCard> Favorites()
+    {
+        if (store.GetValue(FavoritesKey) is not { } saved) return [];
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<FavoriteCard>>(saved.Value) ?? []; }
+        catch (System.Text.Json.JsonException) { return []; }
+    }
+
+    /// <summary>Adds or updates the card at this grade; null target removes it.</summary>
+    public void SetFavorite(long spId, int grade, long? targetPrice)
+    {
+        var list = Favorites().Where(f => f.SpId != spId || f.Grade != grade).ToList();
+        if (targetPrice is { } target) list.Add(new FavoriteCard(spId, grade, target));
+        store.SetValue(FavoritesKey, System.Text.Json.JsonSerializer.Serialize(list), Now);
+    }
+
+    public IReadOnlyList<(FavoriteCard Favorite, MarketCard Card, long Price)> FavoriteTargetsReached() => CardProfiles.TargetsReached(Favorites(), Card);
+
+    /// <summary>The data center's daily prices of a card at a grade, oldest first; empty when it cannot be read.</summary>
+    public async Task<IReadOnlyList<long>> DailyPricesAsync(long spId, int grade, CancellationToken ct = default) =>
+        liquidity is null ? [] : await liquidity.DailyPricesAsync(spId, grade, ct);
+
+    /// <summary>Cheaper cards for the same role, for the card window.</summary>
+    public IReadOnlyList<SimilarCard> SimilarCards(MarketCard card, int grade)
+    {
+        var filter = new CardFilter { MinOvr = MarketDefaults.MinOvr(grade) };
+        return CardProfiles.Similar(card, Pool(), grade, c => market.ModelFor(new ValueQuery { Group = c.Group, Grade = grade, Filter = filter }));
+    }
+
+    /// <summary>The cached 소속 team colours of each card, for the value table; nothing is fetched.</summary>
+    public IReadOnlyDictionary<long, string> AffiliationNames(IReadOnlyList<TeamColor> catalog)
+    {
+        var names = catalog.Where(c => c.Category != TeamColorCategory.Feature && c.Category != TeamColorCategory.Enhance).ToDictionary(c => c.Id, c => c.Name);
+        var result = new Dictionary<long, List<string>>();
+        foreach (var (id, members) in store.LoadAllTeamColorMembers())
+            if (names.TryGetValue(id, out var name))
+                foreach (var spId in members)
+                {
+                    if (!result.TryGetValue(spId, out var list)) result[spId] = list = [];
+                    list.Add(name);
+                }
+        return result.ToDictionary(kv => kv.Key, kv => string.Join(", ", kv.Value));
+    }
+
     /// <summary>A team colour's level ladder and the cards worth fielding with this one in it (members fetched on first use, then weekly).</summary>
     public async Task<(TeamColor? Color, IReadOnlyList<ColorPartner> Partners)> ColorPartnersAsync(int colorId, MarketCard card, int grade, CancellationToken ct = default)
     {

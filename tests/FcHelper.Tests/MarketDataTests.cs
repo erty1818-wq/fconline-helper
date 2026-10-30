@@ -594,6 +594,20 @@ public class MarketRefreshTests : IDisposable
 
 public class PooledPriceModelTests
 {
+    [Fact]
+    public void The_explanation_multiplies_back_to_the_prediction()
+    {
+        var cards = Market().Select((c, i) => i % 7 == 0 ? c with { Tags = new HashSet<string> { "trait:라인 브레이커" } } : c).ToList();
+        var pool = PriceModel.FitPool(11, cards)!;
+        foreach (var c in new[] { cards[0], cards[1], cards[50], cards[201] })
+        {
+            var why = pool.Explain(c);
+            var rebuilt = why.Base * Math.Exp(why.Reasons.Sum(r => r.LogEffect));
+            Assert.Equal(why.Predicted, rebuilt, why.Predicted * 1e-6);
+            Assert.Equal(c.Tags.Contains("trait:라인 브레이커"), why.Reasons.Any(r => r.Label == "특성: 라인 브레이커"));
+        }
+    }
+
     /// <summary>
     /// Field cards over three positions. Every footballer has one card per season; favourites cost 3×. The salary lowers
     /// a full-back's price by 30% per point and does nothing for a striker or winger, as the +11 market does.
@@ -726,6 +740,37 @@ public class CardProfileTests
         var others = CardProfiles.OtherCards(me, [me, newer, newer with { Group = "W" }, older, other]);
 
         Assert.Equal([newer.SpId, older.SpId], others.Select(c => c.SpId).ToList());
+    }
+
+    [Fact]
+    public void Similar_cards_are_cheaper_for_the_same_role_same_trait_first()
+    {
+        var me = Card(100_000_001, "me", 120, "ST", 1_000_000_000, "trait:라인 브레이커");
+        var sameTrait = Card(100_000_002, "same", 119, "ST", 500_000_000, "trait:라인 브레이커");
+        var stronger = Card(100_000_003, "strong", 122, "ST", 800_000_000);
+        var dearer = Card(100_000_004, "dear", 125, "ST", 2_000_000_000);
+        var weak = Card(100_000_005, "weak", 110, "ST", 100_000_000);
+        var keeper = Card(100_000_006, "keeper", 125, "GK", 100_000_000);
+        var again = Card(200_000_001, "me", 125, "ST", 100_000_000);
+        var similar = CardProfiles.Similar(me, [me, sameTrait, stronger, dearer, weak, keeper, again], 11, _ => null);
+
+        Assert.Equal([sameTrait.SpId, stronger.SpId], similar.Select(s => s.Card.SpId).ToList());
+        Assert.True(similar[0].SameTrait);
+    }
+
+    [Fact]
+    public void Favorites_report_only_cards_at_or_under_their_target()
+    {
+        var cheap = Card(100_000_001, "cheap", 120, "ST", 900_000_000);
+        var dear = Card(100_000_002, "dear", 120, "ST", 1_100_000_000);
+        var noTarget = Card(100_000_003, "any", 120, "ST", 1);
+        var cards = new[] { cheap, dear, noTarget }.ToDictionary(c => c.SpId);
+        var reached = CardProfiles.TargetsReached(
+            [new FavoriteCard(cheap.SpId, 11, 1_000_000_000), new FavoriteCard(dear.SpId, 11, 1_000_000_000), new FavoriteCard(noTarget.SpId, 11, 0), new FavoriteCard(7, 11, 5)],
+            id => cards.GetValueOrDefault(id));
+
+        Assert.Equal(cheap.SpId, reached.Single().Card.SpId);
+        Assert.Equal(900_000_000, reached.Single().Price);
     }
 
     [Fact]

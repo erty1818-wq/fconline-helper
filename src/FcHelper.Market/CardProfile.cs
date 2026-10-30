@@ -23,6 +23,12 @@ public sealed record CardColor(TeamColor Color, double RankerShare);
 public sealed record CardProfile(MarketCard Card, IReadOnlyList<CardColor> Colors, IReadOnlyList<CardRankerUse> RankerUses, CardSquadUse Squads,
     IReadOnlyList<MarketCard> OtherCards, IReadOnlyDictionary<long, int> RankerUsers, string? ChartDate);
 
+/// <summary>A card like the looked-at one for less: same role, about the same OVR.</summary>
+public sealed record SimilarCard(MarketCard Card, int Ovr, long Price, long Expected, bool SameTrait);
+
+/// <summary>A card the user watches at one grade; TargetPrice 0 means no alert.</summary>
+public sealed record FavoriteCard(long SpId, int Grade, long TargetPrice);
+
 public static class CardProfiles
 {
     private static readonly string[] RoleOrder = ["ST", "CF", "W", "SM", "CAM", "CM", "CDM", "FB", "CB", "GK"];
@@ -44,6 +50,30 @@ public static class CardProfiles
             .Select(g => new CardTeammate(cards[g.Key], g.GroupBy(p => p.Grade).MaxBy(x => x.Count())!.Key, g.Count())).ToList();
         return new CardSquadUse(mine.Count, squads.Count, slots, teammates);
     }
+
+    /// <summary>
+    /// Cheaper cards for the same role within one OVR of this card (or better), other footballers only. Same trait first,
+    /// then the highest OVR, then the cheapest.
+    /// </summary>
+    public static IReadOnlyList<SimilarCard> Similar(MarketCard card, IEnumerable<MarketCard> pool, int grade, Func<MarketCard, PriceModel?> modelOf, int top = 15)
+    {
+        var role = RankerAllocation.RoleOf(card.MainPosition);
+        var ovr = card.OvrAt(grade);
+        var price = card.PriceAt(grade);
+        var traits = card.Tags.Where(t => t.StartsWith("trait:")).ToHashSet();
+        return pool.Where(c => c.PlayerId != card.PlayerId && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && c.PriceAt(grade) < price
+                && c.OvrAt(grade) >= ovr - 1 && RankerAllocation.RoleOf(c.MainPosition) == role)
+            .DistinctBy(c => c.SpId)
+            .Select(c => new SimilarCard(c, c.OvrAt(grade), c.PriceAt(grade), modelOf(c)?.ExpectedAt(c, grade) ?? c.PriceAt(grade), c.Tags.Any(traits.Contains)))
+            .OrderByDescending(s => s.SameTrait).ThenByDescending(s => s.Ovr).ThenBy(s => s.Price).Take(top).ToList();
+    }
+
+    /// <summary>Watched cards at or under their target price.</summary>
+    public static IReadOnlyList<(FavoriteCard Favorite, MarketCard Card, long Price)> TargetsReached(IEnumerable<FavoriteCard> favorites, Func<long, MarketCard?> cardOf) =>
+        favorites.Where(f => f.TargetPrice > 0)
+            .Select(f => (Favorite: f, Card: cardOf(f.SpId)))
+            .Where(x => x.Card is not null && x.Card.PriceAt(x.Favorite.Grade) is > 0 and var p && p <= x.Favorite.TargetPrice)
+            .Select(x => (x.Favorite, x.Card!, x.Card!.PriceAt(x.Favorite.Grade))).ToList();
 
     /// <summary>
     /// Fellow members of a team colour worth fielding with the card, per role: what rankers actually field first, then the

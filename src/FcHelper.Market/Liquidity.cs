@@ -75,6 +75,9 @@ public sealed class LiquidityCache(MarketStore store, PriceHistoryClient client,
         return v.Value.Split(':') is [var d, var c] ? new CardLiquidity(spId, grade, int.Parse(d, CultureInfo.InvariantCulture), int.Parse(c, CultureInfo.InvariantCulture)) : null;
     }
 
+    /// <summary>The data center's daily prices, oldest first (up to 365 days), for the card window's graph.</summary>
+    public Task<IReadOnlyList<long>> DailyPricesAsync(long spId, int grade, CancellationToken ct = default) => client.DailyPricesAsync(spId, grade, ct);
+
     public async Task<CardLiquidity> GetAsync(long spId, int grade, CancellationToken ct = default)
     {
         if (Known(spId, grade) is { } known) return known;

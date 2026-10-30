@@ -377,6 +377,54 @@ public partial class SquadPage : UserControl
         await RefreshWorkingAsync();
     }
 
+    /// <summary>The 소속 colour the squad is built on (chosen or found by the AI); 0 when none yet.</summary>
+    public int AffiliationId => WorkingAffiliationId;
+
+    /// <summary>
+    /// A squad around chosen cards (from the card window): each is fixed in its best position that is free in this
+    /// formation, the colour is selected, and the AI fills the rest. What the user owns stays; other picks are replaced.
+    /// </summary>
+    public async Task BuildAroundAsync(IReadOnlyList<(long SpId, int Grade)> cards, TeamColor? color)
+    {
+        if (StudioKit.Squads is not { } squads || await MakerAsync() is not { } maker) { Status.Text = "준비 중입니다."; return; }
+        Remember();
+        for (var i = 0; i < _working.Length; i++)
+            if (_working[i] is { Owned: false }) _working[i] = null;
+        var missing = new List<string>();
+        foreach (var (spId, grade) in cards)
+        {
+            if (squads.Card(spId) is not { } card) continue;
+            // By role: a formation calls its strikers LS and RS, a card says ST. Its own roles first, then the nearest.
+            var roles = card.Positions.OrderByDescending(p => p.Value).Select(p => RankerAllocation.RoleOf(p.Key)).Append(RankerAllocation.RoleOf(card.MainPosition)).ToList();
+            roles.AddRange(roles.SelectMany(r => NearRoles.GetValueOrDefault(r, [])).ToList());
+            var slot = -1;
+            foreach (var role in roles)
+            {
+                slot = Enumerable.Range(0, _positions.Length).FirstOrDefault(i => RankerAllocation.RoleOf(_positions[i]) == role && _working[i] is null, -1);
+                if (slot >= 0) break;
+            }
+            if (slot < 0) { missing.Add(card.Name); continue; }
+            _working[slot] = maker.Slot(slot, _positions[slot], card, grade, owned: false, locked: true);
+        }
+        if (color is not null) UseTeamColor(color.Id, color.Name, color.Category);
+        await RefreshWorkingAsync();
+        // A budget under the fixed cards themselves could never give a squad.
+        var fixedPrice = _working.Where(s => s is { Owned: false }).Sum(s => s!.Price);
+        var budgetRaised = StudioKit.TryPrice(BudgetBox, long.MaxValue, out var budget) && budget <= fixedPrice;
+        if (budgetRaised) BudgetBox.Text = Math.Ceiling(fixedPrice * 2.0 / Bp.Eok).ToString("0");
+        await BuildPlansAsync(squads);
+        var notes = new List<string>();
+        if (budgetRaised) notes.Add($"고정한 선수 시세가 {Bp.Format(fixedPrice)}라 예산을 {BudgetBox.Text}억으로 올렸습니다");
+        if (missing.Count > 0) notes.Add($"{(string)FormationBox.SelectedItem}에 자리가 없어 못 넣은 선수: {string.Join(", ", missing)}");
+        if (notes.Count > 0) Status.Text = string.Join(" · ", notes) + ".";
+    }
+
+    private static readonly IReadOnlyDictionary<string, string[]> NearRoles = new Dictionary<string, string[]>
+    {
+        ["ST"] = ["CF", "W", "CAM"], ["CF"] = ["ST", "CAM", "W"], ["W"] = ["SM", "ST", "CF", "CAM"], ["SM"] = ["W", "CAM", "CM"], ["CAM"] = ["CF", "CM", "SM"],
+        ["CM"] = ["CDM", "CAM"], ["CDM"] = ["CM", "CB"], ["FB"] = ["SM", "CB"], ["CB"] = ["CDM", "FB"],
+    };
+
     private void OnBudgetChip(object sender, RoutedEventArgs e) => BudgetBox.Text = ((string)((Button)sender).Content).Replace("억", "");
 
     // ── pitch size ─────────────────────────────────────────────────────────
@@ -592,6 +640,11 @@ public partial class SquadPage : UserControl
     private async void OnBuild(object sender, RoutedEventArgs e)
     {
         if (StudioKit.Squads is not { } squads) { Status.Text = "준비 중입니다."; return; }
+        await BuildPlansAsync(squads);
+    }
+
+    private async Task BuildPlansAsync(SquadService squads)
+    {
         Status.Text = "";
         await StudioKit.Run(BuildButton, Status, async () =>
         {
@@ -877,6 +930,11 @@ public partial class SquadPage : UserControl
             actions.Children.Add(Action(s.Owned ? "보유 해제" : "보유 중 (가격 0)", async () => await SetSlotAsync(index, s with { Owned = !s.Owned })));
             actions.Children.Add(Action("자리 비우기", async () => await SetSlotAsync(index, null)));
             actions.Children.Add(Action("이 선수 제외", async () => { _excluded.Add(c.PlayerId); await SetSlotAsync(index, null); }));
+            actions.Children.Add(Action("선수 정보", () =>
+            {
+                CardDetailWindow.Open(c.SpId, s.Grade, Window.GetWindow(this));
+                return Task.CompletedTask;
+            }));
             actions.Children.Add(Action("강화 효율 보기", () =>
             {
                 (Window.GetWindow(this) as StudioWindow)?.Navigate("grade", p => ((GradePage)p).Load(c.SpId, s.Position, s.Grade));

@@ -30,6 +30,7 @@ public partial class StudioWindow : Window
             new("grade", "강화 효율", () => new GradePage()),
             new("salary", "급여 효율", () => new SalaryPage()),
             new("trends", "시세 추이", () => new TrendsPage()),
+            new("favorites", "즐겨찾기", () => new FavoritesPage()),
             new("mysquad", "내 스쿼드", () => new MySquadPage()),
             new("opponent", "상대 맞춤", () => new OpponentPage()),
             new("teamcolor", "팀컬러", () => new TeamColorPage()),
@@ -116,6 +117,9 @@ public partial class StudioWindow : Window
     }
 
     /// <summary>Opens a page, optionally handing it something to do (e.g. lock a card in the squad builder).</summary>
+    /// <summary>A page if it was opened in this window, without opening it.</summary>
+    public T? PageOf<T>() where T : FrameworkElement => _created.Values.OfType<T>().FirstOrDefault();
+
     public void Navigate(string key, Action<FrameworkElement>? then = null)
     {
         if (_inFocusMode && key != "squad") SetFocusMode(false);

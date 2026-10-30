@@ -22,7 +22,7 @@
             </StackPanel>
         </Border>
         <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Foreground="{StaticResource Muted}" Margin="0,8,0,0" />
-        <DataGrid x:Name="Results">
+        <DataGrid x:Name="Results" MouseDoubleClick="OnOpenCard" ToolTip="두 번 누르면 선수 정보를 엽니다.">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="선수" Binding="{Binding Name}" Width="*" />
                 <DataGridTextColumn Header="시즌" Binding="{Binding Season}" Width="80" />

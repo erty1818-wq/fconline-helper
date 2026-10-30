@@ -104,6 +104,16 @@ public partial class ValuePage : UserControl
         await StudioKit.Run(SearchButton, Status, async () =>
         {
             if (await Filters.BuildAsync(squads, 10, s => Status.Text = s) is not { } filter) return;
+            if (SquadColorOnly.IsChecked == true)
+            {
+                var id = (Window.GetWindow(this) as StudioWindow)?.PageOf<SquadPage>()?.AffiliationId ?? 0;
+                if (id == 0 || await squads.TeamColorAsync(id) is not { } target)
+                {
+                    Status.Text = "스쿼드 짜기 화면에서 소속 팀컬러를 먼저 고르거나 AI 추천을 받으세요.";
+                    return;
+                }
+                filter = filter with { Members = filter.Members is { } m ? m.Where(target.Members.Contains).ToHashSet() : target.Members };
+            }
             Status.Text = "계산 중…";
             var query = new ValueQuery { Group = group.Key, Grade = grade, Filter = filter };
             var (picks, model) = await Task.Run(() => (squads.Market.FindValue(query), squads.Market.ModelFor(query)));
@@ -113,11 +123,13 @@ public partial class ValuePage : UserControl
                 Results.ItemsSource = null;
                 return;
             }
-            Results.ItemsSource = picks.Take(300).Select(p => ValueRow.From(p, group)).ToList();
+            var catalog = await squads.TeamColorsAsync();
+            var colors = await Task.Run(() => squads.AffiliationNames(catalog));
+            Results.ItemsSource = picks.Take(300).Select(p => ValueRow.From(p, group) with { Colors = colors.GetValueOrDefault(p.Card.SpId, "") }).ToList();
             // Stale prices of cards nobody sells look like bargains: check the top of the list and drop them.
             var bad = await squads.IlliquidAsync(picks.Take(30).Select(p => (p.Card.SpId, p.Grade)), new Progress<string>(m => Status.Text = $"상위 30장 {m}"));
             var kept = picks.Where(p => !bad.Contains((p.Card.SpId, p.Grade))).ToList();
-            Results.ItemsSource = kept.Take(300).Select(p => ValueRow.From(p, group, squads.KnownLiquidity(p.Card.SpId, p.Grade))).ToList();
+            Results.ItemsSource = kept.Take(300).Select(p => ValueRow.From(p, group, squads.KnownLiquidity(p.Card.SpId, p.Grade)) with { Colors = colors.GetValueOrDefault(p.Card.SpId, "") }).ToList();
             Status.Text = $"{group.Name} +{grade} · {kept.Count}장 · 검증 오차·평점 수를 반영한 가격 차이 순서 · {Filters.Summary(filter)}"
                 + (bad.Count > 0 ? $" · 거래가 거의 없는 {bad.Count}장 제외" : "")
                 + $" (R² {model.R2:0.00}, 검증 중앙오차 {PriceEvidence.ErrorLabel(model.ValidationError)}, 카드 {model.Cards}장). 오차는 보장 범위가 아니며 저평가 후보도 실제 거래와 체감을 확인해야 합니다 [추정].";

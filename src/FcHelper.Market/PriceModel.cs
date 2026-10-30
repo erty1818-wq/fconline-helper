@@ -12,6 +12,15 @@ public sealed record PriceValidationRow(MarketCard Card, int Grade, int Fold, lo
 
 public enum FactorKind { Stat, Height, Weight, Trait, Skill, Body, Foot, Salary, TeamColor, FeatureTeamColor }
 
+/// <summary>One part of a card's expected price, as a log change against the average card of the market. [추정]</summary>
+public sealed record PriceReason(string Label, double LogEffect, string? Detail = null)
+{
+    public double Percent => (Math.Exp(LogEffect) - 1) * 100;
+}
+
+/// <summary>A card's expected price taken apart: Base (its OVR, season and position) × each reason = the prediction.</summary>
+public sealed record PriceExplanation(double Base, IReadOnlyList<PriceReason> Reasons, double Predicted, long Expected);
+
 /// <summary>A separately priced team-colour membership. Affiliation and feature colours must not be merged.</summary>
 public sealed record MarketMembership(string Key, string Name, FactorKind Kind, IReadOnlySet<long> Members)
 {
@@ -65,7 +74,7 @@ public sealed class PriceModel
     private const int MinPlayers = 8, MinSeasonCards = 5;
     private sealed record UnpricedFactor(string Key, string Name, FactorKind Kind, int Cards, int Players, bool IsCore, string? Excluded = null, string? Family = null);
     /// <summary>A column beyond the fixed ones. Premium: counts as playing value in <see cref="PremiumInOvr"/>.</summary>
-    private sealed record ExtraColumn(string Name, Func<MarketCard, double> Value, double ZRidge = double.NaN, double RawRidge = double.NaN, bool Premium = false);
+    private sealed record ExtraColumn(string Name, Func<MarketCard, double> Value, double ZRidge = double.NaN, double RawRidge = double.NaN, bool Premium = false, string? Reason = null);
 
     /// <summary>
     /// Enhancement price floors found in MV-07: a +k price never goes below a fixed multiple of the grade under it
@@ -100,7 +109,7 @@ public sealed class PriceModel
     public const double PoolStatRidge = 30;
     /// <summary>MV-12: a footballer's other card counts e^(−ΔOVR/3); chosen on half the footballers, confirmed on the other half.</summary>
     public const double NearCardOvr = 3;
-    private const int MinViewCards = 30;
+    private const int MinViewCards = 30, MaxCardsForAllFolds = 4000;
     /// <summary>
     /// MV-10: the +11 five-card-fold audit moves the hinge from 118 to 115. At a +1 OVR 115 training cut, top
     /// strikers without a trait move from −0.12 to +0.02 log residual, CF −0.22 to −0.09 and W −0.17 to −0.09,
@@ -146,6 +155,8 @@ public sealed class PriceModel
         ("80-84", "80~84kg", 80, 84), ("85+", "85kg 이상", 85, int.MaxValue),
     ];
 
+    private const string ReasonColor = "reason:color", ReasonPay = "reason:pay", ReasonStat = "reason:stat:";
+    private readonly double[] _meanFeature;
     private readonly bool _pooled;
     private readonly IReadOnlyList<MarketCard> _data;
     private readonly Dictionary<long, string> _familyOf = [];
@@ -283,6 +294,7 @@ public sealed class PriceModel
         _playerCounts["약발 4"] = data.Where(c => c.WeakFoot == 4).Select(c => c.PlayerId).Distinct().Count();
 
         var x = data.Select(Features).ToList();
+        _meanFeature = Enumerable.Range(0, _names.Length).Select(j => x.Average(row => row[j])).ToArray();
         var y = data.Select(c => Math.Log(c.PriceAt(grade))).ToList();
         var censored = data.Select(c => AtFloor(c, grade)).ToList();
         FloorCards = censored.Count(b => b);
@@ -402,8 +414,8 @@ public sealed class PriceModel
 
     private void BuildExtras(IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership> memberships, bool pooled)
     {
-        void Z(string name, Func<MarketCard, double> f, double z, bool premium = false) => _extras.Add(new(name, f, ZRidge: z, Premium: premium));
-        void Raw(string name, Func<MarketCard, double> f, double raw, bool premium = false) => _extras.Add(new(name, f, RawRidge: raw, Premium: premium));
+        void Z(string name, Func<MarketCard, double> f, double z, bool premium = false, string? reason = null) => _extras.Add(new(name, f, ZRidge: z, Premium: premium, Reason: reason));
+        void Raw(string name, Func<MarketCard, double> f, double raw, bool premium = false, string? reason = null) => _extras.Add(new(name, f, RawRidge: raw, Premium: premium, Reason: reason));
         // How popular the card's team colour is among rankers, and how deep the card sits in it at its position.
         var colours = memberships.Where(m => m.Kind == FactorKind.TeamColor && m.Share > 0).ToList();
         if (colours.Count > 0)
@@ -422,12 +434,12 @@ public sealed class PriceModel
                         best = Math.Min(best, ovrs.Count(o => o > c.Ovr1));
                 return best;
             }
-            Z("colour_share", Best, 30);
-            Z("colour_share2", c => Math.Pow(Best(c), 2), 30);
-            Z("colour_count", c => colours.Count(m => m.Members.Contains(c.SpId)), 30);
-            Z("colour_rank1", c => Rank(c) == 0 ? 1 : 0, 30);
-            Z("colour_rank3", c => Rank(c) < 3 ? 1 : 0, 30);
-            Z("colour_rank_log", c => Math.Log(1 + Rank(c)), 30);
+            Z("colour_share", Best, 30, reason: ReasonColor);
+            Z("colour_share2", c => Math.Pow(Best(c), 2), 30, reason: ReasonColor);
+            Z("colour_count", c => colours.Count(m => m.Members.Contains(c.SpId)), 30, reason: ReasonColor);
+            Z("colour_rank1", c => Rank(c) == 0 ? 1 : 0, 30, reason: ReasonColor);
+            Z("colour_rank3", c => Rank(c) < 3 ? 1 : 0, 30, reason: ReasonColor);
+            Z("colour_rank_log", c => Math.Log(1 + Rank(c)), 30, reason: ReasonColor);
         }
         if (!pooled) return;
         var mean = data.Average(c => (double)c.Ovr1);
@@ -437,9 +449,9 @@ public sealed class PriceModel
         foreach (var f in families)
         {
             Z($"ovr×{f}", c => FamilyOf(c) == f ? c.Ovr1 - mean : 0, 3);
-            Z($"pay×{f}", c => FamilyOf(c) == f ? c.Pay - pay : 0, 3);
+            Z($"pay×{f}", c => FamilyOf(c) == f ? c.Pay - pay : 0, 3, reason: ReasonPay);
             foreach (var s in _stats)
-                Z($"stat:{s}×{f}", c => FamilyOf(c) == f && c.Stats.TryGetValue(s, out var v) ? v - c.Ovr1 : 0, 300, premium: true);
+                Z($"stat:{s}×{f}", c => FamilyOf(c) == f && c.Stats.TryGetValue(s, out var v) ? v - c.Ovr1 : 0, 300, premium: true, reason: ReasonStat + s);
         }
         foreach (var t in _traitSlopes)
         {
@@ -447,14 +459,14 @@ public sealed class PriceModel
             foreach (var line in new[] { "ATT", "MID", "DEF" })
                 if (carriers.Count(c => LineOf.GetValueOrDefault(_familyOf[c.SpId], "MID") == line) >= 8)
                 {
-                    Raw($"{t}×{line}", c => c.Tags.Contains(t) && LineOfCard(c) == line ? 1 : 0, 2, premium: true);
-                    Raw($"hinge:{t}×{line}", c => c.Tags.Contains(t) && LineOfCard(c) == line ? TraitMultiplier(c.Ovr1) : 0, 5, premium: true);
+                    Raw($"{t}×{line}", c => c.Tags.Contains(t) && LineOfCard(c) == line ? 1 : 0, 2, premium: true, reason: t);
+                    Raw($"hinge:{t}×{line}", c => c.Tags.Contains(t) && LineOfCard(c) == line ? TraitMultiplier(c.Ovr1) : 0, 5, premium: true, reason: t);
                 }
             foreach (var f in families)
                 if (carriers.Count(c => _familyOf[c.SpId] == f) >= 12)
                 {
-                    Raw($"{t}×{f}", c => c.Tags.Contains(t) && FamilyOf(c) == f ? 1 : 0, 4, premium: true);
-                    Raw($"hinge:{t}×{f}", c => c.Tags.Contains(t) && FamilyOf(c) == f ? TraitMultiplier(c.Ovr1) : 0, 10, premium: true);
+                    Raw($"{t}×{f}", c => c.Tags.Contains(t) && FamilyOf(c) == f ? 1 : 0, 4, premium: true, reason: t);
+                    Raw($"hinge:{t}×{f}", c => c.Tags.Contains(t) && FamilyOf(c) == f ? TraitMultiplier(c.Ovr1) : 0, 10, premium: true, reason: t);
                 }
             // A trait's compatibility with the card's stats, around the trait cards' usual level.
             if (carriers.Count >= 15 && TraitCompatibility.TryGetValue(t[6..], out var partners))
@@ -462,7 +474,7 @@ public sealed class PriceModel
                 {
                     double Value(MarketCard c) => c.Stats.TryGetValue(s, out var v) ? v - (s == "height" ? 0 : c.Ovr1) : 0;
                     var center = carriers.Average(Value);
-                    Z($"{t}×{s}", c => c.Tags.Contains(t) ? Value(c) - center : 0, 100, premium: true);
+                    Z($"{t}×{s}", c => c.Tags.Contains(t) ? Value(c) - center : 0, 100, premium: true, reason: t);
                 }
         }
         foreach (var season in data.GroupBy(c => c.Season).Where(x => x.Count() >= 25).Select(x => x.Key))
@@ -553,6 +565,60 @@ public sealed class PriceModel
             weight += w;
         }
         return weight > 0 ? sum / (weight + PlayerShrink) : 0;
+    }
+
+    /// <summary>
+    /// Takes the prediction apart. OVR, season and position make the base; each other factor is measured against the
+    /// average card of the market, so the base times every reason is exactly <see cref="Predict"/>. A market reading [추정].
+    /// </summary>
+    public PriceExplanation Explain(MarketCard c)
+    {
+        var x = Features(c);
+        var tagStart = 6 + _stats.Length + _physical.Length;
+        var slopeStart = tagStart + _tags.Length;
+        var extraStart = slopeStart + _traitSlopes.Length;
+        var sums = new Dictionary<string, double>();
+        var stats = new Dictionary<string, double>();
+        double basis = 0;
+        for (var i = 0; i < x.Length; i++)
+        {
+            var effect = _beta[i] * (x[i] - _meanFeature[i]);
+            string? key = null;
+            if (i is 3 or 4) key = "약발";
+            else if (i == 5) key = "급여";
+            else if (i >= 6 && i < 6 + _stats.Length) { key = "능력치 배분"; stats[_stats[i - 6]] = stats.GetValueOrDefault(_stats[i - 6]) + effect; }
+            else if (i >= 6 + _stats.Length && i < tagStart) key = "키·몸무게";
+            else if (i >= tagStart && i < slopeStart)
+            {
+                var tag = _tags[i - tagStart];
+                key = tag.StartsWith("trait:") ? "특성: " + tag[6..] : "팀컬러 인기";
+            }
+            else if (i >= slopeStart && i < extraStart) key = "특성: " + _traitSlopes[i - slopeStart][6..];
+            else if (i >= extraStart && i < extraStart + _extras.Count && _extras[i - extraStart].Reason is { } reason)
+            {
+                if (reason == ReasonColor) key = "팀컬러 인기";
+                else if (reason == ReasonPay) key = "급여";
+                else if (reason.StartsWith(ReasonStat)) { key = "능력치 배분"; var s = reason[ReasonStat.Length..]; stats[s] = stats.GetValueOrDefault(s) + effect; }
+                else key = "특성: " + reason[6..];
+            }
+            if (key is null) basis += _beta[i] * x[i];
+            else
+            {
+                basis += _beta[i] * _meanFeature[i];
+                sums[key] = sums.GetValueOrDefault(key) + effect;
+            }
+        }
+        // Traits a card does not have only show up as what the average card carries: not a reason for this card.
+        var own = c.Tags.Where(t => t.StartsWith("trait:")).Select(t => "특성: " + t[6..]).ToHashSet();
+        var absent = sums.Where(kv => kv.Key.StartsWith("특성: ") && !own.Contains(kv.Key)).Sum(kv => kv.Value);
+        foreach (var key in sums.Keys.Where(k => k.StartsWith("특성: ") && !own.Contains(k)).ToList()) sums.Remove(key);
+        if (Math.Abs(absent) > 1e-12) sums["다른 특성이 없는 몫"] = absent;
+        string? statDetail = stats.Count == 0 ? null : string.Join(", ", stats.OrderByDescending(kv => Math.Abs(kv.Value)).Take(3)
+            .Select(kv => $"{MarketGroups.StatNames.GetValueOrDefault(kv.Key, kv.Key)} {Pct(kv.Value):+0;-0}%"));
+        var reasons = sums.Select(kv => new PriceReason(kv.Key, kv.Value, kv.Key == "능력치 배분" ? statDetail : null)).ToList();
+        var player = PlayerEffect(c);
+        if (Math.Abs(player) > 1e-9) reasons.Add(new PriceReason("이 선수의 다른 카드 시세", player, "같은 선수 카드들이 스펙보다 비싸거나 싸게 팔리는 정도"));
+        return new PriceExplanation(Math.Exp(basis), reasons.OrderByDescending(r => Math.Abs(r.LogEffect)).ToList(), Predict(c), Expected(c));
     }
 
     /// <summary>The price to show and compare with: the prediction, but never below the card's floor at this grade.</summary>
@@ -807,14 +873,23 @@ public sealed class PriceModel
         return result;
     }
 
-    /// <summary>The same 20% holdout as <see cref="Validate"/>, reported per position: positions differ in how well they are priced.</summary>
+    /// <summary>
+    /// Held-out error per position. All five folds on the playable market: one fold swung by ±10%p for a position (MV-13);
+    /// one fold on the whole market, where five would take half a minute.
+    /// </summary>
     private void ValidatePool(int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships, int? traitHinge, bool linearTraits)
     {
-        var train = data.Where(c => Fold(c.SpId) != 0).ToList();
-        var holdout = data.Where(c => Fold(c.SpId) == 0).ToList();
+        var folds = data.Count <= MaxCardsForAllFolds ? 5 : 1;
+        var holdout = data.Where(c => Fold(c.SpId) < folds).ToList();
         if (holdout.Count < 10) return;
-        if (FitPool(grade, train, memberships, validate: false, traitHinge, linearTraits) is not { } model) return;
-        var residual = holdout.ToDictionary(c => c.SpId, c => Math.Log(c.PriceAt(grade)) - Math.Log(Math.Max(model.Expected(c), 1)));
+        var residual = new Dictionary<long, double>();
+        for (var fold = 0; fold < folds; fold++)
+        {
+            if (FitPool(grade, data.Where(c => Fold(c.SpId) != fold), memberships, validate: false, traitHinge, linearTraits) is not { } model) continue;
+            foreach (var c in data.Where(c => Fold(c.SpId) == fold)) residual[c.SpId] = Math.Log(c.PriceAt(grade)) - Math.Log(Math.Max(model.Expected(c), 1));
+        }
+        if (residual.Count < 10) return;
+        holdout = holdout.Where(c => residual.ContainsKey(c.SpId)).ToList();
         (double, double) Measure(IEnumerable<double> values)
         {
             var list = values.ToList();
@@ -1257,7 +1332,7 @@ public static class PriceEvidence
         ? score * Math.Clamp(Math.Log(1 + Math.Max(ratings, 0)) / Math.Log(101), 0.5, 1) : double.PositiveInfinity;
 
     public static string Label(double score) => !double.IsFinite(score) ? "오차 검증 부족"
-        : score < -1.96 ? "저평가 후보 [추정]" : "모델 오차 범위 내";
+        : score < -1.96 ? "비슷한 카드보다 쌈 [추정]" : "모델 오차 범위 내";
     public static string ErrorLabel(double error) => double.IsFinite(error) ? $"{error:P0}" : "표본 부족";
 }
 

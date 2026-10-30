@@ -447,6 +447,7 @@ public partial class PlayerSearchPage : UserControl
     private void OnOpenPlayer(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (Results.SelectedItem is not SearchRow row) return;
+        if (StudioKit.Squads?.Card(row.SpId) is not null) { CardDetailWindow.Open(row.SpId, row.Grade, Window.GetWindow(this)); return; }
         Process.Start(new ProcessStartInfo($"https://fconline.nexon.com/DataCenter/PlayerInfo?spid={row.SpId}&n1Strong={row.Grade}") { UseShellExecute = true });
     }
 }
