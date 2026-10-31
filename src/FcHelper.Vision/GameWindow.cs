@@ -32,6 +32,12 @@ public sealed class GameWindow
     public bool IsForeground => GetForegroundWindow() == Handle;
     public bool IsMinimized => IsIconic(Handle);
 
+    /// <summary>
+    /// Puts one of this app's windows directly under the game in the window order: over everything else, never over the
+    /// game. Only our window moves and nothing is activated. A window shown without focus still opens on top of the others.
+    /// </summary>
+    public void PlaceUnder(IntPtr ownWindow) => SetWindowPos(ownWindow, Handle, 0, 0, 0, 0, NoSize | NoMove | NoActivate);
+
     /// <summary>The game image in screen pixels, without the title bar and border of windowed mode.</summary>
     public Rectangle? ClientBounds
     {
@@ -47,7 +53,10 @@ public sealed class GameWindow
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
 
+    private const uint NoSize = 0x0001, NoMove = 0x0002, NoActivate = 0x0010;
+
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);

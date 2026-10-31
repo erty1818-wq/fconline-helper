@@ -32,18 +32,56 @@ public static class MatchScreen
     private static readonly System.Text.RegularExpressions.Regex TierLabel = new(
         @"^(슈퍼)?(챔피언스|챌린지|챌린저|월드클래스|세미프로|프로|유망주|엘리트|아마추어)\d*(부)?(감독)?$");
 
+    // The labels of the opponent's record screen; the labels on it are large, so one misread letter is still recognised.
+    private static readonly string[] RecordLabels = ["상대기록", "상대전적관계도", "득점1위유형", "실점1위유형", "득점최다발생시간", "실점최다발생시간"];
+
     /// <summary>True when the OCR text looks like the matchmaking screen.</summary>
     public static bool LooksLikeMatchScreen(IReadOnlyList<OcrLine> lines) =>
         lines.Any(l => Compact(l.Text) is "VS" or "vs") && lines.Any(l => Compact(l.Text).Contains("팀정보"));
 
+    /// <summary>
+    /// True on the opponent's record screen (상대 기록, the squad on a pitch and the nickname in the banner above). It has
+    /// neither VS nor 팀 정보, and its largest text is a team colour's name ("금빛 물결" went into the search box).
+    /// </summary>
+    public static bool LooksLikeRecordScreen(IReadOnlyList<OcrLine> lines) => lines.Count(IsRecordLabel) >= 2;
+
+    /// <summary>A screen that names the opponent where this class knows to look.</summary>
+    public static bool ShowsOpponent(IReadOnlyList<OcrLine> lines) => LooksLikeMatchScreen(lines) || LooksLikeRecordScreen(lines);
+
+    /// <summary>Part of the matchmaking screen was read: worth a guess at its right half. Any other screen has no nickname to guess.</summary>
+    public static bool MayBeMatchScreen(IReadOnlyList<OcrLine> lines) =>
+        lines.Any(l => Compact(l.Text) is "VS" or "vs" || Compact(l.Text).Contains("팀정보"));
+
     public static IReadOnlyList<string> OpponentCandidates(IReadOnlyList<OcrLine> lines, string? myNickname)
-        => OpponentLines(lines, myNickname).SelectMany(l => CandidatesFrom(l.Text))
+        => (LooksLikeRecordScreen(lines) ? RecordBanner(lines).Select(FirstWord) : OpponentLines(lines, myNickname).SelectMany(l => CandidatesFrom(l.Text)))
+            // OCR marks a letter it could not read with a symbol (", 금빛 물권"); such a reading is never a nickname.
+            .Where(c => c.Length >= 2 && c.All(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-'))
             .Where(c => myNickname is null || !string.Equals(c, Compact(myNickname), StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxCandidates).ToList();
+
+    private static bool IsRecordLabel(OcrLine line)
+    {
+        var c = Compact(line.Text);
+        return RecordLabels.Any(t => EditDistance(c, t) <= 1);
+    }
+
+    /// <summary>
+    /// The banner above the record: the largest text higher than the first label, to its right and short of the right edge,
+    /// where a window of ours lying over the game would be captured too.
+    /// </summary>
+    private static IEnumerable<OcrLine> RecordBanner(IReadOnlyList<OcrLine> lines)
+    {
+        var first = lines.Where(IsRecordLabel).MinBy(l => l.Y)!;
+        return lines.Where(l => l.CenterY < first.Y && l.X > first.X + first.Width && l.CenterX < 0.75 && !IsUiText(l.Text)).OrderByDescending(l => l.Height).Take(1);
+    }
+
+    // The banner reads "nickname club-name"; nicknames have no spaces.
+    private static string FirstWord(OcrLine line) => line.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
 
     /// <summary>The original-image boxes to reread without shrinking the whole frame.</summary>
     public static IReadOnlyList<OcrLine> OpponentLines(IReadOnlyList<OcrLine> lines, string? myNickname)
     {
+        if (LooksLikeRecordScreen(lines)) return RecordBanner(lines).ToList();
         var me = string.IsNullOrWhiteSpace(myNickname) ? null : FindLine(lines, myNickname);
         IEnumerable<OcrLine> ordered;
         if (me is not null)

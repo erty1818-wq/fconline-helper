@@ -256,9 +256,8 @@ public partial class App : Application
             _card = new MatchCard(this);
             _card.Closed += (_, _) => _card = null;
             _card.PlaceBeside(beside);
-            _card.Show();
         }
-        else if (_card.WindowState == WindowState.Minimized) _card.WindowState = WindowState.Normal;
+        ShowUnderGame(_card);
         _ = _card.ShowForAsync(nickname, end);
     }
 
@@ -315,7 +314,7 @@ public partial class App : Application
 
             // On the matchmaking screen the nicknames sit side by side; in a match (the screen was missed) they are on the
             // scoreboard, which is read enlarged, and under the bottom panels.
-            var guesses = MatchScreen.LooksLikeMatchScreen(lines)
+            var guesses = MatchScreen.ShowsOpponent(lines)
                 ? await _reader.ReadNicknamesAsync(frame, MatchScreen.OpponentLines(lines, Settings.MyNickname),
                     MatchScreen.OpponentCandidates(lines, Settings.MyNickname), Settings.MyNickname)
                 : await InGameCandidatesAsync(frame, lines);
@@ -355,7 +354,7 @@ public partial class App : Application
             source.AddRange(ScreenReader.InFrame(read, region));
         }
         var found = InGameScreen.OpponentCandidates(passes, Settings.MyNickname);
-        if (found.Count == 0)
+        if (found.Count == 0 && MatchScreen.MayBeMatchScreen(lines))
         {
             found = MatchScreen.OpponentCandidates(lines, Settings.MyNickname);
             source = MatchScreen.OpponentLines(lines, Settings.MyNickname).ToList();
@@ -460,7 +459,6 @@ public partial class App : Application
     /// <summary>Opens (or reuses) the card next to the game window without activating it.</summary>
     private SearchWindow ShowSearchBeside(Drawing.Rectangle gamePixels)
     {
-        var isNew = _search is null;
         if (_search is null)
         {
             _search = new SearchWindow(this) { ShowActivated = false };
@@ -469,10 +467,34 @@ public partial class App : Application
         // Screen pixels → WPF units on the primary monitor.
         var scale = Forms.Screen.PrimaryScreen!.Bounds.Width / SystemParameters.PrimaryScreenWidth;
         _search.PlaceBeside(new Rect(gamePixels.X / scale, gamePixels.Y / scale, gamePixels.Width / scale, gamePixels.Height / scale));
-        if (isNew) _search.Show();
-        else if (_search.WindowState == WindowState.Minimized) _search.WindowState = WindowState.Normal;
+        ShowUnderGame(_search);
         return _search;
     }
+
+    /// <summary>
+    /// Shows a card that opens by itself. While the game is in front the card goes right under it, so it can never cover the
+    /// game: visible where there is room beside the game, one click on the taskbar away where there is not (Ctrl+Alt+S).
+    /// </summary>
+    private static void ShowUnderGame(Window window)
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+        var game = GameWindow.Find();
+        var inFront = game is { IsForeground: true, IsMinimized: false };
+        if (inFront) game!.PlaceUnder(handle);
+        if (!window.IsVisible) window.Show();
+        else if (window.WindowState == WindowState.Minimized)
+        {
+            // WindowState = Normal would restore it activated, on top of the game.
+            if (inFront) ShowWindow(handle, ShowNoActivate);
+            else window.WindowState = WindowState.Normal;
+        }
+        if (inFront) game!.PlaceUnder(handle);
+    }
+
+    private const int ShowNoActivate = 4;
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hWnd, int command);
 
     public void ShowSettings()
     {

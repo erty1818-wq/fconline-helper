@@ -24,6 +24,58 @@ public class MatchScreenTests
         new("상대가 매칭되었습니다. = 키로 채팅을 수신할지 설정", 0.76, 0.75, 0.2, 0.02),
     ];
 
+    /// <summary>
+    /// What Windows OCR read from the real 상대 기록 screen, with the nickname replaced: the club name after it comes out as
+    /// noise, and the largest text of all is the team colour's name.
+    /// </summary>
+    private static List<OcrLine> RecordScreen(string banner = "가르시아왕 十니기•까") =>
+    [
+        new(banner, 0.491, 0.133, 0.170, 0.024),
+        new("상대기록", 0.056, 0.277, 0.068, 0.023),
+        new("최근 10경기 8승0무2대", 0.056, 0.334, 0.122, 0.015),
+        new("독점 1 위 유형", 0.056, 0.492, 0.061, 0.015),
+        new("메넓티안감아자기", 0.056, 0.594, 0.118, 0.020),
+        new("상대 전적 관계도", 0.056, 0.677, 0.121, 0.024),
+        new("실점 최다 발생 시간", 0.226, 0.567, 0.089, 0.015),
+        new("FC 바르셀로나 六이2", 0.658, 0.832, 0.106, 0.029),
+        new("감화팀걸러", 0.876, 0.807, 0.056, 0.015),
+        new(", 금빛 물권", 0.867, 0.834, 0.064, 0.029),
+        new("금빛 물결", 0.867, 0.834, 0.064, 0.029),
+    ];
+
+    [Fact]
+    public void Reads_the_banner_on_the_record_screen_not_the_largest_text()
+    {
+        var lines = RecordScreen();
+        Assert.True(MatchScreen.LooksLikeRecordScreen(lines));
+        Assert.True(MatchScreen.ShowsOpponent(lines));
+        Assert.Equal(["가르시아왕"], MatchScreen.OpponentCandidates(lines, "킹마카이"));
+        Assert.Equal("가르시아왕 十니기•까", Assert.Single(MatchScreen.OpponentLines(lines, "킹마카이")).Text);
+    }
+
+    [Fact]
+    public void Our_own_window_lying_over_the_record_screen_is_not_read_as_the_banner()
+    {
+        List<OcrLine> lines = [new("금빛물권", 0.82, 0.05, 0.1, 0.04), .. RecordScreen()];
+        Assert.Equal(["가르시아왕"], MatchScreen.OpponentCandidates(lines, null));
+    }
+
+    [Fact]
+    public void A_screen_it_does_not_know_gives_no_reason_to_guess()
+    {
+        List<OcrLine> lines = [new("FC 바르셀로나", 0.66, 0.83, 0.1, 0.03), new("금빛 물결", 0.87, 0.83, 0.06, 0.03), new("상대기록", 0.05, 0.27, 0.07, 0.02)];
+        Assert.False(MatchScreen.ShowsOpponent(lines));
+        Assert.False(MatchScreen.MayBeMatchScreen(lines));
+        Assert.True(MatchScreen.MayBeMatchScreen(TeamInfoScreen()));
+    }
+
+    [Fact]
+    public void A_reading_with_a_symbol_is_never_a_candidate()
+    {
+        List<OcrLine> lines = [new("VS", 0.44, 0.31, 0.05, 0.07), new("팀 정보", 0.33, 0.06, 0.07, 0.03), new(",금빛물권", 0.6, 0.41, 0.1, 0.04)];
+        Assert.DoesNotContain(",금빛물권", MatchScreen.OpponentCandidates(lines, null));
+    }
+
     [Fact]
     public void Finds_the_opponent_on_the_same_row_as_my_nickname()
     {

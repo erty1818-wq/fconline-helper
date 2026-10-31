@@ -76,7 +76,7 @@ public sealed class AutoWatcher : IDisposable
             else if (_looks++ % 2 == 0 && now >= _matchScreenRestUntil && now >= _retryAt)
             {
                 var lines = await reader.ReadAsync(frame);
-                if (!MatchScreen.LooksLikeMatchScreen(lines)) return;
+                if (!MatchScreen.ShowsOpponent(lines)) return;
                 var guesses = await reader.ReadNicknamesAsync(frame, MatchScreen.OpponentLines(lines, _app.Settings.MyNickname),
                     MatchScreen.OpponentCandidates(lines, _app.Settings.MyNickname), _app.Settings.MyNickname);
                 if (await ResolveAsync(service, guesses, fromMatchScreen: true, area))
