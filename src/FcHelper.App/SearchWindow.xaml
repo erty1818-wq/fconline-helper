@@ -72,11 +72,13 @@
 
         <DockPanel Grid.Row="2" Margin="0,6,0,0">
         <!-- Tabs of the analysis (docs/opponent-search/PLAN.md): 요약 is the light card used in game, the rest go deeper. -->
-        <DockPanel x:Name="TabRow" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed">
+        <!-- The tabs get their own line: beside the buttons they had a column 70 wide at the card's width and stacked up. -->
+        <StackPanel x:Name="TabRow" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed">
+            <WrapPanel x:Name="TabBar" />
             <!-- OS-03: when the match list was last checked, and a button to check again now. -->
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+            <WrapPanel Margin="0,4,0,0">
                 <!-- How many recent matches to analyse; more costs one API call per match not yet saved. -->
-                <ComboBox x:Name="MatchCountBox" Width="84" Margin="6,0,0,0" VerticalAlignment="Center" SelectionChanged="OnMatchCountChanged"
+                <ComboBox x:Name="MatchCountBox" Width="84" VerticalAlignment="Center" SelectionChanged="OnMatchCountChanged"
                           ToolTip="분석할 최근 경기 수. 늘리면 저장 안 된 경기마다 NEXON Open API를 1회씩 부릅니다.">
                     <ComboBoxItem Content="30경기" Tag="30" IsSelected="True" />
                     <ComboBoxItem Content="50경기" Tag="50" />
@@ -97,9 +99,8 @@
                         <TextBlock Text="갱신" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-            </StackPanel>
-            <WrapPanel x:Name="TabBar" />
-        </DockPanel>
+            </WrapPanel>
+        </StackPanel>
         <Grid>
         <!-- Before a search: the start screen (OS-01 fills it). -->
         <DockPanel x:Name="StartPanel">
