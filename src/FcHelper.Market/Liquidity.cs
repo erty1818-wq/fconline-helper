@@ -8,14 +8,18 @@ namespace FcHelper.Market;
 /// <summary>
 /// Whether a card at a grade really trades: the data center's daily price (365 days) only moves on days it sold, so
 /// a price that changed on fewer than <see cref="MinChanges"/> of the last 30 days is a listing nobody can buy
-/// (e.g. 손흥민 25TOTY: +8 changed 30 times, +11 six times; TK +13 never).
+/// (e.g. 손흥민 25TOTY: +8 changed 30 times, +11 six times; TK +13 never). So is one that stopped a week ago
+/// (뎀벨레 26TOTY +11: nine changes in 30 days, none in seven, while 26TOTS +11 moved 28 times; MV-17).
 /// </summary>
-public sealed record CardLiquidity(long SpId, int Grade, int Days, int Changes30)
+public sealed record CardLiquidity(long SpId, int Grade, int Days, int Changes30, int Changes7)
 {
     public const int MinChanges = 8;
 
     /// <summary>New cards (under two weeks of history) are given the benefit of the doubt.</summary>
-    public bool Tradable => Days < 14 || Changes30 >= MinChanges;
+    public bool Tradable => Days < 14 || (Changes30 >= MinChanges && Changes7 > 0);
+
+    /// <summary>Why the price is not a price people pay, for messages; null when it is.</summary>
+    public string? Warning => Tradable ? null : Changes7 == 0 ? "최근 7일 동안 시세가 그대로인 매물입니다." : $"최근 30일 시세가 {Changes30}번만 바뀐 매물입니다.";
 }
 
 /// <summary>The data center's price graph of one card at one grade (POST /datacenter/PlayerPriceGraph).</summary>
@@ -52,9 +56,12 @@ public sealed partial class PriceHistoryClient(HttpClient http, RateLimiter limi
 
     public static CardLiquidity Measure(long spId, int grade, IReadOnlyList<long> prices)
     {
-        var last = prices.Skip(Math.Max(0, prices.Count - 31)).ToList();
-        var changes = last.Zip(last.Skip(1)).Count(p => p.First != p.Second);
-        return new CardLiquidity(spId, grade, prices.Count, changes);
+        int Changes(int days)
+        {
+            var last = prices.Skip(Math.Max(0, prices.Count - days - 1)).ToList();
+            return last.Zip(last.Skip(1)).Count(p => p.First != p.Second);
+        }
+        return new CardLiquidity(spId, grade, prices.Count, Changes(30), Changes(7));
     }
 
     [GeneratedRegex(@"""value""\s*:\s*\[(.*?)\]", RegexOptions.Singleline)] private static partial Regex ValueRegex();
@@ -72,7 +79,8 @@ public sealed class LiquidityCache(MarketStore store, PriceHistoryClient client,
     public CardLiquidity? Known(long spId, int grade)
     {
         if (store.GetValue(Key(spId, grade)) is not { } v || _time.GetUtcNow().UtcDateTime - v.UpdatedAt >= Ttl) return null;
-        return v.Value.Split(':') is [var d, var c] ? new CardLiquidity(spId, grade, int.Parse(d, CultureInfo.InvariantCulture), int.Parse(c, CultureInfo.InvariantCulture)) : null;
+        // Entries from before Changes7 are measured again.
+        return v.Value.Split(':') is [var d, var c, var w] ? new CardLiquidity(spId, grade, int.Parse(d, CultureInfo.InvariantCulture), int.Parse(c, CultureInfo.InvariantCulture), int.Parse(w, CultureInfo.InvariantCulture)) : null;
     }
 
     /// <summary>The data center's daily prices, oldest first (up to 365 days), for the card window's graph.</summary>
@@ -82,7 +90,7 @@ public sealed class LiquidityCache(MarketStore store, PriceHistoryClient client,
     {
         if (Known(spId, grade) is { } known) return known;
         var measured = PriceHistoryClient.Measure(spId, grade, await client.DailyPricesAsync(spId, grade, ct));
-        store.SetValue(Key(spId, grade), $"{measured.Days}:{measured.Changes30}", _time.GetUtcNow().UtcDateTime);
+        store.SetValue(Key(spId, grade), $"{measured.Days}:{measured.Changes30}:{measured.Changes7}", _time.GetUtcNow().UtcDateTime);
         return measured;
     }
 }

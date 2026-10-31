@@ -1139,7 +1139,7 @@ public partial class SquadPage : UserControl
             try
             {
                 if (await squads.LiquidityAsync(c.SpId, candidate.Grade) is { Tradable: false } l)
-                    Status.Text = $"{c.Name} {c.Season} +{candidate.Grade}: 최근 30일 시세가 {l.Changes30}번만 바뀐 매물입니다. 실제로 구하기 어려울 수 있습니다.";
+                    Status.Text = $"{c.Name} {c.Season} +{candidate.Grade}: {l.Warning} 실제로 구하기 어려울 수 있습니다.";
             }
             catch (HttpRequestException)
             {

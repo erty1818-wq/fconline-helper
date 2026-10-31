@@ -307,6 +307,14 @@ public partial class CardDetailWindow : Window
         DrawGraph();
     }
 
+    /// <summary>Whether this price is one people pay: the daily price only moves on days the card sold (MV-17).</summary>
+    private string TradeNote()
+    {
+        var trade = PriceHistoryClient.Measure(_card.SpId, _dailyGrade, _daily);
+        return $"\n시세 변동일: 최근 30일 중 {trade.Changes30}일, 7일 중 {trade.Changes7}일 [계산]"
+            + (trade.Warning is { } warning ? $" · {warning} 실제 거래 값이 아닐 수 있고 구하기 어려울 수 있습니다 [추정]" : "");
+    }
+
     private void DrawGraph()
     {
         Graph.Children.Clear();
@@ -314,7 +322,7 @@ public partial class CardDetailWindow : Window
         var values = _daily.Skip(Math.Max(0, _daily.Count - days)).Where(v => v > 0).ToList();
         if (values.Count < 2) { GraphText.Text = _dailyGrade == 0 ? GraphText.Text : "이 강화 단계의 일별 시세가 없습니다."; return; }
         var (low, high) = (values.Min(), values.Max());
-        GraphText.Text = $"+{_dailyGrade} · 처음 {Bp.Format(values[0])} → 지금 {Bp.Format(values[^1])} ({StudioKit.Pct(values[^1] / (double)values[0] - 1)}) · 최저 {Bp.Format(low)} · 최고 {Bp.Format(high)} · 공식 데이터센터 [직접]";
+        GraphText.Text = $"+{_dailyGrade} · 처음 {Bp.Format(values[0])} → 지금 {Bp.Format(values[^1])} ({StudioKit.Pct(values[^1] / (double)values[0] - 1)}) · 최저 {Bp.Format(low)} · 최고 {Bp.Format(high)} · 공식 데이터센터 [직접]" + TradeNote();
         var (w, h) = (Graph.ActualWidth, Graph.ActualHeight);
         if (w < 20 || h < 20) return;
         const double left = 70, pad = 10;

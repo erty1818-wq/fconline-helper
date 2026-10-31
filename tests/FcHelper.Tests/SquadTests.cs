@@ -521,6 +521,32 @@ public class LiquidityTests
         Assert.False(s.Tradable);
         Assert.True(PriceHistoryClient.Measure(1, 13, [5, 5, 5]).Tradable); // too new to judge
     }
+
+    [Fact]
+    public void A_price_that_stopped_a_week_ago_is_no_longer_a_price_people_pay()
+    {
+        // Moved often until a week ago: enough changes in 30 days, none since (뎀벨레 26TOTY +11).
+        var stopped = Enumerable.Range(0, 60).Select(i => 100L + Math.Min(i, 52)).ToList();
+        var s = PriceHistoryClient.Measure(1, 11, stopped);
+        Assert.True(s.Changes30 >= CardLiquidity.MinChanges);
+        Assert.Equal(0, s.Changes7);
+        Assert.False(s.Tradable);
+        Assert.Contains("7일", s.Warning);
+        Assert.Null(PriceHistoryClient.Measure(1, 11, Enumerable.Range(0, 60).Select(i => 100L + i).ToList()).Warning);
+        // Every ten days and once yesterday: still moving, but only four changes in 30 days.
+        Assert.Contains("4번", PriceHistoryClient.Measure(1, 11, Enumerable.Range(0, 60).Select(i => 100L + i / 10 + (i == 59 ? 1 : 0)).ToList()).Warning);
+    }
+
+    [Fact]
+    public void A_stored_measure_from_before_the_week_count_is_measured_again()
+    {
+        var store = new MarketStore(Path.Combine(Path.GetTempPath(), $"fch-liq-{Guid.NewGuid():N}.db"));
+        store.SetValue("liq.7.11", "60:9", DateTime.UtcNow);
+        store.SetValue("liq.8.11", "60:9:0", DateTime.UtcNow);
+        var cache = new LiquidityCache(store, new PriceHistoryClient(new HttpClient(), new FcHelper.NexonApi.RateLimiter(100)));
+        Assert.Null(cache.Known(7, 11));
+        Assert.False(cache.Known(8, 11)!.Tradable);
+    }
 }
 
 public class RankerAllocationTests
