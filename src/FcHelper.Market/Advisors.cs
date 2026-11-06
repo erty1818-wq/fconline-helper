@@ -3,11 +3,11 @@ namespace FcHelper.Market;
 /// <summary>A card top rankers use with a price below the model estimate; mispricing is not established.</summary>
 public sealed record HiddenPick(MarketCard Card, string Position, int Grade, int Ovr, long Price, long Expected, int Users, double Share)
 {
-    /// <summary>NaN for a new card (<see cref="MarketCard.IsNew"/>): never a hidden bargain on its launch price.</summary>
-    public double Discount => Card.IsNew ? double.NaN : Price / (double)Expected - 1;
+    /// <summary>NaN for a new or supply-limited card (<see cref="MarketCard.ExpectedOnly"/>): never a hidden bargain on that price.</summary>
+    public double Discount => Card.ExpectedOnly ? double.NaN : Price / (double)Expected - 1;
     public double ModelError { get; init; } = double.NaN;
     public double LogErrorScale { get; init; } = double.NaN;
-    public double EvidenceScore => Card.IsNew ? double.NaN : PriceEvidence.Score(Price, Expected, LogErrorScale);
+    public double EvidenceScore => Card.ExpectedOnly ? double.NaN : PriceEvidence.Score(Price, Expected, LogErrorScale);
     public bool OutsideModelError => EvidenceScore < -1.96;
 }
 
@@ -178,7 +178,7 @@ public static class Advisors
             {
                 var card = now[kv.Key.SpId];
                 var model = modelOf(card);
-                var discount = card.IsNew ? double.NaN : model is null ? 0 : card.PriceAt(model.Grade) / (double)Math.Max(model.Expected(card), 1) - 1;
+                var discount = card.ExpectedOnly ? double.NaN : model is null ? 0 : card.PriceAt(model.Grade) / (double)Math.Max(model.Expected(card), 1) - 1;
                 return new PriceMove(card, grade, kv.Value[grade], card.PriceAt(grade), since, discount);
             })
             .Where(m => m.Now > Grades.FloorPrice && m.Now >= minPrice && m.Before > Grades.FloorPrice)

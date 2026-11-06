@@ -101,7 +101,7 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
             ModelError = PriceEvidence.ErrorLabel(p.ModelError),
             Range = p.Band is { } band ? $"{Bp.Format(band.Low)} ~ {Bp.Format(band.High)}" : "",
             Trust = p.Band?.Trust ?? "",
-            Evidence = PriceEvidence.Label(p.EvidenceScore, c.IsNew),
+            Evidence = PriceEvidence.Label(p.EvidenceScore, c),
             SpId = c.SpId,
         };
     }

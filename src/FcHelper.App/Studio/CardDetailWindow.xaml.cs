@@ -131,10 +131,10 @@ public partial class CardDetailWindow : Window
         var model = await Task.Run(() => _squads.Market.ModelFor(query));
         if (model is null || grade != Grade) return;
         var expected = model.ExpectedAt(_card, grade);
-        // A new card's own price is launch noise: show what its spec is worth, not how far the launch price is from it.
-        if (_card.IsNew)
+        // A new or supply-limited card's own price is not evidence: show what its spec is worth, not the gap to it.
+        if (_card.ExpectedOnly)
         {
-            PriceText.Text += $"  ·  예상 시세 {Bp.Format(expected)} · {PriceEvidence.NewCardLabel}";
+            PriceText.Text += $"  ·  예상 시세 {Bp.Format(expected)} · {PriceEvidence.Label(double.NaN, _card)}";
             return;
         }
         PriceText.Text += $"  ·  예상가 {Bp.Format(expected)} ({StudioKit.Pct(price / (double)Math.Max(expected, 1) - 1)}, 비슷한 카드 오차 {PriceEvidence.ErrorLabel(model.ErrorOf(_card))}) [추정]";

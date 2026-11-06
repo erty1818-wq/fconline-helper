@@ -9,6 +9,7 @@ Intervals are 95% bootstraps over footballers. The other key traits are shown as
     python -I tools/market/two_hearts.py <market.db> [--grades 11,8] [--out docs/market-value/MV-18-output.txt]
 """
 import json
+import re
 import math
 import random
 import sqlite3
@@ -19,6 +20,7 @@ from datetime import datetime, timedelta
 HEART = "trait:2개의 심장"
 SCOPES = [("공격", ["ST", "CF", "W", "SM", "CAM"]), ("중앙 미드", ["CM", "CDM"]), ("수비", ["CB", "FB"])]
 OUTLIERS = ["호날두", "호나우두", "굴리트"]
+LIMITED = re.compile(r"TOTS|TOTY|TOTN|ICON|^TKI|^\d{2}IM_")  # MarketGroups.IsLimitedSeason: supply sets their price (MV-19)
 FLOOR = 1200
 NEW_DAYS = 28
 TRAITS = ["2개의 심장", "트릭스터", "라인 브레이커", "스피드스터", "아크로바틱 피니셔", "크로스 포쳐", "체이서", "파이터",
@@ -93,6 +95,7 @@ def main():
     path = args[0]
     opt = lambda name, default: args[args.index(name) + 1] if name in args else default
     grades = [g.strip() for g in opt("--grades", "11,8").split(",")]
+    rankers_only = opt("--rankers", "no") == "yes"
     out_path = opt("--out", None)
     lines = []
     say = lambda s="": (lines.append(s), print(s))
@@ -106,10 +109,16 @@ def main():
     is_new = lambda sp: bool(seen.get(sp)) and seen[sp] > cutoff[:19]
     heart_cards = {sp for sp, t in tags.items() if HEART in t}
     new_cards = {c["sp"] for c in latest.values() if is_new(c["sp"])}
+    if rankers_only:
+        # Only cards rankers field (daily charts + sampled ranker squads, as MarketStore.RankerUse): the rest count as excluded.
+        sys.path.insert(0, __import__("os").path.dirname(__file__))
+        from mv19_pair import ranker_use
+        use = ranker_use(path)
+        new_cards |= {c["sp"] for c in latest.values() if use[c["sp"]] == 0}
 
-    say(f"# MV-18 2개의 심장 시세 변화 (같은 카드, 비슷한 카드 대비) [계산]")
+    say(f"# MV-18 2개의 심장 시세 변화 (같은 카드, 비슷한 카드 대비) [계산]" + (" · 랭커 실사용 카드만" if rankers_only else ""))
     say(f"최신 스냅샷 #{latest_id} ({latest_at[:16]} UTC) · 카드 {len(latest):,}행 · 2개의 심장 카드 {len(heart_cards)}장 (신규 {len(heart_cards & new_cards)}장 제외)")
-    say(f"신규 카드(처음 본 지 {NEW_DAYS}일 미만) {len(new_cards):,}장은 모두 비교에서 뺀다.")
+    say(f"신규 카드(처음 본 지 {NEW_DAYS}일 미만) {len(new_cards):,}장과 공급 한정 시즌(TOTS·TOTY·TOTN·ICON 계열)은 모두 비교에서 뺀다.")
 
     bases = [(f"스냅샷 #{sid} ({at[:10]})", load(db, sid)[0]) for sid, at in snaps[:-1]]
     days = [d for (d,) in db.execute("SELECT DISTINCT day FROM price_history ORDER BY day")]
@@ -126,7 +135,7 @@ def main():
                 rows = []
                 done = set()
                 for (grp, sp), c in latest.items():
-                    if grp not in groups or sp in done or sp in new_cards or any(n in c["name"] for n in OUTLIERS):
+                    if grp not in groups or sp in done or sp in new_cards or any(n in c["name"] for n in OUTLIERS) or LIMITED.search(str(c["season"]).upper()):
                         continue
                     b = base.get((grp, sp))
                     if not b or (b.get("ovr", c["ovr"]) != c["ovr"]) or (b.get("season", c["season"]) != c["season"]):
@@ -151,7 +160,7 @@ def main():
             for scope, groups in SCOPES:
                 rows, done = [], set()
                 for (grp, sp), c in latest.items():
-                    if grp not in groups or sp in done or sp in new_cards or any(n in c["name"] for n in OUTLIERS):
+                    if grp not in groups or sp in done or sp in new_cards or any(n in c["name"] for n in OUTLIERS) or LIMITED.search(str(c["season"]).upper()):
                         continue
                     b = base.get((grp, sp))
                     if not b or b.get("ovr", c["ovr"]) != c["ovr"] or b.get("season", c["season"]) != c["season"]:

@@ -188,6 +188,14 @@ public sealed class MarketService(
     }
 
     private readonly Dictionary<(long, int, int?), PriceModel?> _pools = [];
+    private (long Snapshot, IReadOnlyDictionary<long, double>? Weights)? _rankerWeights;
+
+    /// <summary>Ranker-used cards count more in the fit (MV-19); read once per snapshot from the stored charts and squads.</summary>
+    private IReadOnlyDictionary<long, double>? RankerWeightsAt(long snapshot)
+    {
+        if (_rankerWeights is not { } known || known.Snapshot != snapshot) _rankerWeights = known = (snapshot, PriceModel.RankerWeights(store.RankerUse()));
+        return known.Weights;
+    }
     private const int WholeMarketMinOvr1 = 110;
 
     /// <summary>The field positions' shared fit (MV-12), refitted only when the snapshot, grade, OVR floor or memberships change.</summary>
@@ -196,7 +204,8 @@ public sealed class MarketService(
         if (_pools.TryGetValue((snapshot, grade, minOvr), out var pool)) return pool;
         var cards = MarketGroups.All.Where(g => g.Key != "GK").SelectMany(g => Cards(snapshot, g.Key));
         // Without a floor: the cards anyone still fields. Below this they sit on their price floors and only slow the fit.
-        return _pools[(snapshot, grade, minOvr)] = PriceModel.FitPool(grade, minOvr is { } lo ? cards.Where(c => c.OvrAt(grade) >= lo) : cards.Where(c => c.Ovr1 >= WholeMarketMinOvr1), _memberships, usage: UsageAt(snapshot));
+        return _pools[(snapshot, grade, minOvr)] = PriceModel.FitPool(grade, minOvr is { } lo ? cards.Where(c => c.OvrAt(grade) >= lo) : cards.Where(c => c.Ovr1 >= WholeMarketMinOvr1), _memberships,
+            usage: UsageAt(snapshot), weights: RankerWeightsAt(snapshot));
     }
 
     private readonly Dictionary<(long, string, int, int), PriceModel?> _playable = [];
@@ -249,7 +258,8 @@ public sealed class MarketService(
             {
                 var contributingGroups = trait.Where(x => x.Factor.Estimated).Select(x => x.Group).ToHashSet();
                 var sample = trait.Select(x => x.Group).Distinct().Where(g => contributingGroups.Count == 0 || contributingGroups.Contains(g))
-                    .SelectMany(g => Cards(snapshot.Id, g)).Where(c => c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice
+                    // The cards the estimate rests on: the fit's own (new cards out, supply-limited seasons in, MV-19).
+                    .SelectMany(g => Cards(snapshot.Id, g)).Where(c => c.IsTrainable && c.PriceAt(grade) > Grades.FloorPrice
                         && !MarketGroups.IsPriceOutlier(c) && (minOvr is null || c.OvrAt(grade) >= minOvr) && c.Tags.Contains(trait.Key)).ToList();
                 var players = sample.Select(c => c.PlayerId).Distinct().Count();
                 var cardCount = sample.Select(c => c.SpId).Distinct().Count();

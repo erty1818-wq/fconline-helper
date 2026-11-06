@@ -150,7 +150,7 @@ internal static class SquadCommands
                 case "picks":
                     foreach (var h in (await squads.HiddenRankerPicksAsync(option("pos"), await Filter(squads, option, MarketDefaults.MinOvr(Math.Clamp(Int(option("grade"), MarketDefaults.Grade), 1, Grades.MaxTradable))),
                                  Int(option("users"), 10), rankFrom, rankTo, grade: Math.Clamp(Int(option("grade"), MarketDefaults.Grade), 1, Grades.MaxTradable))).Take(Int(option("top"), 15)))
-                        Console.WriteLine($"{h.Position,-4} {h.Card.Name,-10} {h.Card.Season,-8} +{h.Grade,-2} OVR {h.Ovr} · 랭커 {h.Users}명({h.Share:P1}) · 시세 {Bp.Format(h.Price),7} · 예상 {Bp.Format(h.Expected),7} · {h.Discount:+0%;-0%} · 중앙오차 {PriceEvidence.ErrorLabel(h.ModelError)} · {PriceEvidence.Label(h.EvidenceScore, h.Card.IsNew)}");
+                        Console.WriteLine($"{h.Position,-4} {h.Card.Name,-10} {h.Card.Season,-8} +{h.Grade,-2} OVR {h.Ovr} · 랭커 {h.Users}명({h.Share:P1}) · 시세 {Bp.Format(h.Price),7} · 예상 {Bp.Format(h.Expected),7} · {h.Discount:+0%;-0%} · 중앙오차 {PriceEvidence.ErrorLabel(h.ModelError)} · {PriceEvidence.Label(h.EvidenceScore, h.Card)}");
                     Console.WriteLine("랭커 사용 = 데일리 차트(전날 공식경기). 예상가 = 같은 스펙 카드의 오늘 시세 [추정].");
                     return 0;
                 case "grade": return Grade(squads, option);
@@ -273,6 +273,10 @@ internal static class SquadCommands
         // MV-15: --played no leaves only the starts, without the grade they were played at.
         if (option("played") is "no" or "0") auditUsage = auditUsage?.ToDictionary(u => u.Key, u => new CardUse(u.Value.Starts));
         var auditTrees = option("trees") is not ("no" or "0");
+        // MV-19: --limited drop leaves TOTS/TOTY/ICON prices out of the fit too; --ranker-weight W (default the app's) counts ranker-used cards W times.
+        if (option("limited") == "drop") MarketGroups.TrainOnLimitedSupply = false;
+        var rankerWeight = double.TryParse(option("ranker-weight"), NumberStyles.Float, CultureInfo.InvariantCulture, out var rw) ? rw : PriceModel.RankerWeight;
+        var auditWeights = PriceModel.RankerWeights(store.RankerUse(), rankerWeight);
         var reports = new List<object>();
         var poolRows = new Dictionary<(int, int), IReadOnlyList<PriceValidationRow>>();
         var fakePools = new Dictionary<(int, int), List<PriceModel>>();
@@ -295,9 +299,9 @@ internal static class SquadCommands
             // MV-12: field positions share one fit; --pool no measures the old per-position models.
             var pooled = group != "GK" && option("pool") is not ("no" or "0");
             var poolCards = pooled ? cards.Where(c => c.Ovr1 >= cut).ToList() : data;
-            var model = pooled ? PriceModel.FitPool(grade, poolCards, memberships, traitHinge: auditHinge, usage: auditUsage)?.View(group) : PriceModel.Fit(group, grade, data, memberships, traitHinge: auditHinge);
+            var model = pooled ? PriceModel.FitPool(grade, poolCards, memberships, traitHinge: auditHinge, usage: auditUsage, weights: auditWeights)?.View(group) : PriceModel.Fit(group, grade, data, memberships, traitHinge: auditHinge);
             if (model is null) continue;
-            if (pooled && !poolRows.ContainsKey((grade, cut))) poolRows[(grade, cut)] = PriceModel.CrossValidatePool(grade, poolCards, memberships, traitHinge: auditHinge, usage: auditUsage, trees: auditTrees);
+            if (pooled && !poolRows.ContainsKey((grade, cut))) poolRows[(grade, cut)] = PriceModel.CrossValidatePool(grade, poolCards, memberships, traitHinge: auditHinge, usage: auditUsage, trees: auditTrees, weights: auditWeights);
             var rows = pooled ? poolRows[(grade, cut)].Where(r => r.Card.Group == group).ToList() : PriceModel.CrossValidate(group, grade, data, memberships, traitHinge: auditHinge);
             var top = rows.Where(r => r.Card.Ovr1 >= 120 && !r.AtFloor).ToList();
             var focus = new[] { "크로스 포쳐", "라인 브레이커", "트릭스터", "스피드스터" };
@@ -323,7 +327,7 @@ internal static class SquadCommands
                 var seed = 20261026 + grade * 1000 + cut * 10 + Array.IndexOf(groups, group);
                 var random = new Random(seed);
                 var nullT = new Dictionary<string, List<double>>();
-                var eligible = data.Where(c => c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+                var eligible = data.Where(c => c.IsTrainable && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
                 if (pooled)
                 {
                     // MV-12: shuffle over the shared fit's cards; every position reads the same fake pools.
@@ -331,7 +335,7 @@ internal static class SquadCommands
                     {
                         fakes = [];
                         var poolRandom = new Random(20261030 + grade * 1000 + cut);
-                        var pool = poolCards.Where(c => c.Group != "GK" && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+                        var pool = poolCards.Where(c => c.Group != "GK" && c.IsTrainable && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
                         for (var draw = 0; draw < draws; draw++)
                         {
                             var bundle = new Dictionary<long, string[]>();
@@ -423,7 +427,7 @@ internal static class SquadCommands
             var c = p.Card;
             var core = group.CoreGap(c) is { } g ? $"코어 {g:+0.0;-0.0}" : "";
             Console.WriteLine($"  {c.Name,-10} {c.Season,-8} OVR {c.OvrAt(grade)} {core} 약발{c.WeakFoot} 급여{c.Pay,2}{(c.Stats.TryGetValue("height", out var h) ? $" {h}cm" : "")}"
-                + $" · 시세 {Bp.Format(p.Price),7} · 예상 {Bp.Format(p.Expected),7} · {p.Discount * 100:+0;-0}% · 중앙오차 {PriceEvidence.ErrorLabel(p.ModelError)} · {PriceEvidence.Label(p.EvidenceScore, c.IsNew)}  " + string.Join(" ", c.Tags.Order().Select(MarketGroups.TagLabel)));
+                + $" · 시세 {Bp.Format(p.Price),7} · 예상 {Bp.Format(p.Expected),7} · {p.Discount * 100:+0;-0}% · 중앙오차 {PriceEvidence.ErrorLabel(p.ModelError)} · {PriceEvidence.Label(p.EvidenceScore, c)}  " + string.Join(" ", c.Tags.Order().Select(MarketGroups.TagLabel)));
         }
         Console.WriteLine("예상가 = 같은 스펙 카드들의 오늘 시세로 계산한 값 [추정]. 코어 = 포지션 핵심 능력치 가중 평균 − OVR.");
         return 0;

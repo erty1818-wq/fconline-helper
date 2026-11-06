@@ -480,6 +480,32 @@ public sealed class MarketStore
         Exec(c, "INSERT OR REPLACE INTO kv_market VALUES ($k, $v, $t)", ("$k", key), ("$v", value), ("$t", Iso(now)));
     }
 
+    /// <summary>
+    /// How much rankers field each card: users summed over every stored daily chart plus starts in the stored ranker
+    /// squads (top rankers and team-colour rankers). The cards that tell most about what a spec is worth (MV-19).
+    /// </summary>
+    public IReadOnlyDictionary<long, int> RankerUse()
+    {
+        var use = new Dictionary<long, int>();
+        using var c = Open();
+        using (var cmd = Cmd(c, "SELECT json FROM ranker_chart"))
+        using (var r = cmd.ExecuteReader())
+            while (r.Read())
+                if (JsonSerializer.Deserialize<RankerChartData>(r.GetString(0)) is { } chart)
+                    foreach (var p in chart.Picks) use[p.SpId] = use.GetValueOrDefault(p.SpId) + p.Users;
+        using (var cmd = Cmd(c, "SELECT value FROM kv_market WHERE key = 'ranker.squads' OR key LIKE 'official.colorsquads.%'"))
+        using (var r = cmd.ExecuteReader())
+            while (r.Read())
+            {
+                using var doc = JsonDocument.Parse(r.GetString(0));
+                foreach (var squad in doc.RootElement.EnumerateArray())
+                    if (squad.TryGetProperty("Starters", out var starters))
+                        foreach (var s in starters.EnumerateArray())
+                            if (s.TryGetProperty("SpId", out var id)) use[id.GetInt64()] = use.GetValueOrDefault(id.GetInt64()) + 1;
+            }
+        return use;
+    }
+
     // ── seasons ────────────────────────────────────────────────────────────
 
     public HashSet<int> KnownSeasons()

@@ -237,10 +237,25 @@ public sealed class PriceModel
     /// <summary>Robust spread of holdout log-price errors; used to compare price gaps across position models.</summary>
     public double ValidationLogScale { get; private set; }
 
+    /// <summary>
+    /// MV-19: a card rankers field (daily charts, sampled ranker squads) counts this many times in the fit. ×3 lowered the
+    /// most-used 300 cards' error (34.5→32.6%, paired −0.011) without hurting the rest; ×8 gained nothing.
+    /// </summary>
+    public const double RankerWeight = 3;
+
+    /// <returns>Null when no card is used or the weight is 1 (the plain fit).</returns>
+    public static IReadOnlyDictionary<long, double>? RankerWeights(IReadOnlyDictionary<long, int> rankerUse, double weight = RankerWeight) =>
+        weight == 1 || rankerUse.Count == 0 ? null : rankerUse.Where(u => u.Value > 0).ToDictionary(u => u.Key, _ => weight);
+
+    /// <summary>Per card, how much it counts in the fit (MV-19: ranker-used cards); null = every card once.</summary>
+    private readonly IReadOnlyDictionary<long, double>? _weights;
+
     private PriceModel(string group, int grade, IReadOnlyList<MarketCard> data, IReadOnlyList<MarketMembership>? memberships, bool validate = true,
-        int? traitHinge = TraitHinge, bool linearTraits = false, bool pooled = false, IReadOnlyDictionary<long, CardUse>? usage = null)
+        int? traitHinge = TraitHinge, bool linearTraits = false, bool pooled = false, IReadOnlyDictionary<long, CardUse>? usage = null,
+        IReadOnlyDictionary<long, double>? weights = null)
     {
         _pooled = pooled;
+        _weights = weights;
         _usage = usage;
         _data = data;
         foreach (var c in data) _familyOf[c.SpId] = pooled ? FamilyFrom(c) : group;
@@ -341,7 +356,8 @@ public sealed class PriceModel
         var several = data.GroupBy(c => c.PlayerId).Where(p => p.Count() >= 2).Select((p, i) => (p.Key, i)).ToDictionary(p => p.Key, p => p.i);
         var effects = data.Select(c => several.TryGetValue(c.PlayerId, out var e) ? e : -1).ToList();
         double[] completed;
-        (_beta, _se, R2, Sigma, completed, _influence) = RidgeTobit(x, y, data.Select(c => c.PlayerId).ToList(), controls, censored, rawPenalty: rawPenalty, effects: effects, effectRidge: FitPlayerRidge, zPenalty: zPenalty);
+        (_beta, _se, R2, Sigma, completed, _influence) = RidgeTobit(x, y, data.Select(c => c.PlayerId).ToList(), controls, censored, rawPenalty: rawPenalty, effects: effects, effectRidge: FitPlayerRidge, zPenalty: zPenalty,
+            rowWeights: weights is null ? null : data.Select(c => weights.GetValueOrDefault(c.SpId, 1)).ToList());
         // Leave-one-out: a card's own price must not vouch for itself, or a cheap card would look less cheap.
         var residual = data.Select((c, i) => completed[i] - Dot(_beta, x[i])).ToList();
         var footballers = data.Select((c, i) => (c, i)).GroupBy(t => t.c.PlayerId).ToList();
@@ -382,12 +398,13 @@ public sealed class PriceModel
     /// </summary>
     /// <param name="usage">How each card is used in the stored official matches (<see cref="CardUsage"/>).</param>
     public static PriceModel? FitPool(int grade, IEnumerable<MarketCard> cards, IReadOnlyList<MarketMembership>? memberships = null, bool validate = true,
-        int? traitHinge = TraitHinge, bool linearTraits = false, IReadOnlyDictionary<long, CardUse>? usage = null)
+        int? traitHinge = TraitHinge, bool linearTraits = false, IReadOnlyDictionary<long, CardUse>? usage = null,
+        IReadOnlyDictionary<long, double>? weights = null)
     {
-        var rows = cards.Where(c => c.Group != "GK" && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var rows = cards.Where(c => c.Group != "GK" && c.IsTrainable && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         var data = Unique(rows);
         if (data.Count < 60 || data.Select(c => c.PlayerId).Distinct().Count() < 10) return null;
-        var model = new PriceModel(MarketGroups.All[0].Key, grade, data, memberships, false, traitHinge, linearTraits, pooled: true, usage: usage);
+        var model = new PriceModel(MarketGroups.All[0].Key, grade, data, memberships, false, traitHinge, linearTraits, pooled: true, usage: usage, weights: weights);
         foreach (var c in rows)
         {
             if (!model._listedIn.TryGetValue(c.SpId, out var set)) model._listedIn[c.SpId] = set = [];
@@ -534,7 +551,7 @@ public sealed class PriceModel
     public static PriceModel? Fit(string group, int grade, IEnumerable<MarketCard> cards, IReadOnlyList<MarketMembership>? memberships = null, bool validate = true,
         int? traitHinge = TraitHinge, bool linearTraits = false)
     {
-        var data = cards.Where(c => c.Group == group && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var data = cards.Where(c => c.Group == group && c.IsTrainable && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         return data.Count < 60 || data.Select(c => c.PlayerId).Distinct().Count() < 10 ? null : new PriceModel(group, grade, data, memberships, validate, traitHinge, linearTraits);
     }
 
@@ -980,7 +997,7 @@ public sealed class PriceModel
     public static IReadOnlyList<PriceValidationRow> CrossValidate(string group, int grade, IEnumerable<MarketCard> cards,
         IReadOnlyList<MarketMembership>? memberships = null, int? traitHinge = TraitHinge, bool linearTraits = false)
     {
-        var data = cards.Where(c => c.Group == group && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var data = cards.Where(c => c.Group == group && c.IsTrainable && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         var result = new List<PriceValidationRow>();
         for (var fold = 0; fold < 5; fold++)
         {
@@ -997,14 +1014,14 @@ public sealed class PriceModel
     /// </summary>
     public static IReadOnlyList<PriceValidationRow> CrossValidatePool(int grade, IEnumerable<MarketCard> cards,
         IReadOnlyList<MarketMembership>? memberships = null, int? traitHinge = TraitHinge, bool linearTraits = false,
-        IReadOnlyDictionary<long, CardUse>? usage = null, bool trees = true)
+        IReadOnlyDictionary<long, CardUse>? usage = null, bool trees = true, IReadOnlyDictionary<long, double>? weights = null)
     {
-        var rows = cards.Where(c => c.Group != "GK" && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var rows = cards.Where(c => c.Group != "GK" && c.IsTrainable && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         var result = new List<PriceValidationRow>();
         for (var fold = 0; fold < 5; fold++)
         {
             var train = rows.Where(c => Fold(c.SpId) != fold).ToList();
-            if (FitPool(grade, train, memberships, validate: false, traitHinge, linearTraits, usage) is not { } model) continue;
+            if (FitPool(grade, train, memberships, validate: false, traitHinge, linearTraits, usage, weights) is not { } model) continue;
             if (trees) model.FitPlainTrees();
             result.AddRange(rows.Where(c => Fold(c.SpId) == fold).Select(c => new PriceValidationRow(c, grade, fold, model.Expected(c))));
         }
@@ -1025,7 +1042,7 @@ public sealed class PriceModel
         var linearOf = new Dictionary<long, double>();
         for (var fold = 0; fold < folds; fold++)
         {
-            if (FitPool(grade, data.Where(c => Fold(c.SpId) != fold), memberships, validate: false, traitHinge, linearTraits, usage) is not { } model) continue;
+            if (FitPool(grade, data.Where(c => Fold(c.SpId) != fold), memberships, validate: false, traitHinge, linearTraits, usage, _weights) is not { } model) continue;
             foreach (var c in data.Where(c => Fold(c.SpId) == fold))
             {
                 // The fold's model is linear only; the trees were fitted without this fold as well.
@@ -1188,9 +1205,12 @@ public sealed class PriceModel
     /// The other coefficients are then compared within an effect (the same player's cards).</param>
     internal static (double[] Beta, double[] Se, double R2, double Sigma, double[] Completed, double[][] Influence) RidgeTobit(IReadOnlyList<double[]> x, IReadOnlyList<double> y,
         IReadOnlyList<int> clusters, IReadOnlyList<bool> controls, IReadOnlyList<bool>? censored = null, double lambda = Ridge, int iterations = 60,
-        IReadOnlyList<double>? rawPenalty = null, IReadOnlyList<int>? effects = null, double effectRidge = FitPlayerRidge, IReadOnlyList<double>? zPenalty = null)
+        IReadOnlyList<double>? rawPenalty = null, IReadOnlyList<int>? effects = null, double effectRidge = FitPlayerRidge, IReadOnlyList<double>? zPenalty = null,
+        IReadOnlyList<double>? rowWeights = null)
     {
         var n = x.Count;
+        // Weighted least squares (MV-19): a row of weight w counts as w rows in the fit; 1 everywhere is the plain fit.
+        var rw = rowWeights?.ToArray() ?? Enumerable.Repeat(1.0, n).ToArray();
         var k = x[0].Length;
         var group = effects?.ToArray() ?? Enumerable.Repeat(-1, n).ToArray();
         var effectCount = group.Length == 0 ? 0 : group.Max() + 1;
@@ -1226,7 +1246,7 @@ public sealed class PriceModel
             {
                 var right = columns[q];
                 double sum = 0;
-                for (var i = 0; i < n; i++) sum += left[i] * right[i];
+                for (var i = 0; i < n; i++) sum += rw[i] * left[i] * right[i];
                 a[p, q] = sum;
                 a[q, p] = sum;
             }
@@ -1240,8 +1260,8 @@ public sealed class PriceModel
         for (var i = 0; i < n; i++)
         {
             if (group[i] < 0) continue;
-            d[group[i]] += 1;
-            for (var p = 0; p < k; p++) bsum[p, group[i]] += z[i][p];
+            d[group[i]] += rw[i];
+            for (var p = 0; p < k; p++) bsum[p, group[i]] += rw[i] * z[i][p];
         }
         for (var g = 0; g < effectCount; g++) d[g] += effectRidge;
         if (effectCount > 0)
@@ -1269,11 +1289,11 @@ public sealed class PriceModel
             var wty = new double[k];
             for (var i = 0; i < n; i++)
                 for (var j = 0; j < k; j++)
-                    wty[j] += w[i][j] * target[i];
+                    wty[j] += rw[i] * w[i][j] * target[i];
             var b = new double[k];
             for (var p = 0; p < k; p++) for (var q = 0; q < k; q++) b[p] += inv[p, q] * wty[q];
             Array.Clear(u);
-            for (var i = 0; i < n; i++) if (group[i] >= 0) u[group[i]] += target[i] - Dot(b, z[i]);
+            for (var i = 0; i < n; i++) if (group[i] >= 0) u[group[i]] += rw[i] * (target[i] - Dot(b, z[i]));
             for (var g = 0; g < effectCount; g++) u[g] /= d[g];
             return b;
         }
@@ -1321,7 +1341,7 @@ public sealed class PriceModel
             sseAll += e * e;
             sst += (yi[i] - mean) * (yi[i] - mean);
             if (!scores.TryGetValue(clusters[i], out var score)) scores[clusters[i]] = score = new double[k];
-            for (var j = 0; j < k; j++) score[j] += e * w[i][j];
+            for (var j = 0; j < k; j++) score[j] += rw[i] * e * w[i][j];
         }
         if (double.IsNaN(sigma)) sigma = Math.Max(Math.Sqrt(sseAll / n), 0.05);
         var cr1 = scores.Count / (double)Math.Max(scores.Count - 1, 1) * (n - 1) / Math.Max(n - k - effectCount, 1);
@@ -1538,11 +1558,11 @@ public sealed record ValuePick(MarketCard Card, int Grade, long Price, long Expe
     public PriceBand? Band { get; init; }
     public double ModelError { get; init; } = double.NaN;
     public double LogErrorScale { get; init; } = double.NaN;
-    /// <summary>NaN for a new card: its launch price is not compared with the model (<see cref="MarketCard.IsNew"/>).</summary>
-    public double EvidenceScore => Card.IsNew ? double.NaN : PriceEvidence.Score(Price, Expected, LogErrorScale);
+    /// <summary>NaN for a new or supply-limited card: its price is not compared with the model (<see cref="MarketCard.ExpectedOnly"/>).</summary>
+    public double EvidenceScore => Card.ExpectedOnly ? double.NaN : PriceEvidence.Score(Price, Expected, LogErrorScale);
     public bool OutsideModelError => EvidenceScore < -1.96;
-    /// <summary>Price relative to the model's expectation: −0.4 = 40% cheaper than similar cards. NaN for a new card.</summary>
-    public double Discount => Card.IsNew ? double.NaN : Price / (double)Expected - 1;
+    /// <summary>Price relative to the model's expectation: −0.4 = 40% cheaper than similar cards. NaN for a new or supply-limited card.</summary>
+    public double Discount => Card.ExpectedOnly ? double.NaN : Price / (double)Expected - 1;
 }
 
 /// <summary>A holdout-error comparison, not a confidence interval or proof of mispricing.</summary>
@@ -1557,6 +1577,14 @@ public static class PriceEvidence
 
     public static string Label(double score, bool isNew = false) => isNew ? NewCardLabel : !double.IsFinite(score) ? "오차 검증 부족"
         : score < -1.96 ? "비슷한 카드보다 쌈 [추정]" : "모델 오차 범위 내";
+
+    /// <summary>The label for a card: new and supply-limited cards get their reason instead of a comparison.</summary>
+    public static string Label(double score, MarketCard card) => card.IsNew ? NewCardLabel
+        : MarketGroups.IsLimitedSupply(card) ? LimitedLabel : Label(score);
+
+    /// <summary>TOTS/TOTY/ICON prices follow supply, not play (user rule 2026-11-06): only the expected price is shown.</summary>
+    public const string LimitedLabel = "공급 한정 시즌: 예상 시세만 [추정]";
+
     /// <summary>A new card's own price is launch noise: only the model's expected price is shown for it.</summary>
     public const string NewCardLabel = "신규 카드: 예상 시세만 [추정]";
 

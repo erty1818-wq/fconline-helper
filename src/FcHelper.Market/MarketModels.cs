@@ -160,6 +160,27 @@ public static class MarketGroups
 
     public static bool IsPriceOutlier(MarketCard c) => PriceOutliers.Any(n => c.Name.Contains(n, StringComparison.Ordinal));
 
+    /// <summary>
+    /// Seasons whose supply, not their play, sets the price (user rule 2026-11-06): TOTS, TOTY and its nominees (TOTN),
+    /// and the ICON family (ICON, ICONTM, ICONTM_B, ICONS MATCH, club ICONs). Few cards reach the market (MV-17: 61-94%
+    /// of them stop trading for a week), so their prices teach the model little about what a spec is worth. They are
+    /// still priced by it.
+    /// </summary>
+    public static bool IsLimitedSupply(MarketCard c) => LimitedSupplyRule && IsLimitedSeason(c.Season);
+
+    /// <summary>Audit switch (`fch market-validate --limited keep`): false treats those seasons like any other.</summary>
+    public static bool LimitedSupplyRule { get; set; } = true;
+
+    /// <summary>Audit switch (`fch market-validate --limited drop`): false leaves those seasons out of the fit as well (MV-19).</summary>
+    public static bool TrainOnLimitedSupply { get; set; } = true;
+
+    public static bool IsLimitedSeason(string season)
+    {
+        var s = season.ToUpperInvariant();
+        return s.Contains("TOTS", StringComparison.Ordinal) || s.Contains("TOTY", StringComparison.Ordinal) || s.Contains("TOTN", StringComparison.Ordinal)
+            || s.Contains("ICON", StringComparison.Ordinal) || s.StartsWith("TKI", StringComparison.Ordinal) || Regex.IsMatch(s, @"^\d{2}IM_");
+    }
+
     /// <summary>OVR 105-130 at +1 covers squad-level cards; below that the market is mostly floor prices.</summary>
     public const int OvrMin = 105, OvrMax = 130;
 
@@ -247,8 +268,20 @@ public sealed record MarketCard
     /// </summary>
     public bool IsNew { get; init; }
 
-    /// <summary>A traded card whose price the model may learn from and averages may include (not a new card).</summary>
-    public bool IsPriceEvidence => IsTraded && !IsNew;
+    /// <summary>
+    /// A traded card whose price the model may learn from and averages may include: not a new card and not from a
+    /// supply-limited season (<see cref="MarketGroups.IsLimitedSupply"/>). Both are priced by the model instead.
+    /// </summary>
+    public bool IsPriceEvidence => IsTraded && !IsNew && !MarketGroups.IsLimitedSupply(this);
+
+    /// <summary>
+    /// A card the price model learns from: traded and not new. Supply-limited seasons stay in (MV-19): the model's season
+    /// terms take their supply premium, and without them the ranker-used top cards were priced worse (top 100: 33.7→38.6%).
+    /// </summary>
+    public bool IsTrainable => IsTraded && !IsNew && (MarketGroups.TrainOnLimitedSupply || !MarketGroups.IsLimitedSupply(this));
+
+    /// <summary>Its own price is not evidence (new or supply-limited): show the model's expected price only.</summary>
+    public bool ExpectedOnly => IsNew || MarketGroups.IsLimitedSupply(this);
 }
 
 public static class Grades

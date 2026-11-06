@@ -152,6 +152,23 @@ public class PriceModelTests
     }
 
     [Fact]
+    public void Supply_limited_seasons_teach_the_model_but_show_an_expected_price_only()
+    {
+        // MV-19: TOTS/TOTY/ICON stay in the fit (their season term takes the supply premium) but are never called cheap or dear.
+        var cards = Market(400).Select((c, i) => i % 10 == 0 ? c with { Season = i % 20 == 0 ? "ICONTM" : "25TOTS" } : c).ToList();
+        var model = PriceModel.Fit("W", 8, cards)!;
+        Assert.Equal(400, model.Cards);
+
+        var picks = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8 });
+        var limited = picks.Where(p => MarketGroups.IsLimitedSupply(p.Card)).ToList();
+        Assert.Equal(40, limited.Count);
+        Assert.All(limited, p => Assert.True(double.IsNaN(p.Discount) && !p.Card.IsPriceEvidence && p.Card.IsTrainable));
+        Assert.Equal(PriceEvidence.LimitedLabel, PriceEvidence.Label(-5, limited[0].Card));
+        Assert.All(new[] { "26TOTY", "24TOTN", "ICON", "ICONTM_B", "ICON_M", "25IM_SP" }, s => Assert.True(MarketGroups.IsLimitedSeason(s)));
+        Assert.All(new[] { "26UP", "24EP", "SPT", "LIVE", "CU", "EVO-CU" }, s => Assert.False(MarketGroups.IsLimitedSeason(s)));
+    }
+
+    [Fact]
     public void Body_type_and_skill_moves_are_listed_but_not_priced_while_every_trait_is()
     {
         // MV-07: body type and skill moves do not set prices consistently (left out, the user's call). MV-09: every trait
@@ -320,6 +337,33 @@ public class PriceFloorTests
         Assert.True(asValue.Beta[2] < tobit.Beta[2] - 0.05); // taking the floor as the value understates it
         Assert.InRange(tobit.Beta[1], Math.Log(1.4) - 0.01, Math.Log(1.4) + 0.01);
         Assert.InRange(tobit.Sigma, 0.36, 0.44);
+    }
+
+    [Fact]
+    public void A_weight_counts_a_row_that_many_times()
+    {
+        // MV-19 ranker weights: weight 3 on a row must give the fit of that row listed three times, player effects included.
+        var r = new Random(19);
+        var x = new List<double[]>();
+        var y = new List<double>();
+        var players = new List<int>();
+        for (var i = 0; i < 400; i++)
+        {
+            var d = r.Next(-8, 9);
+            x.Add([1, d, i % 4 == 0 ? 1 : 0]);
+            y.Add(18 + 0.35 * d + 0.3 * (i % 4 == 0 ? 1 : 0) + (i % 40) * 0.01 + Normal(r) * 0.2);
+            players.Add(i % 40);
+        }
+        var weights = Enumerable.Range(0, 400).Select(i => i % 5 == 0 ? 3.0 : 1.0).ToList();
+        var rows = Enumerable.Range(0, 400).SelectMany(i => Enumerable.Repeat(i, (int)weights[i])).ToList();
+        bool[] notShrunk = [true, true, true];
+        var weighted = PriceModel.RidgeTobit(x, y, players, notShrunk, effects: players, rowWeights: weights);
+        var repeated = PriceModel.RidgeTobit(rows.Select(i => x[i]).ToList(), rows.Select(i => y[i]).ToList(), rows.Select(i => players[i]).ToList(),
+            notShrunk, effects: rows.Select(i => players[i]).ToList());
+        var plain = PriceModel.RidgeTobit(x, y, players, notShrunk, effects: players);
+
+        for (var j = 1; j < 3; j++) Assert.Equal(repeated.Beta[j], weighted.Beta[j], 3);
+        Assert.Equal(plain.Beta[1], PriceModel.RidgeTobit(x, y, players, notShrunk, effects: players, rowWeights: Enumerable.Repeat(1.0, 400).ToList()).Beta[1], 12);
     }
 
     [Fact]
