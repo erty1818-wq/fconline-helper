@@ -30,7 +30,7 @@ internal static class StudioKit
 
     public static string Tags(MarketCard c) => string.Join(" · ", c.Tags.Order().Select(MarketGroups.TagLabel));
 
-    public static string Pct(double v) => $"{v * 100:+0;-0}%";
+    public static string Pct(double v) => double.IsFinite(v) ? $"{v * 100:+0;-0}%" : "—";
 
     /// <summary>Runs a page action with the button disabled and errors shown in the status line instead of closing the app.</summary>
     public static async Task Run(Button? button, TextBlock status, Func<Task> action)
@@ -101,7 +101,7 @@ public sealed record ValueRow(string Name, string Season, int Ovr, string Core, 
             ModelError = PriceEvidence.ErrorLabel(p.ModelError),
             Range = p.Band is { } band ? $"{Bp.Format(band.Low)} ~ {Bp.Format(band.High)}" : "",
             Trust = p.Band?.Trust ?? "",
-            Evidence = PriceEvidence.Label(p.EvidenceScore),
+            Evidence = PriceEvidence.Label(p.EvidenceScore, c.IsNew),
             SpId = c.SpId,
         };
     }

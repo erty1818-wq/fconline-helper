@@ -20,7 +20,7 @@ public static class PatchValueModel
     {
         var old = before.ToDictionary(c => (c.Group, c.SpId));
         var pairs = after.Where(c => old.ContainsKey((c.Group, c.SpId))).Select(c => (Now: c, Old: old[(c.Group, c.SpId)]))
-            .Where(p => p.Now.IsTraded && p.Old.IsTraded && !MarketGroups.IsPriceOutlier(p.Now)
+            .Where(p => p.Now.IsPriceEvidence && p.Old.IsPriceEvidence && !MarketGroups.IsPriceOutlier(p.Now)
                 && p.Now.PriceAt(grade) > Grades.FloorPrice && p.Old.PriceAt(grade) > Grades.FloorPrice
                 && p.Now.Ovr1 == p.Old.Ovr1 && p.Now.Season == p.Old.Season
                 && Traits.All(t => p.Now.Tags.Contains($"trait:{t}") == p.Old.Tags.Contains($"trait:{t}")))

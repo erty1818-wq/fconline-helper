@@ -25,6 +25,9 @@ public sealed class MarketService(
 {
     public static readonly TimeSpan PriceTtl = TimeSpan.FromHours(20);
 
+    /// <summary>The Open API's season list (no key needed): a season missing from it last time means new cards.</summary>
+    public static readonly Uri SeasonListUrl = new("https://open.api.nexon.com/static/fconline/meta/seasonid.json");
+
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<(long, string, int), PriceModel?> _models = [];
@@ -246,7 +249,7 @@ public sealed class MarketService(
             {
                 var contributingGroups = trait.Where(x => x.Factor.Estimated).Select(x => x.Group).ToHashSet();
                 var sample = trait.Select(x => x.Group).Distinct().Where(g => contributingGroups.Count == 0 || contributingGroups.Contains(g))
-                    .SelectMany(g => Cards(snapshot.Id, g)).Where(c => c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice
+                    .SelectMany(g => Cards(snapshot.Id, g)).Where(c => c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice
                         && !MarketGroups.IsPriceOutlier(c) && (minOvr is null || c.OvrAt(grade) >= minOvr) && c.Tags.Contains(trait.Key)).ToList();
                 var players = sample.Select(c => c.PlayerId).Distinct().Count();
                 var cardCount = sample.Select(c => c.SpId).Distinct().Count();

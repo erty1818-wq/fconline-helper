@@ -384,7 +384,7 @@ public sealed class PriceModel
     public static PriceModel? FitPool(int grade, IEnumerable<MarketCard> cards, IReadOnlyList<MarketMembership>? memberships = null, bool validate = true,
         int? traitHinge = TraitHinge, bool linearTraits = false, IReadOnlyDictionary<long, CardUse>? usage = null)
     {
-        var rows = cards.Where(c => c.Group != "GK" && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var rows = cards.Where(c => c.Group != "GK" && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         var data = Unique(rows);
         if (data.Count < 60 || data.Select(c => c.PlayerId).Distinct().Count() < 10) return null;
         var model = new PriceModel(MarketGroups.All[0].Key, grade, data, memberships, false, traitHinge, linearTraits, pooled: true, usage: usage);
@@ -534,7 +534,7 @@ public sealed class PriceModel
     public static PriceModel? Fit(string group, int grade, IEnumerable<MarketCard> cards, IReadOnlyList<MarketMembership>? memberships = null, bool validate = true,
         int? traitHinge = TraitHinge, bool linearTraits = false)
     {
-        var data = cards.Where(c => c.Group == group && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var data = cards.Where(c => c.Group == group && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         return data.Count < 60 || data.Select(c => c.PlayerId).Distinct().Count() < 10 ? null : new PriceModel(group, grade, data, memberships, validate, traitHinge, linearTraits);
     }
 
@@ -980,7 +980,7 @@ public sealed class PriceModel
     public static IReadOnlyList<PriceValidationRow> CrossValidate(string group, int grade, IEnumerable<MarketCard> cards,
         IReadOnlyList<MarketMembership>? memberships = null, int? traitHinge = TraitHinge, bool linearTraits = false)
     {
-        var data = cards.Where(c => c.Group == group && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var data = cards.Where(c => c.Group == group && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         var result = new List<PriceValidationRow>();
         for (var fold = 0; fold < 5; fold++)
         {
@@ -999,7 +999,7 @@ public sealed class PriceModel
         IReadOnlyList<MarketMembership>? memberships = null, int? traitHinge = TraitHinge, bool linearTraits = false,
         IReadOnlyDictionary<long, CardUse>? usage = null, bool trees = true)
     {
-        var rows = cards.Where(c => c.Group != "GK" && c.IsTraded && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
+        var rows = cards.Where(c => c.Group != "GK" && c.IsPriceEvidence && c.PriceAt(grade) > Grades.FloorPrice && !MarketGroups.IsPriceOutlier(c)).ToList();
         var result = new List<PriceValidationRow>();
         for (var fold = 0; fold < 5; fold++)
         {
@@ -1538,10 +1538,11 @@ public sealed record ValuePick(MarketCard Card, int Grade, long Price, long Expe
     public PriceBand? Band { get; init; }
     public double ModelError { get; init; } = double.NaN;
     public double LogErrorScale { get; init; } = double.NaN;
-    public double EvidenceScore => PriceEvidence.Score(Price, Expected, LogErrorScale);
+    /// <summary>NaN for a new card: its launch price is not compared with the model (<see cref="MarketCard.IsNew"/>).</summary>
+    public double EvidenceScore => Card.IsNew ? double.NaN : PriceEvidence.Score(Price, Expected, LogErrorScale);
     public bool OutsideModelError => EvidenceScore < -1.96;
-    /// <summary>Price relative to the model's expectation: −0.4 = 40% cheaper than similar cards.</summary>
-    public double Discount => Price / (double)Expected - 1;
+    /// <summary>Price relative to the model's expectation: −0.4 = 40% cheaper than similar cards. NaN for a new card.</summary>
+    public double Discount => Card.IsNew ? double.NaN : Price / (double)Expected - 1;
 }
 
 /// <summary>A holdout-error comparison, not a confidence interval or proof of mispricing.</summary>
@@ -1554,8 +1555,11 @@ public static class PriceEvidence
     public static double Rank(double score, int ratings) => double.IsFinite(score)
         ? score * Math.Clamp(Math.Log(1 + Math.Max(ratings, 0)) / Math.Log(101), 0.5, 1) : double.PositiveInfinity;
 
-    public static string Label(double score) => !double.IsFinite(score) ? "오차 검증 부족"
+    public static string Label(double score, bool isNew = false) => isNew ? NewCardLabel : !double.IsFinite(score) ? "오차 검증 부족"
         : score < -1.96 ? "비슷한 카드보다 쌈 [추정]" : "모델 오차 범위 내";
+    /// <summary>A new card's own price is launch noise: only the model's expected price is shown for it.</summary>
+    public const string NewCardLabel = "신규 카드: 예상 시세만 [추정]";
+
     public static string ErrorLabel(double error) => double.IsFinite(error) ? $"{error:P0}" : "표본 부족";
 }
 

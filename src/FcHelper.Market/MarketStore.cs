@@ -39,6 +39,7 @@ public sealed class MarketStore
         if (Convert.ToInt32(cols.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
             Exec(c, "ALTER TABLE market_card ADD COLUMN positions TEXT NOT NULL DEFAULT '{}'");
         ExtraSchema(c);
+        CardSeenSchema(c);
         // The known rebalance date starts at midnight KST. Registration also protects already-collected baselines.
         Exec(c, "INSERT OR IGNORE INTO market_patch_baseline (patch_at, name) VALUES ($p, $n)",
             ("$p", Iso(new DateTime(2026, 9, 29, 15, 0, 0, DateTimeKind.Utc))), ("$n", "2026-09-30 신규 특성 리밸런싱"));
@@ -60,6 +61,27 @@ public sealed class MarketStore
         CREATE TABLE IF NOT EXISTS market_patch_baseline (
             patch_at TEXT PRIMARY KEY, name TEXT NOT NULL, snapshot INTEGER, history_day TEXT);
         """);
+
+    /// <summary>
+    /// When each card was first listed, so new cards can be told apart (<see cref="MarketCard.IsNew"/>). Snapshots are
+    /// pruned, so this is kept on its own. An empty date means "already there when collecting began" (never new).
+    /// The first time, it is filled from the stored snapshots and daily prices.
+    /// </summary>
+    private static void CardSeenSchema(SqliteConnection c)
+    {
+        using var exists = Cmd(c, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'market_card_seen'");
+        if (Convert.ToInt32(exists.ExecuteScalar(), CultureInfo.InvariantCulture) > 0) return;
+        Exec(c, """
+            CREATE TABLE market_card_seen (sp_id INTEGER PRIMARY KEY, first_seen TEXT NOT NULL);
+            WITH seen AS (
+                SELECT m.sp_id, MIN(s.started_at) AS t FROM market_card m JOIN market_snapshot s ON s.id = m.snapshot GROUP BY m.sp_id
+                UNION ALL SELECT sp_id, MIN(day) FROM price_history GROUP BY sp_id),
+            first AS (SELECT sp_id, MIN(t) AS t FROM seen GROUP BY sp_id),
+            origin AS (SELECT MIN(substr(t, 1, 10)) AS d FROM first)
+            INSERT OR IGNORE INTO market_card_seen
+            SELECT sp_id, CASE WHEN substr(t, 1, 10) = (SELECT d FROM origin) THEN '' ELSE t END FROM first;
+            """);
+    }
 
     private SqliteConnection Open()
     {
@@ -174,8 +196,10 @@ public sealed class MarketStore
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
+        var seen = FirstSeenValue(c, snapshot);
         foreach (var row in rows)
         {
+            Exec(c, "INSERT OR IGNORE INTO market_card_seen VALUES ($p, $t)", ("$p", row.SpId), ("$t", seen));
             var stats = new Dictionary<string, int>(row.Stats);
             var positions = new Dictionary<string, int>(row.Positions);
             using (var read = Cmd(c, "SELECT stats, positions FROM market_card WHERE snapshot = $s AND grp = $g AND sp_id = $p",
@@ -197,6 +221,35 @@ public sealed class MarketStore
                 ("$pr", JsonSerializer.Serialize(row.Prices)), ("$st", JsonSerializer.Serialize(stats)), ("$po", JsonSerializer.Serialize(positions)));
         }
         tx.Commit();
+    }
+
+    /// <summary>The snapshot's start for a card seen first in it; empty during the very first collection (nothing to compare with).</summary>
+    private static string FirstSeenValue(SqliteConnection c, long snapshot)
+    {
+        using var cmd = Cmd(c, "SELECT s.started_at, (SELECT COUNT(*) FROM market_snapshot o WHERE o.id < s.id) FROM market_snapshot s WHERE s.id = $s",
+            ("$s", snapshot));
+        using var r = cmd.ExecuteReader();
+        return r.Read() && r.GetInt32(1) > 0 ? r.GetString(0) : "";
+    }
+
+    /// <summary>
+    /// Seasons with a card that has only the daily first stat pass: listed after the last full refresh and never
+    /// fetched with its other stats and tags (also new cards in an existing season, e.g. added ICONs).
+    /// </summary>
+    public IReadOnlyList<int> UncoveredSeasons(long snapshot)
+    {
+        var result = new HashSet<int>();
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT grp, sp_id, stats FROM market_card WHERE snapshot = $s", ("$s", snapshot));
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var group = MarketGroups.All.FirstOrDefault(g => g.Key == r.GetString(0));
+            if (group is null || group.Stats.Length < 2) continue;
+            var stats = JsonSerializer.Deserialize<Dictionary<string, int>>(r.GetString(2))!;
+            if (!group.Stats[1].All(stats.ContainsKey)) result.Add((int)(r.GetInt64(1) / 1_000_000));
+        }
+        return [.. result.Order()];
     }
 
     public void SaveTag(long snapshot, string group, IEnumerable<long> spIds, string tag)
@@ -257,9 +310,14 @@ public sealed class MarketStore
                 set.Add(r.GetString(2));
             }
         }
+        var newSince = "";
+        using (var cmd = Cmd(c, "SELECT started_at FROM market_snapshot WHERE id = $s", ("$s", snapshot)))
+            if (cmd.ExecuteScalar() is string started)
+                newSince = Iso(Date(started).AddDays(-MarketDefaults.NewCardDays));
         var cards = new List<MarketCard>();
-        using (var cmd = Cmd(c, "SELECT grp, sp_id, name, season, pay, ovr1, weak_foot, rating, rating_count, prices, stats, positions FROM market_card WHERE snapshot = $s"
-                   + (group is null ? "" : " AND grp = $g"), ("$s", snapshot), ("$g", group)))
+        using (var cmd = Cmd(c, "SELECT m.grp, m.sp_id, m.name, m.season, m.pay, m.ovr1, m.weak_foot, m.rating, m.rating_count, m.prices, m.stats, m.positions,"
+                   + " COALESCE(n.first_seen, '') FROM market_card m LEFT JOIN market_card_seen n ON n.sp_id = m.sp_id WHERE m.snapshot = $s"
+                   + (group is null ? "" : " AND m.grp = $g"), ("$s", snapshot), ("$g", group)))
         using (var r = cmd.ExecuteReader())
         {
             while (r.Read())
@@ -273,6 +331,7 @@ public sealed class MarketStore
                     Stats = JsonSerializer.Deserialize<Dictionary<string, int>>(r.GetString(10))!,
                     Positions = JsonSerializer.Deserialize<Dictionary<string, int>>(r.GetString(11))!,
                     Tags = tags.GetValueOrDefault(key) ?? [],
+                    IsNew = newSince.Length > 0 && r.GetString(12) is { Length: > 0 } first && string.CompareOrdinal(first, newSince) > 0,
                 });
             }
         }

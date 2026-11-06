@@ -24,21 +24,66 @@ public sealed class MarketHarvester(IMarketListSource source, MarketStore store)
     public async Task RunAsync(long snapshot, RefreshKind kind, long? previousSnapshot, IReadOnlyCollection<int> newSeasons,
         IProgress<HarvestProgress>? progress, CancellationToken ct)
     {
-        var steps = Plan(snapshot, kind, previousSnapshot, newSeasons);
+        var steps = Plan(snapshot, kind, previousSnapshot);
         var done = store.DoneKeys(snapshot);
-        var count = steps.Count(s => done.Contains(s.Key));
-        foreach (var step in steps)
+        var count = await Run(snapshot, steps, done, 0, steps.Count, progress, ct);
+        if (kind == RefreshKind.Prices)
         {
-            if (done.Contains(step.Key)) continue;
-            progress?.Report(new HarvestProgress(count, steps.Count, step.Key));
-            await step.Run(ct);
-            store.MarkDone(snapshot, step.Key);
-            count++;
+            // Second phase, once the lists are in: seasons with cards that never got their other stats and tags.
+            var later = SeasonSteps(snapshot, SeasonsToComplete(snapshot, newSeasons));
+            count = await Run(snapshot, later, done, count, steps.Count + later.Count, progress, ct);
+            steps.AddRange(later);
         }
         progress?.Report(new HarvestProgress(count, steps.Count, "done"));
     }
 
-    private List<Step> Plan(long snapshot, RefreshKind kind, long? previous, IReadOnlyCollection<int> newSeasons)
+    private async Task<int> Run(long snapshot, List<Step> steps, HashSet<string> done, int count, int total, IProgress<HarvestProgress>? progress, CancellationToken ct)
+    {
+        count += steps.Count(s => done.Contains(s.Key));
+        foreach (var step in steps)
+        {
+            if (done.Contains(step.Key)) continue;
+            progress?.Report(new HarvestProgress(count, total, step.Key));
+            await step.Run(ct);
+            store.MarkDone(snapshot, step.Key);
+            count++;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// The season filter of the second phase: new seasons in the official list plus any season with a card that has only
+    /// the first stat pass (new cards the season list did not announce, or a refresh that missed it). Kept with the
+    /// snapshot so a resumed refresh asks for the same seasons even after some cards were completed.
+    /// </summary>
+    private string SeasonsToComplete(long snapshot, IReadOnlyCollection<int> newSeasons)
+    {
+        var key = $"harvest.seasons.{snapshot}";
+        if (store.GetValue(key) is { } saved) return saved.Value;
+        var seasons = newSeasons.Concat(store.UncoveredSeasons(snapshot)).Distinct().Order().ToList();
+        var filter = seasons.Count == 0 ? "" : "," + string.Join(",", seasons.Select(s => s.ToString(CultureInfo.InvariantCulture))) + ",";
+        store.SetValue(key, filter, DateTime.UtcNow);
+        return filter;
+    }
+
+    /// <summary>Other stat passes and the tags of the cards in <paramref name="filter"/>'s seasons.</summary>
+    private List<Step> SeasonSteps(long snapshot, string filter)
+    {
+        var steps = new List<Step>();
+        if (filter.Length == 0) return steps;
+        foreach (var g in MarketGroups.All)
+        {
+            for (var pass = 1; pass < g.Stats.Length; pass++)
+            {
+                var stats = g.Stats[pass];
+                steps.Add(new($"season|{filter}|{g.Key}|list{pass}", ct => ListRange(snapshot, g, new ListQuery(g.Positions, MarketGroups.OvrMinOf(g.Key), MarketGroups.OvrMax, stats) { Seasons = filter }, ct)));
+            }
+            steps.AddRange(TagSteps(snapshot, g, filter));
+        }
+        return steps;
+    }
+
+    private List<Step> Plan(long snapshot, RefreshKind kind, long? previous)
     {
         var steps = new List<Step>();
         foreach (var g in MarketGroups.All)
@@ -61,20 +106,6 @@ public sealed class MarketHarvester(IMarketListSource source, MarketStore store)
         else if (previous is { } prev)
         {
             steps.Add(new("carry", _ => { store.CarryOver(prev, snapshot); return Task.CompletedTask; }));
-        }
-        // New seasons: fetch their cards' other stat passes and tags right away rather than waiting for a full refresh.
-        if (kind == RefreshKind.Prices && newSeasons.Count > 0)
-        {
-            var filter = "," + string.Join(",", newSeasons.Order().Select(s => s.ToString(CultureInfo.InvariantCulture))) + ",";
-            foreach (var g in MarketGroups.All)
-            {
-                for (var pass = 1; pass < g.Stats.Length; pass++)
-                {
-                    var stats = g.Stats[pass];
-                    steps.Add(new($"season|{filter}|{g.Key}|list{pass}", ct => ListRange(snapshot, g, new ListQuery(g.Positions, MarketGroups.OvrMinOf(g.Key), MarketGroups.OvrMax, stats) { Seasons = filter }, ct)));
-                }
-                steps.AddRange(TagSteps(snapshot, g, filter));
-            }
         }
         return steps;
     }

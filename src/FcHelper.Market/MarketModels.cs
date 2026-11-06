@@ -240,6 +240,15 @@ public sealed record MarketCard
     public long PriceAt(int grade) => Prices.GetValueOrDefault(grade);
     /// <summary>Cards with one price at every grade are not really traded (e.g. bound cards).</summary>
     public bool IsTraded => Prices.Values.Distinct().Count() > 1;
+
+    /// <summary>
+    /// First listed less than <see cref="MarketDefaults.NewCardDays"/> before the snapshot: launch prices swing with pack
+    /// openings and trade limits, so the card is priced by the model (예상 시세) and its own price teaches nothing.
+    /// </summary>
+    public bool IsNew { get; init; }
+
+    /// <summary>A traded card whose price the model may learn from and averages may include (not a new card).</summary>
+    public bool IsPriceEvidence => IsTraded && !IsNew;
 }
 
 public static class Grades

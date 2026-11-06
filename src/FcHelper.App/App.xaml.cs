@@ -31,7 +31,6 @@ public partial class App : Application
     private IRankerStatsSource? _rankerStats;
     private Studio.StudioWindow? _studio;
     private readonly CancellationTokenSource _exit = new();
-    private static readonly Uri SeasonListUrl = new("https://open.api.nexon.com/static/fconline/meta/seasonid.json");
     private SearchWindow? _search;
     private HomeWindow? _home;
     private ManagerWindow? _manager;
@@ -100,7 +99,7 @@ public partial class App : Application
         var dataCenter = new RateLimiter(0.5);
         var marketStore = new MarketStore(AppPaths.DatabasePath);
         var lists = new DataCenterListClient(_http, dataCenter);
-        _market = new MarketService(lists, marketStore, ct => _http.GetStringAsync(SeasonListUrl, ct));
+        _market = new MarketService(lists, marketStore, ct => _http.GetStringAsync(MarketService.SeasonListUrl, ct));
         _market.SetCardUsageSource(() => CardUsage.Count(_db!.EnumerateMatches(50, 20000).Concat(_db.EnumerateMatches(52, 20000))));
         Squads = new SquadService(_market, marketStore, new DataCenterChartClient(_http, dataCenter),
             new TeamColorCache(marketStore, new DataCenterTeamColorClient(_http, dataCenter, lists)), _rankerStats,

@@ -131,6 +131,27 @@ public class PriceModelTests
     }
 
     [Fact]
+    public void New_cards_are_priced_by_the_model_and_teach_it_nothing()
+    {
+        // 2026-11-06 user rule: a new card's launch price is not evidence. Same spec, 10x the price, marked new.
+        var cards = Market(3000);
+        cards.AddRange(Enumerable.Range(0, 60).Select(i => cards[i] with { SpId = 950_000_000 + i, Name = $"new{i}", IsNew = true,
+            Prices = new Dictionary<int, long> { [1] = 1000, [8] = cards[i].PriceAt(8) * 10 } }));
+        var model = PriceModel.Fit("W", 8, cards)!;
+
+        Assert.Equal(3000, model.Cards);
+        Assert.InRange(model.Effects().Single(e => e.Name == "OVR +1").Percent, 38, 42);
+        var fresh = ValueFinder.Find(model, cards, new ValueQuery { Group = "W", Grade = 8 }).Where(p => p.Card.IsNew).ToList();
+        Assert.Equal(60, fresh.Count);
+        Assert.All(fresh, p =>
+        {
+            Assert.True(double.IsNaN(p.Discount) && double.IsNaN(p.EvidenceScore) && !p.OutsideModelError);
+            Assert.InRange(p.Expected, p.Price / 15, p.Price / 6); // its spec's price, not its own
+        });
+        Assert.Equal(PriceEvidence.NewCardLabel, PriceEvidence.Label(double.NaN, isNew: true));
+    }
+
+    [Fact]
     public void Body_type_and_skill_moves_are_listed_but_not_priced_while_every_trait_is()
     {
         // MV-07: body type and skill moves do not set prices consistently (left out, the user's call). MV-09: every trait
@@ -534,6 +555,34 @@ public class MarketRefreshTests : IDisposable
         Assert.All(fresh, c => Assert.True(c.Stats.ContainsKey("composure")));
         Assert.Contains(fresh, c => c.Tags.Contains("trait:라인 브레이커"));
         Assert.False(await svc.RefreshIfDueAsync()); // recorded: not new any more
+    }
+
+    [Fact]
+    public async Task Cards_the_season_list_did_not_announce_get_their_stats_and_traits()
+    {
+        // 2026-11-06: 26UP/EVO cards came in through the daily lists while the season list read "[]", and kept no traits.
+        var store = Store();
+        var svc = Service(store);
+        await svc.RefreshIfDueAsync();
+
+        _time.Advance(TimeSpan.FromHours(21));
+        _source.SeasonReleased = true; // listed by the data center, missing from the season list
+        Assert.True(await svc.RefreshIfDueAsync());
+
+        var cards = store.LoadCards(store.LatestFinished()!.Id, "ST");
+        var fresh = cards.Where(c => c.SeasonId == 300).ToList();
+        Assert.NotEmpty(fresh);
+        Assert.All(fresh, c => Assert.True(c.Stats.ContainsKey("composure") && c.IsNew));
+        Assert.Contains(fresh, c => c.Tags.Contains("trait:라인 브레이커"));
+        Assert.All(cards.Where(c => c.SeasonId != 300), c => Assert.False(c.IsNew)); // there at the first collection
+
+        // Complete now: the next daily refresh asks for no season, and after four weeks the cards are not new any more.
+        _time.Advance(TimeSpan.FromDays(MarketDefaults.NewCardDays + 1));
+        _source.Calls = 0;
+        _source.Queries.Clear();
+        Assert.True(await svc.RefreshIfDueAsync());
+        Assert.All(_source.Queries, q => Assert.Equal("", q.Seasons));
+        Assert.All(store.LoadCards(store.LatestFinished()!.Id, "ST"), c => Assert.False(c.IsNew));
     }
 
     [Fact]
